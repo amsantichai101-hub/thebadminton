@@ -57,6 +57,40 @@ export default function Home() {
     else document.documentElement.classList.remove('dark');
   }
 
+  const clearBrowserData = () => {
+    Swal.fire({
+      title: '🧹 Clear Browser Data',
+      html: `
+        <div class="text-left text-sm text-slate-600 space-y-2">
+          <p><strong>This will clear:</strong></p>
+          <ul class="list-disc list-inside text-xs text-slate-500 ml-2">
+            <li>Your saved profile (name, ID)</li>
+            <li>Admin login session</li>
+            <li>Theme preference</li>
+            <li>All browser cache</li>
+          </ul>
+          <p class="text-xs text-amber-600 font-bold mt-4">Perfect for switching users!</p>
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Clear All Data',
+      confirmButtonColor: '#ef4444',
+      cancelButtonText: 'Cancel',
+      preConfirm: () => {
+        localStorage.clear();
+        sessionStorage.clear();
+        setMyProfile(null);
+        setAdmin(false);
+        setSelected([]);
+        setTheme('light');
+        document.documentElement.classList.remove('dark');
+        Toast.fire({ icon: 'success', title: 'Browser data cleared! Page reloading...' });
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    });
+  }
+
   // 🌟 ปรับปรุงรัน API: ให้โชว์ Loader มุมขวาบนตอนทำงานเสมอ
   const runApi = async (url: string, body?: any, showLoader = true) => {
     if (showLoader) {
@@ -375,8 +409,9 @@ export default function Home() {
                 </div>
             </div>
             <div className="flex items-center gap-2">
-                <button onClick={toggleTheme} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition">🌓</button>
-                <button onClick={()=>setFullscreen(true)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition">🖥️</button>
+                <button onClick={toggleTheme} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition" title="Toggle theme">🌓</button>
+                <button onClick={()=>setFullscreen(true)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition" title="Fullscreen mode">🖥️</button>
+                <button onClick={clearBrowserData} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition" title="Clear browser data">🧹</button>
             </div>
         </div>
       </nav>
