@@ -82,31 +82,6 @@ function modeCheck(group: any[], mode: string) {
   }
 }
 
-  let bestDiff = Number.POSITIVE_INFINITY;
-  let bestCombos: any[][] = [];
-
-  // 3. คำนวณหาความห่าง (Diff)
-  for (const c of combos) {
-    const sumTeam1 = Number(sortedPlayers[c.t1[0]].skill) + Number(sortedPlayers[c.t1[1]].skill);
-    const sumTeam2 = Number(sortedPlayers[c.t2[0]].skill) + Number(sortedPlayers[c.t2[1]].skill);
-    const diff = Math.abs(sumTeam1 - sumTeam2);
-
-    const currentOrder = [sortedPlayers[c.t1[0]], sortedPlayers[c.t1[1]], sortedPlayers[c.t2[0]], sortedPlayers[c.t2[1]]];
-
-    // เก็บรูปแบบที่ผลรวมสองทีมใกล้เคียงกันที่สุด
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      bestCombos = [currentOrder];
-    } else if (diff === bestDiff) {
-      bestCombos.push(currentOrder); // ถ้าบาลานซ์เท่ากัน เก็บเป็นตัวเลือกไว้สุ่ม
-    }
-  }
-
-  // 4. สุ่มเลือก 1 รูปแบบที่สมดุลที่สุด เพื่อให้เจอคู่แข่งไม่ซ้ำหน้า
-  const randomIndex = Math.floor(Math.random() * bestCombos.length);
-  return { teams: bestCombos[randomIndex], diff: bestDiff };
-}
-
 export async function POST(req: Request) {
   const s = supabaseAdmin;
   const body = await req.json().catch(() => ({}));
@@ -219,7 +194,9 @@ export async function POST(req: Request) {
     });
 
     // ลบคนที่ลงสนามแล้วออกจากฐานข้อมูลคิวรอ
-    await s.from('player_queue').delete().in('id', selectedGroup.map(x => x.id));
+    if (selectedGroup) {
+      await s.from('player_queue').delete().in('id', (selectedGroup as any[]).map(x => x.id));
+    }
     matchesCreated++;
   }
 
