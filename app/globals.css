@@ -6,3 +6,16 @@
 html,body{height:100%}
 body{ @apply bg-slate-50 text-slate-700; font-size:14px }
 .dark body{ @apply bg-slate-900 text-slate-100 }
+
+@keyframes marquee {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+.animate-marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 15s linear infinite;
+}
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
