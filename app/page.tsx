@@ -524,12 +524,20 @@ export default function Home() {
                         </div>
                       </div>
                     </div>
-                    <div className="text-right flex items-center gap-2">
-                      {admin && <button onClick={()=>openAdminEdit(p)} className="text-[10px] text-blue-500 bg-blue-50 px-2 py-1 rounded font-bold opacity-0 group-hover:opacity-100 transition">Edit</button>}
+                   <div className="text-right flex items-center gap-2">
+                      {admin && (
+                        <button onClick={()=>openAdminEdit(p)} className="w-7 h-7 flex items-center justify-center text-[12px] bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-md shadow-sm transition active:scale-95" title="Edit">
+                          ✏️
+                        </button>
+                      )}
                       {admin ? (
-                        <button onClick={()=>runApi('/api/checkout', { id: p.id })} className="text-[10px] text-red-500 bg-red-50 px-2 py-1 rounded font-bold opacity-0 group-hover:opacity-100 transition">Remove</button>
+                        <button onClick={()=>runApi('/api/checkout', { id: p.id })} className="w-7 h-7 flex items-center justify-center text-[12px] bg-red-50 hover:bg-red-100 text-red-600 rounded-md shadow-sm transition active:scale-95" title="Remove">
+                          🗑️
+                        </button>
                       ) : (
-                        <span className="text-[10px] text-slate-400 font-mono font-bold bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">{new Date(p.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
+                        <span className="text-[10px] text-slate-400 font-mono font-bold bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded shadow-inner">
+                          {new Date(p.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+                        </span>
                       )}
                     </div>
                   </div>
