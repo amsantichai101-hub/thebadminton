@@ -25,6 +25,8 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true) 
   
   const [myProfile, setMyProfile] = useState<{id: string, name: string} | null>(null)
+  const [searchPending, setSearchPending] = useState('')
+  const [searchQueue, setSearchQueue] = useState('')
 
   const refresh = async (showLoader = false) => { 
     if(showLoader) setIsLoading(true);
@@ -87,6 +89,52 @@ export default function Home() {
         document.documentElement.classList.remove('dark');
         Toast.fire({ icon: 'success', title: 'Browser data cleared! Page reloading...' });
         setTimeout(() => window.location.reload(), 1500);
+      }
+    });
+  }
+
+  const openAddMember = () => {
+    Swal.fire({
+      title: '➕ Add New Member',
+      html: `
+        <div class="flex flex-col gap-3 text-left">
+          <div>
+              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee ID (8 Digits)</label>
+              <input id="amID" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="12345678">
+          </div>
+          <div>
+              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label>
+              <input id="amName" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Member Name">
+          </div>
+          <div>
+              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Skill Level</label>
+              <select id="amSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="1">Level 1 (Beginner)</option>
+                <option value="2" selected>Level 2 (Amateur)</option>
+                <option value="3">Level 3 (Intermediate)</option>
+                <option value="4">Level 4 (Pro)</option>
+              </select>
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Add Member',
+      confirmButtonColor: '#2563eb',
+      preConfirm: () => {
+        const id = (document.getElementById('amID') as HTMLInputElement).value;
+        const name = (document.getElementById('amName') as HTMLInputElement).value;
+        if(!id || !/^\d{8}$/.test(id)) { Swal.showValidationMessage('Please enter valid 8-digit Employee ID'); return false; }
+        if(!name.trim()) { Swal.showValidationMessage('Please enter Display Name'); return false; }
+        return { id, name, skill: Number((document.getElementById('amSkill') as HTMLSelectElement).value) }
+      }
+    }).then(async (r) => {
+      if(r.isConfirmed) {
+        const res = await runApi('/api/checkin', { id: r.value.id, name: r.value.name, skill: r.value.skill, isGuest: false });
+        if(res.ok || res.status === 'success') {
+          Toast.fire({ icon: 'success', title: 'Member added successfully!' });
+        } else {
+          Toast.fire({ icon: 'error', title: res.message || 'Error adding member' });
+        }
       }
     });
   }
@@ -523,9 +571,18 @@ export default function Home() {
 
                 {state?.pending && state.pending.length > 0 && (
                   <div className="bg-gradient-to-b from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/10 border border-yellow-200 dark:border-yellow-800 rounded-xl p-3 shadow-inner">
-                    <div className="text-[10px] font-black text-yellow-700 dark:text-yellow-500 mb-2 uppercase tracking-wider">Pending Approvals ({state.pending.length})</div>
+                    <div className="text-[10px] font-black text-yellow-700 dark:text-yellow-500 mb-2 uppercase tracking-wider mb-3 flex justify-between items-center">
+                      <span>Pending Approvals ({state.pending.length})</span>
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="🔍 Search name or ID..." 
+                      value={searchPending}
+                      onChange={(e) => setSearchPending(e.target.value)}
+                      className="w-full p-2 border border-yellow-300 rounded-lg text-xs mb-2 focus:ring-2 focus:ring-yellow-500 outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-yellow-700"
+                    />
                     <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                      {state.pending.map(p => (
+                      {state.pending.filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase()) || p.id.includes(searchPending)).map(p => (
                         <div key={p.id} className="bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 flex justify-between items-center shadow-sm">
                           <div className="text-xs font-bold dark:text-white flex items-center gap-1.5">{p.name} <SkillDot skill={p.skill}/></div>
                           <div className="flex gap-1.5">
@@ -534,11 +591,15 @@ export default function Home() {
                           </div>
                         </div>
                       ))}
+                      {state.pending.filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase()) || p.id.includes(searchPending)).length === 0 && (
+                        <div className="text-center py-4 text-yellow-600 text-xs font-bold">No results found</div>
+                      )}
                     </div>
                   </div>
                 )}
 
                 <div className="grid grid-cols-2 gap-2.5">
+                  <button onClick={openAddMember} className="col-span-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-xs font-black uppercase tracking-wider py-2.5 rounded-xl shadow-lg transition transform active:scale-95">➕ Add Member</button>
                   <button onClick={async()=>{ const res = await runApi('/api/match', { mode:'smart' }); Toast.fire({ icon: res?.status === 'success' ? 'success' : 'info', title: res?.message || 'Action completed' }); }} className="col-span-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-black uppercase tracking-wider py-3 rounded-xl shadow-lg transition transform active:scale-95">⚡ Auto Match Now</button>
                   <button onClick={async()=>{ if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'Select exactly 4 players' }); const res = await runApi('/api/manual-match', { ids: selected }); setSelected([]); if(res?.status === 'success') Toast.fire({ icon: 'success', title: 'Matched Selected' }); else Toast.fire({ icon: 'error', title: res?.message || 'Error' }); }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-[10px] font-bold py-2.5 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Match Selected</button>
                   <button onClick={async()=>{ const c = prompt('Courts (comma separated)', state?.courtNames.join(', ')); if(c){ await runApi('/api/config', {action:'set', key:'Courts', value: c}); Toast.fire({ icon: 'success', title: 'Courts updated' }); } }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-[10px] font-bold py-2.5 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Setup Courts</button>
@@ -550,13 +611,24 @@ export default function Home() {
           </div>
 
           <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col h-[520px] shadow-lg overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/80 dark:bg-slate-800/80 backdrop-blur-md">
-              <h3 className="font-black text-sm dark:text-white flex items-center gap-2">⏳ Queue <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px]">{state?.waiting.length || 0}</span></h3>
-              <button onClick={()=>refresh(true)} className="text-[10px] font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded hover:bg-slate-300 transition shadow-sm active:scale-95">Refresh</button>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/80 dark:bg-slate-800/80 backdrop-blur-md flex-col gap-2">
+              <div className="flex justify-between items-center w-full">
+                <h3 className="font-black text-sm dark:text-white flex items-center gap-2">⏳ Queue <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px]">{state?.waiting.length || 0}</span></h3>
+                <button onClick={()=>refresh(true)} className="text-[10px] font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded hover:bg-slate-300 transition shadow-sm active:scale-95">Refresh</button>
+              </div>
+              <input 
+                type="text" 
+                placeholder="🔍 Search name or ID..." 
+                value={searchQueue}
+                onChange={(e) => setSearchQueue(e.target.value)}
+                className="w-full p-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-slate-600"
+              />
             </div>
             <div className="flex-1 overflow-y-auto bg-slate-50/30 dark:bg-slate-900/20 p-3 space-y-2">
               {state?.waiting.length === 0 ? <div className="text-center py-12 text-slate-400 text-xs font-bold uppercase tracking-widest opacity-50">Queue Empty</div> 
-              : state?.waiting.map((p, i) => {
+              : state?.waiting.filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase()) || p.id.includes(searchQueue)).length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs font-bold uppercase tracking-widest opacity-50">No Results Found</div>
+              ) : state?.waiting.filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase()) || p.id.includes(searchQueue)).map((p, i) => {
                 const isSel = selected.includes(p.id);
                 const isMe = p.id === myProfile?.id;
                 
