@@ -378,9 +378,37 @@ export default function Home() {
   const amIPlaying = state?.playing.some(c => c.p1Id === myProfile?.id || c.p2Id === myProfile?.id || c.p3Id === myProfile?.id || c.p4Id === myProfile?.id);
   
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
-  const estWaitMins = myWaitIndex !== undefined && myWaitIndex !== -1 
-    ? Math.ceil(((Math.floor(myWaitIndex / 4) + 1) * 15) / courtsCount)
-    : 0;
+  const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
+
+  const estWaitMins = (() => {
+    if (myWaitIndex === undefined || myWaitIndex === -1) return 0;
+    const teamIndex = Math.floor(myWaitIndex / 4); // 0-based group position
+    const groupsToCollect = teamIndex + 1;
+
+    // Current live courts remaining time (in minutes)
+    const courtRemaining = (state?.playing || []).map(c => {
+      const elapsed = (Date.now() - new Date(c.startTime).getTime()) / 60000;
+      return Math.max(avgMatchDuration - elapsed, 0);
+    });
+
+    // Ensure we have entries for all courts
+    while (courtRemaining.length < courtsCount) courtRemaining.push(0);
+
+    const timeline = courtRemaining.sort((a,b) => a - b);
+    let estimatedFinish = 0;
+
+    for (let i = 0; i < groupsToCollect; i++) {
+      const nextAvailable = timeline.shift() ?? 0;
+      const finishTime = nextAvailable + avgMatchDuration;
+      timeline.push(finishTime);
+      timeline.sort((a,b) => a - b);
+      if (i === groupsToCollect - 1) {
+        estimatedFinish = finishTime;
+      }
+    }
+
+    return Math.max(1, Math.ceil(estimatedFinish));
+  })();
 
   // --- Focus Mode (Fullscreen) ---
   if (fullscreen) {

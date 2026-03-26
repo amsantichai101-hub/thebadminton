@@ -29,6 +29,11 @@ export async function GET() {
   
   const playing = (playingRaw||[]).map((r:any)=>({ court: r.court, p1Id: String(r.p1_id), p1Name: r.p1_name, p1Skill: Number(r.p1_skill), p2Id: String(r.p2_id), p2Name: r.p2_name, p2Skill: Number(r.p2_skill), p3Id: String(r.p3_id), p3Name: r.p3_name, p3Skill: Number(r.p3_skill), p4Id: String(r.p4_id), p4Name: r.p4_name, p4Skill: Number(r.p4_skill), startTime: new Date(r.start_time).toISOString() }))
   
-  const res: AppState = { courtNames, announcement, autoMatch, waiting, pending, playing, courtCount: courtNames.length }
+  const today = new Date(); today.setHours(0,0,0,0);
+  const { data: recentLogs } = await s.from('match_logs').select('duration').gte('ts', today.toISOString())
+  const durations = (recentLogs||[]).map((r:any)=>Number(r.duration)||0).filter((d:number)=>d>0)
+  const avgMatchDuration = durations.length ? Math.round(durations.reduce((s:number,n:number)=>s+n,0)/durations.length) : 15
+
+  const res: AppState = { courtNames, announcement, autoMatch, waiting, pending, playing, courtCount: courtNames.length, avgMatchDuration }
   return NextResponse.json(res)
 }
