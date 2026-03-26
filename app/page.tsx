@@ -28,6 +28,9 @@ export default function Home() {
   const [myProfile, setMyProfile] = useState<{id: string, name: string} | null>(null)
   const [searchPending, setSearchPending] = useState('')
   const [searchQueue, setSearchQueue] = useState('')
+  const [selectedPending, setSelectedPending] = useState<string[]>([])
+  
+  const [preparedMatches, setPreparedMatches] = useState<Array<any>>([])
 
   const refresh = async (showLoader = false) => { 
     if(showLoader) setIsLoading(true);
@@ -70,16 +73,13 @@ export default function Home() {
             <li>Your saved profile (name, ID)</li>
             <li>Admin login session</li>
             <li>Theme preference</li>
-            <li>All browser cache</li>
           </ul>
-          <p class="text-xs text-amber-600 font-bold mt-4">Perfect for switching users!</p>
         </div>
       `,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonText: 'Clear All Data',
       confirmButtonColor: '#ef4444',
-      cancelButtonText: 'Cancel',
       preConfirm: () => {
         localStorage.clear();
         sessionStorage.clear();
@@ -88,105 +88,62 @@ export default function Home() {
         setSelected([]);
         setTheme('light');
         document.documentElement.classList.remove('dark');
-        Toast.fire({ icon: 'success', title: 'Browser data cleared! Page reloading...' });
+        Toast.fire({ icon: 'success', title: 'Data cleared! Reloading...' });
         setTimeout(() => window.location.reload(), 1500);
       }
     });
   }
 
-  const openAddMember = () => {
-    Swal.fire({
-      title: '➕ Add New Member',
-      html: `
-        <div class="flex flex-col gap-3 text-left">
-          <div>
-              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee ID (8 Digits)</label>
-              <input id="amID" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="12345678">
-          </div>
-          <div>
-              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label>
-              <input id="amName" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Member Name">
-          </div>
-          <div>
-              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Skill Level</label>
-              <select id="amSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                <option value="1">Level 1 (Beginner)</option>
-                <option value="2" selected>Level 2 (Amateur)</option>
-                <option value="3">Level 3 (Intermediate)</option>
-                <option value="4">Level 4 (Pro)</option>
-              </select>
-          </div>
-        </div>
-      `,
-      showCancelButton: true,
-      confirmButtonText: 'Add Member',
-      confirmButtonColor: '#2563eb',
-      preConfirm: () => {
-        const id = (document.getElementById('amID') as HTMLInputElement).value;
-        const name = (document.getElementById('amName') as HTMLInputElement).value;
-        if(!id || !/^\d{8}$/.test(id)) { Swal.showValidationMessage('Please enter valid 8-digit Employee ID'); return false; }
-        if(!name.trim()) { Swal.showValidationMessage('Please enter Display Name'); return false; }
-        return { id, name, skill: Number((document.getElementById('amSkill') as HTMLSelectElement).value) }
-      }
-    }).then(async (r) => {
-      if(r.isConfirmed) {
-        const res = await runApi('/api/checkin', { id: r.value.id, name: r.value.name, skill: r.value.skill, isGuest: false });
-        if(res.ok || res.status === 'success') {
-          Toast.fire({ icon: 'success', title: 'Member added successfully!' });
-        } else {
-          Toast.fire({ icon: 'error', title: res.message || 'Error adding member' });
-        }
-      }
-    });
-  }
-
-  const [preparedMatches, setPreparedMatches] = useState<Array<any>>([])
-
+  // --- Logic สำหรับฟังก์ชัน Prepare Matches (แสดง Preview คิวถัดไป) ---
   const prepareNextMatches = () => {
-    if (!state?.waiting || state.waiting.length < 8) {
-      Toast.fire({ icon: 'warning', title: 'ต้องมีคนในคิวอย่างน้อย 8 คนเพื่อเตรียม 2 คู่' });
+    if (!state?.waiting || state.waiting.length < 4) {
+      Toast.fire({ icon: 'warning', title: 'Need at least 4 players in queue' });
       return;
     }
 
-    const nextQueue = [...state.waiting].slice(0, 8);
+    const nextQueue = [...state.waiting];
     const next: Array<any> = [];
 
+    // ดึงมาจัดทีมทีละ 4 คน (สูงสุด 2 แมตช์ หรือ 8 คน)
     for (let i = 0; i < 2; i++) {
       const slice = nextQueue.slice(i * 4, i * 4 + 4);
       if (slice.length < 4) break;
 
+      // โยน 4 คนเข้าฟังก์ชัน balanceTeams ที่เราสร้างไว้ใน utils/matchmaking.ts
       const balanced = balanceTeams(slice.map((p: any) => ({ id: p.id, name: p.name, skill: Number(p.skill) })));
+      
       next.push({
         matchNumber: i + 1,
         players: slice,
+        // แยก 4 คนออกเป็น 2 ทีมเพื่อเอาไปแสดงผล
         teams: [
-          [balanced.teams[0], balanced.teams[1]],
-          [balanced.teams[2], balanced.teams[3]]
+          [balanced.teams[0], balanced.teams[1]], // Team A
+          [balanced.teams[2], balanced.teams[3]]  // Team B
         ],
         diff: balanced.diff
       });
     }
 
     setPreparedMatches(next);
-    Toast.fire({ icon: 'info', title: `จัดเตรียม ${next.length} คู่ถัดไปเรียบร้อย` });
+    Toast.fire({ icon: 'info', title: `Prepared ${next.length} match(es)` });
   }
 
   const confirmPreparedMatches = async () => {
     if (preparedMatches.length === 0) {
-      Toast.fire({ icon: 'warning', title: 'กรุณากดเตรียมคู่ก่อน' });
+      Toast.fire({ icon: 'warning', title: 'Please prepare matches first' });
       return;
     }
 
-    const data = await runApi('/api/match', { mode: state?.matchMode || 'balanced', forceMatches: preparedMatches.length });
+    const data = await runApi('/api/match', { mode: 'balanced', forceMatches: preparedMatches.length });
     if (data?.status === 'success') {
-      Toast.fire({ icon: 'success', title: `จับคู่ ${preparedMatches.length} คู่เริ่มเล่นเรียบร้อย` });
+      Toast.fire({ icon: 'success', title: `Confirmed ${preparedMatches.length} match(es)` });
       setPreparedMatches([]);
     } else {
-      Toast.fire({ icon: 'error', title: data?.message || 'ไม่สามารถจับคู่ได้' });
+      Toast.fire({ icon: 'error', title: data?.message || 'Matchmaking failed' });
     }
   }
 
-  // 🌟 ปรับปรุงรัน API: ให้โชว์ Loader มุมขวาบนตอนทำงานเสมอ
+  // 🌟 ปรับปรุงรัน API: โชว์ Loader เสมอตอนกดปุ่ม
   const runApi = async (url: string, body?: any, showLoader = true) => {
     if (showLoader) {
       Swal.fire({
@@ -210,7 +167,7 @@ export default function Home() {
     }
   }
 
-  // --- Modals ---
+  // --- Modalsต่างๆ (Register, Edit, Add Member) ---
   const openCheckIn = () => {
     Swal.fire({
       title: '📋 Register Player',
@@ -259,10 +216,7 @@ export default function Home() {
 
         swGuest.addEventListener('change', (e) => {
            const isGuest = (e.target as HTMLInputElement).checked;
-           swSearch.disabled = isGuest; 
-           swSearchBtn.disabled = isGuest;
-           swID.disabled = isGuest; 
-           
+           swSearch.disabled = isGuest; swSearchBtn.disabled = isGuest; swID.disabled = isGuest; 
            if(isGuest) { 
              swSearch.value = ''; swID.value = ''; 
              swSearch.classList.add('bg-slate-100'); swID.classList.add('bg-slate-100');
@@ -292,7 +246,6 @@ export default function Home() {
            } catch(e) {}
            swSearchBtn.innerText = '🔍 Find';
         };
-
         swSearchBtn.addEventListener('click', searchPlayer);
       },
       showCancelButton: true, confirmButtonText: 'Check In', confirmButtonColor: '#2563eb',
@@ -310,10 +263,8 @@ export default function Home() {
         if(res.ok || res.status === 'success') {
           const newProfile = { id: r.value.id || res.generatedId || 'Guest', name: r.value.name };
           localStorage.setItem('myProfile', JSON.stringify(newProfile)); setMyProfile(newProfile);
-          Toast.fire({ icon: 'success', title: 'Checked in! Please wait for approval.' }); // เปลี่ยนเป็น Toast
-        } else { 
-          Toast.fire({ icon: 'error', title: res.message || 'Error checking in' }); // เปลี่ยนเป็น Toast
-        }
+          Toast.fire({ icon: 'success', title: 'Checked in! Wait for approval.' });
+        } else { Toast.fire({ icon: 'error', title: res.message || 'Error checking in' }); }
       }
     });
   }
@@ -336,11 +287,40 @@ export default function Home() {
         const res = await runApi('/api/checkout', r.value);
         if(res.status === 'success') {
           localStorage.removeItem('myProfile'); setMyProfile(null);
-          Toast.fire({ icon: 'success', title: 'Signed Out Successfully' }); // เปลี่ยนเป็น Toast
-        }
-        else Toast.fire({ icon: 'error', title: res.message || 'Player not found' }); // เปลี่ยนเป็น Toast
+          Toast.fire({ icon: 'success', title: 'Signed Out Successfully' });
+        } else Toast.fire({ icon: 'error', title: res.message || 'Player not found' });
       }
     })
+  }
+
+  const openAddMember = () => {
+    Swal.fire({
+      title: '➕ Add Member (Direct to Queue)',
+      html: `
+        <div class="flex flex-col gap-3 text-left">
+          <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee ID (8 Digits)</label><input id="amID" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="12345678"></div>
+          <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label><input id="amName" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Name"></div>
+          <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Skill Level</label><select id="amSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none"><option value="1">1 (Beginner)</option><option value="2" selected>2 (Amateur)</option><option value="3">3 (Intermediate)</option><option value="4">4 (Pro)</option></select></div>
+        </div>
+      `,
+      showCancelButton: true, confirmButtonText: 'Add to Queue', confirmButtonColor: '#2563eb',
+      preConfirm: () => {
+        const id = (document.getElementById('amID') as HTMLInputElement).value;
+        const name = (document.getElementById('amName') as HTMLInputElement).value;
+        if(!id || !/^\d{8}$/.test(id)) { Swal.showValidationMessage('Enter valid 8-digit ID'); return false; }
+        if(!name.trim()) { Swal.showValidationMessage('Enter Name'); return false; }
+        return { id, name, skill: Number((document.getElementById('amSkill') as HTMLSelectElement).value), isGuest: false }
+      }
+    }).then(async (r) => {
+      if(r.isConfirmed) {
+        const res = await runApi('/api/checkin', r.value);
+        if(res.ok || res.status === 'success') {
+          // ถ้า Add Member จากหลังบ้าน แอดมินมักต้องการให้อนุมัติเลย
+          await runApi('/api/approve', { id: r.value.id }, false);
+          Toast.fire({ icon: 'success', title: 'Member added directly to Queue!' });
+        } else Toast.fire({ icon: 'error', title: res.message || 'Error' });
+      }
+    });
   }
 
   const openAdminEdit = (p: any) => {
@@ -354,7 +334,7 @@ export default function Home() {
           <div><label class="text-[10px] font-bold text-slate-500">Skill</label><select id="editSkill" class="w-full p-2 border rounded text-sm"><option value="1" ${p.skill===1?'selected':''}>1</option><option value="2" ${p.skill===2?'selected':''}>2</option><option value="3" ${p.skill===3?'selected':''}>3</option><option value="4" ${p.skill===4?'selected':''}>4</option></select></div>
         </div>
       `,
-      showCancelButton: true, confirmButtonText: 'Save Changes',
+      showCancelButton: true, confirmButtonText: 'Save',
       preConfirm: () => ({ oldId: p.id, newId: (document.getElementById('editId') as HTMLInputElement).value, name: (document.getElementById('editName') as HTMLInputElement).value, skill: Number((document.getElementById('editSkill') as HTMLSelectElement).value) })
     }).then(async r => { if(r.isConfirmed) { await runApi('/api/update-player', r.value); Toast.fire({ icon: 'success', title: 'Changes Saved' }); } })
   }
@@ -411,7 +391,7 @@ export default function Home() {
     else Toast.fire({ icon: 'error', title: 'Incorrect PIN' });
   }
 
-  const logout = () => { localStorage.removeItem('adminAuth'); setAdmin(false); Toast.fire({ icon: 'info', title: 'Admin Logged Out' }); }
+  const logout = () => { localStorage.removeItem('adminAuth'); setAdmin(false); Toast.fire({ icon: 'info', title: 'Logged Out' }); }
   const finish = (court: string) => { Swal.fire({title: `Finish Match at ${court}?`, showCancelButton: true}).then(async r => { if(r.isConfirmed) { await runApi('/api/finish', { court }); Toast.fire({ icon: 'success', title: 'Match Finished' }); } }) }
 
   const SkillDot = ({ skill }: { skill: number }) => {
@@ -419,26 +399,24 @@ export default function Home() {
     return <span className={`inline-block w-2.5 h-2.5 rounded-full border border-black/10 shadow-sm ${colors[skill-1] || 'bg-gray-400'}`}></span>
   }
 
-  // --- Logic คำนวณสถานะและเวลารอ ---
+  // --- Logic คำนวณสถานะและเวลารอ (EWT) ---
   const myWaitIndex = state?.waiting.findIndex(p => p.id === myProfile?.id);
   const myPending = state?.pending.find(p => p.id === myProfile?.id);
   const amIPlaying = state?.playing.some(c => c.p1Id === myProfile?.id || c.p2Id === myProfile?.id || c.p3Id === myProfile?.id || c.p4Id === myProfile?.id);
   
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
-  const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
+  const avgMatchDuration = 15; // เฉลี่ย 15 นาทีต่อคอร์ท
 
   const estWaitMins = (() => {
     if (myWaitIndex === undefined || myWaitIndex === -1) return 0;
-    const teamIndex = Math.floor(myWaitIndex / 4); // 0-based group position
+    const teamIndex = Math.floor(myWaitIndex / 4); 
     const groupsToCollect = teamIndex + 1;
 
-    // Current live courts remaining time (in minutes)
     const courtRemaining = (state?.playing || []).map(c => {
       const elapsed = (Date.now() - new Date(c.startTime).getTime()) / 60000;
       return Math.max(avgMatchDuration - elapsed, 0);
     });
 
-    // Ensure we have entries for all courts
     while (courtRemaining.length < courtsCount) courtRemaining.push(0);
 
     const timeline = courtRemaining.sort((a,b) => a - b);
@@ -449,11 +427,8 @@ export default function Home() {
       const finishTime = nextAvailable + avgMatchDuration;
       timeline.push(finishTime);
       timeline.sort((a,b) => a - b);
-      if (i === groupsToCollect - 1) {
-        estimatedFinish = finishTime;
-      }
+      if (i === groupsToCollect - 1) estimatedFinish = finishTime;
     }
-
     return Math.max(1, Math.ceil(estimatedFinish));
   })();
 
@@ -518,7 +493,7 @@ export default function Home() {
             <div className="flex-1 overflow-hidden">
                 <div className="animate-marquee font-medium tracking-wide">{state.announcement}</div>
             </div>
-            {admin && <button onClick={async() => { const txt = prompt('Edit Announcement (Leave blank to remove)', state.announcement); if(txt!==null){ await runApi('/api/config', {action:'set', key:'Announcement', value:txt}); Toast.fire({icon:'success', title:'Announcement Updated'}); } }} className="ml-4 z-10 bg-blue-600 pl-2 text-blue-200 hover:text-white">✏️</button>}
+            {admin && <button onClick={async() => { const txt = prompt('Edit Announcement (Leave blank to clear)', state.announcement); if(txt!==null){ await runApi('/api/config', {action:'set', key:'Announcement', value:txt}); Toast.fire({icon:'success', title:'Announcement Updated'}); } }} className="ml-4 z-10 bg-blue-600 pl-2 text-blue-200 hover:text-white">✏️</button>}
         </div>
       )}
 
@@ -551,7 +526,7 @@ export default function Home() {
               </button>
           </div>
 
-          {/* Mobile-Friendly Personal Notification Banner */}
+          {/* Banner สถานะผู้เล่น */}
           {myProfile && (
             <div className={`p-5 rounded-2xl shadow-lg border flex items-center justify-between transition-all duration-500
               ${amIPlaying ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-700 shadow-blue-500/30' 
@@ -625,44 +600,59 @@ export default function Home() {
         </div>
 
         <div className="lg:col-span-4 space-y-6">
-          <div className="bg-white dark:bg-slate-800/80 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 p-5">
+          <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-6">
             {!admin ? (
-              <div>
-                <h3 className="text-[10px] font-bold text-slate-400 uppercase mb-3 tracking-widest">ADMIN ACCESS</h3>
-                <button onClick={auth} className="w-full bg-slate-800 text-white text-sm py-2.5 rounded-xl font-bold hover:bg-slate-700 shadow-md transition">Login as Admin</button>
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gradient-to-br from-slate-400 to-slate-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                  <span className="text-2xl">🔐</span>
+                </div>
+                <h3 className="text-sm font-black text-slate-600 dark:text-slate-300 uppercase mb-4 tracking-widest">Admin Access Required</h3>
+                <button onClick={auth} className="w-full bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900 text-white text-sm py-3 rounded-xl font-bold shadow-lg transition transform active:scale-95">🔓 Login as Admin</button>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-700 pb-3">
-                  <span className="font-black text-sm text-slate-700 dark:text-slate-200 uppercase tracking-wide">⚙️ Console</span>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-1.5 cursor-pointer bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-lg shadow-inner">
-                        <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase">Auto Match</span>
-                        <input type="checkbox" checked={state?.autoMatch} onChange={async(e)=>{ await runApi('/api/config', {action:'set', key:'AutoMatch', value:e.target.checked.toString()}); Toast.fire({ icon: 'success', title: 'Auto Match Settings Saved' }); refresh(false); }} className="rounded text-blue-600 focus:ring-blue-500"/>
-                      </label>
-                      <select value={state?.matchMode || 'balanced'} onChange={async (e) => { await runApi('/api/config', { action:'set', key:'MatchMode', value:e.target.value }); Toast.fire({ icon: 'success', title: 'Match Mode Updated' }); await refresh(false); }} className="text-[10px] px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-white shadow-sm">
-                        <option value="balanced">Balanced</option>
-                        <option value="strict">Strict (same level)</option>
-                        <option value="flex">Flex (±2)</option>
-                        <option value="remix">Remix (fun mix)</option>
-                        <option value="teach">Teach (mentor/rookie)</option>
-                        <option value="fun">Fun (no rules)</option>
-                      </select>
-                      <button onClick={logout} className="text-[10px] font-bold text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-900/30 px-2 py-1 rounded-lg">Exit</button>
+                <div className="bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-800 rounded-xl p-4 mb-4 shadow-inner border border-slate-300 dark:border-slate-600">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center shadow-md">
+                        <span className="text-white font-black text-sm">⚙️</span>
+                      </div>
+                      <span className="font-black text-lg text-slate-800 dark:text-slate-200 uppercase tracking-wide">Admin Console</span>
                     </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <button onClick={async()=>{ await runApi('/api/config', { action:'set', key:'MatchMode', value:'balanced' }); Toast.fire({ icon: 'success', title: 'Mode set to Balanced' }); await refresh(false); }} className="text-[10px] bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded-lg">Preset Balanced</button>
-                      <button onClick={async()=>{ await runApi('/api/config', { action:'set', key:'MatchMode', value:'remix' }); Toast.fire({ icon: 'success', title: 'Mode set to Remix' }); await refresh(false); }} className="text-[10px] bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded-lg">Preset Remix</button>
-                      <button onClick={async()=>{ await runApi('/api/config', { action:'set', key:'MatchMode', value:'teach' }); Toast.fire({ icon: 'success', title: 'Mode set to Teach' }); await refresh(false); }} className="text-[10px] bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded-lg">Preset Teach</button>
+                    <button onClick={logout} className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-lg shadow-md transition transform active:scale-95">🚪 Logout</button>
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={state?.autoMatch} onChange={async(e)=>{ await runApi('/api/config', {action:'set', key:'AutoMatch', value:e.target.checked.toString()}); Toast.fire({ icon: 'success', title: 'Auto Match Settings Saved' }); }} className="w-4 h-4 text-blue-600 focus:ring-blue-500 rounded"/>
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Auto Match</span>
+                      </label>
                     </div>
                   </div>
                 </div>
 
                 {state?.pending && state.pending.length > 0 && (
-                  <div className="bg-gradient-to-b from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/10 border border-yellow-200 dark:border-yellow-800 rounded-xl p-3 shadow-inner">
-                    <div className="text-[10px] font-black text-yellow-700 dark:text-yellow-500 mb-2 uppercase tracking-wider mb-3 flex justify-between items-center">
-                      <span>Pending Approvals ({state.pending.length})</span>
+                  <div className="bg-gradient-to-br from-yellow-50 via-orange-50 to-amber-50 dark:from-yellow-900/20 dark:via-orange-900/10 dark:to-amber-900/20 border border-yellow-300 dark:border-yellow-700 rounded-xl p-4 shadow-lg">
+                    <div className="text-sm font-black text-yellow-800 dark:text-yellow-300 mb-3 uppercase tracking-wider mb-4 flex justify-between items-center">
+                      <span className="flex items-center gap-2">
+                        <span className="w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center text-white text-xs font-bold">⏳</span>
+                        Pending ({state.pending.length})
+                      </span>
+                      {selectedPending.length > 0 && (
+                        <button 
+                          onClick={async() => {
+                            for (const id of selectedPending) { await runApi('/api/approve', { id }, false); }
+                            setSelectedPending([]); refresh(true);
+                            Toast.fire({ icon: 'success', title: `Approved ${selectedPending.length} players!` });
+                          }}
+                          className="bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-3 py-2 rounded-lg shadow-md transition transform active:scale-95"
+                        >
+                          ✓ Approve Selected
+                        </button>
+                      )}
                     </div>
                     <input 
                       type="text" 
@@ -673,64 +663,88 @@ export default function Home() {
                     />
                     <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                       {state.pending.filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase()) || p.id.includes(searchPending)).map(p => (
-                        <div key={p.id} className="bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 flex justify-between items-center shadow-sm">
-                          <div className="text-xs font-bold dark:text-white flex items-center gap-1.5">{p.name} <SkillDot skill={p.skill}/></div>
-                          <div className="flex gap-1.5">
-                            <button onClick={async()=>{ await runApi('/api/approve', { id: p.id }); Toast.fire({ icon: 'success', title: 'Approved!' }); }} className="w-7 h-7 flex items-center justify-center bg-green-500 hover:bg-green-600 text-white shadow-md rounded-md text-sm font-bold transition active:scale-95">✓</button>
-                            <button onClick={async()=>{ await runApi('/api/checkout', { id: p.id }); Toast.fire({ icon: 'info', title: 'Rejected' }); }} className="w-7 h-7 flex items-center justify-center bg-red-100 hover:bg-red-200 text-red-600 shadow-sm rounded-md text-sm font-bold transition active:scale-95">✕</button>
+                        <div key={p.id} className={`p-3 rounded-lg border-2 ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} flex justify-between items-center shadow-sm transition-all`}>
+                          <div className="flex items-center gap-3">
+                            <input 
+                              type="checkbox" 
+                              checked={selectedPending.includes(p.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedPending(prev => [...prev, p.id]);
+                                else setSelectedPending(prev => prev.filter(id => id !== p.id));
+                              }}
+                              className="w-5 h-5 text-green-600 focus:ring-green-500 rounded border-slate-300"
+                            />
+                            <div className="text-sm font-bold dark:text-white flex items-center gap-2">{p.name} <SkillDot skill={p.skill}/></div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={async()=>{ await runApi('/api/approve', { id: p.id }); setSelectedPending(prev => prev.filter(id => id !== p.id)); Toast.fire({ icon: 'success', title: 'Approved!' }); }} className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-md transition transform active:scale-95">✓</button>
+                            <button onClick={async()=>{ await runApi('/api/checkout', { id: p.id }); setSelectedPending(prev => prev.filter(id => id !== p.id)); Toast.fire({ icon: 'info', title: 'Rejected' }); }} className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-bold shadow-sm transition transform active:scale-95">✕</button>
                           </div>
                         </div>
                       ))}
-                      {state.pending.filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase()) || p.id.includes(searchPending)).length === 0 && (
-                        <div className="text-center py-4 text-yellow-600 text-xs font-bold">No results found</div>
-                      )}
                     </div>
                   </div>
                 )}
 
-                <div className="space-y-2.5">
-                  <button onClick={async()=>{ const res = await runApi('/api/match', { mode:'smart' }); Toast.fire({ icon: res?.status === 'success' ? 'success' : 'info', title: res?.message || 'Action completed' }); }} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white text-base font-black uppercase tracking-wider py-5 rounded-2xl shadow-2xl transition transform active:scale-95 hover:shadow-indigo-500/50">⚡ AUTO MATCH</button>
+                <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
+                  <h4 className="text-sm font-black text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Quick Actions</h4>
+                  <div className="space-y-3">
+                    <button onClick={async()=>{ const res = await runApi('/api/match', { mode:'smart' }); Toast.fire({ icon: res?.status === 'success' ? 'success' : 'info', title: res?.message || 'Action completed' }); }} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white text-lg font-black uppercase tracking-wider py-4 rounded-xl shadow-xl transition transform active:scale-95 hover:shadow-indigo-500/50">⚡ Auto Match</button>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={prepareNextMatches} className="col-span-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black uppercase tracking-wider py-2 rounded-lg shadow-md transition transform active:scale-95">🛠️ เตรียมลำดับ 2 คู่ถัดไป</button>
-                    <button onClick={confirmPreparedMatches} className="col-span-2 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white text-xs font-black uppercase tracking-wider py-2 rounded-lg shadow-md transition transform active:scale-95">✅ ยืนยันจับคู่ 2 คู่</button>
+                    <div className="grid grid-cols-1 gap-2">
+                      <button onClick={prepareNextMatches} className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-sm font-black uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">🛠️ Prepare Next Matches</button>
+                      <button onClick={confirmPreparedMatches} className="w-full bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white text-sm font-black uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">✅ Confirm Matches</button>
+                    </div>
                   </div>
+                </div>
 
-                  {preparedMatches.length > 0 && (
-                    <div className="bg-slate-100 dark:bg-slate-900 border border-blue-200 dark:border-blue-700 p-3 rounded-lg space-y-2">
-                      <div className="text-xs font-black text-blue-700 dark:text-blue-300 uppercase tracking-wide">👀 Next Match Preview</div>
-                      {preparedMatches.map((item:any)=> (
-                        <div key={item.matchNumber} className="text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2">
-                          <div className="font-bold">คู่ที่ {item.matchNumber} (diff {item.diff})</div>
-                          <div className="grid grid-cols-2 gap-2 mt-1">
-                            <div className="p-1 border border-slate-200 dark:border-slate-700 rounded-lg">
-                              <div className="text-[10px] text-slate-400">ทีม A</div>
-                              <div className="text-[11px] font-bold">{item.teams[0][0].name} + {item.teams[0][1].name}</div>
+                {preparedMatches.length > 0 && (
+                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 p-4 rounded-lg shadow-lg">
+                    <div className="text-sm font-black text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <span className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">👀</span>
+                      Next Match Preview
+                    </div>
+                    {preparedMatches.map((item:any)=> (
+                      <div key={item.matchNumber} className="text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 mb-2 last:mb-0 shadow-sm">
+                        <div className="font-bold text-blue-700 dark:text-blue-300 mb-2">Match #{item.matchNumber} (Skill Diff: {item.diff})</div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-2 border border-blue-200 dark:border-blue-700 rounded-lg bg-blue-50 dark:bg-blue-900/20">
+                            <div className="text-xs text-blue-600 dark:text-blue-400 font-bold mb-1">Team A</div>
+                            <div className="text-sm font-bold flex flex-col">
+                              <span>{item.teams[0][0].name}</span>
+                              <span className="text-xs text-slate-500">+ {item.teams[0][1].name}</span>
                             </div>
-                            <div className="p-1 border border-slate-200 dark:border-slate-700 rounded-lg">
-                              <div className="text-[10px] text-slate-400">ทีม B</div>
-                              <div className="text-[11px] font-bold">{item.teams[1][0].name} + {item.teams[1][1].name}</div>
+                          </div>
+                          <div className="p-2 border border-red-200 dark:border-red-700 rounded-lg bg-red-50 dark:bg-red-900/20">
+                            <div className="text-xs text-red-600 dark:text-red-400 font-bold mb-1">Team B</div>
+                            <div className="text-sm font-bold flex flex-col">
+                              <span>{item.teams[1][0].name}</span>
+                              <span className="text-xs text-slate-500">+ {item.teams[1][1].name}</span>
                             </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
+                <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
+                  <h4 className="text-sm font-black text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Management Tools</h4>
                   <div className="grid grid-cols-2 gap-2">
-                    <button onClick={openAddMember} className="col-span-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-[10px] font-bold uppercase tracking-wide py-2 rounded-lg shadow-md transition transform active:scale-95">➕ Add Member</button>
-                    <button onClick={async()=>{ if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'Select exactly 4 players' }); const res = await runApi('/api/manual-match', { ids: selected }); setSelected([]); if(res?.status === 'success') Toast.fire({ icon: 'success', title: 'Matched Selected' }); else Toast.fire({ icon: 'error', title: res?.message || 'Error' }); }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-[9px] font-bold py-2 rounded-md shadow-sm hover:bg-slate-50 transition active:scale-95">Match Selected</button>
-                    <button onClick={async()=>{ const c = prompt('Courts (comma separated)', state?.courtNames.join(', ')); if(c){ await runApi('/api/config', {action:'set', key:'Courts', value: c}); Toast.fire({ icon: 'success', title: 'Courts updated' }); } }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-[9px] font-bold py-2 rounded-md shadow-sm hover:bg-slate-50 transition active:scale-95">Setup Courts</button>
-                    <button onClick={showReport} className="col-span-1 bg-slate-800 hover:bg-slate-900 text-white text-[9px] font-bold uppercase tracking-wide py-2 rounded-md shadow-sm transition active:scale-95">📊 Report</button>
-                    <button onClick={resetDay} className="col-span-1 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 text-[9px] font-bold uppercase tracking-wide py-2 rounded-md shadow-sm hover:bg-red-100 transition active:scale-95">⚠️ Reset</button>
+                    <button onClick={openAddMember} className="col-span-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">➕ Add Member</button>
+                    <button onClick={async()=>{ if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'Select exactly 4 players' }); const res = await runApi('/api/manual-match', { ids: selected }); setSelected([]); if(res?.status === 'success') Toast.fire({ icon: 'success', title: 'Matched Selected' }); else Toast.fire({ icon: 'error', title: res?.message || 'Error' }); }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Match Selected</button>
+                    <button onClick={async()=>{ const c = prompt('Courts (comma separated)', state?.courtNames.join(', ')); if(c){ await runApi('/api/config', {action:'set', key:'Courts', value: c}); Toast.fire({ icon: 'success', title: 'Courts updated' }); } }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Setup Courts</button>
+                    <button onClick={showReport} className="col-span-1 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm transition active:scale-95">📊 Report</button>
+                    <button onClick={resetDay} className="col-span-1 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm hover:bg-red-100 transition active:scale-95">⚠️ Reset</button>
                   </div>
                 </div>
               </div>
             )}
           </div>
 
+          {/* ตารางแสดง Queue (รอลงสนาม) */}
           <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col h-[520px] shadow-lg overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/80 dark:bg-slate-800/80 backdrop-blur-md flex-col gap-2">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800 backdrop-blur-md flex-col gap-2">
               <div className="flex justify-between items-center w-full">
                 <h3 className="font-black text-sm dark:text-white flex items-center gap-2">⏳ Queue <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px]">{state?.waiting.length || 0}</span></h3>
                 <button onClick={()=>refresh(true)} className="text-[10px] font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded hover:bg-slate-300 transition shadow-sm active:scale-95">Refresh</button>
@@ -771,14 +785,10 @@ export default function Home() {
                     </div>
                     <div className="text-right flex items-center gap-2">
                       {admin && (
-                        <button onClick={()=>openAdminEdit(p)} className="w-7 h-7 flex items-center justify-center text-[12px] bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-md shadow-sm transition active:scale-95" title="Edit">
-                          ✏️
-                        </button>
+                        <button onClick={()=>openAdminEdit(p)} className="w-7 h-7 flex items-center justify-center text-[12px] bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-md shadow-sm transition active:scale-95" title="Edit">✏️</button>
                       )}
                       {admin ? (
-                        <button onClick={async()=>{ await runApi('/api/checkout', { id: p.id }); Toast.fire({ icon: 'info', title: 'Player Removed' }); }} className="w-7 h-7 flex items-center justify-center text-[12px] bg-red-50 hover:bg-red-100 text-red-600 rounded-md shadow-sm transition active:scale-95" title="Remove">
-                          🗑️
-                        </button>
+                        <button onClick={async()=>{ await runApi('/api/checkout', { id: p.id }); Toast.fire({ icon: 'info', title: 'Player Removed' }); }} className="w-7 h-7 flex items-center justify-center text-[12px] bg-red-50 hover:bg-red-100 text-red-600 rounded-md shadow-sm transition active:scale-95" title="Remove">🗑️</button>
                       ) : (
                         <span className="text-[10px] text-slate-400 font-mono font-bold bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded shadow-inner">
                           {new Date(p.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
