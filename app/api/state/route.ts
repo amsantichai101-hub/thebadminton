@@ -20,7 +20,13 @@ export async function GET() {
   let courtNames = ['Court 1']
   let announcement = ''
   let autoMatch = false
-  conf?.forEach((row:any)=>{ if(row.key==='Courts') courtNames = String(row.value).split(',').map((x)=>x.trim()).filter(Boolean); if(row.key==='Announcement') announcement=String(row.value); if(row.key==='AutoMatch') autoMatch = String(row.value).toLowerCase()==='true' })
+  let matchMode = 'balanced'
+  conf?.forEach((row:any)=>{
+    if(row.key==='Courts') courtNames = String(row.value).split(',').map((x)=>x.trim()).filter(Boolean);
+    if(row.key==='Announcement') announcement=String(row.value);
+    if(row.key==='AutoMatch') autoMatch = String(row.value).toLowerCase()==='true';
+    if(row.key==='MatchMode') matchMode = String(row.value).trim().toLowerCase() || 'balanced';
+  })
   
   // 🟢 เรียงคิวตามเวลาที่เข้า (ts) อย่างเดียว ใครเข้าก่อนอยู่บนสุด
   const waiting = (waitingRaw||[]).map((r:any)=>({ id: String(r.id), name: r.name, skill: Number(r.skill), timestamp: new Date(r.ts).toISOString(), type: r.type, playCount: Number(r.play_count||0) })).sort((a:any,b:any)=> new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
@@ -34,6 +40,6 @@ export async function GET() {
   const durations = (recentLogs||[]).map((r:any)=>Number(r.duration)||0).filter((d:number)=>d>0)
   const avgMatchDuration = durations.length ? Math.round(durations.reduce((s:number,n:number)=>s+n,0)/durations.length) : 15
 
-  const res: AppState = { courtNames, announcement, autoMatch, waiting, pending, playing, courtCount: courtNames.length, avgMatchDuration }
+  const res: AppState = { courtNames, announcement, autoMatch, waiting, pending, playing, courtCount: courtNames.length, avgMatchDuration, matchMode }
   return NextResponse.json(res)
 }
