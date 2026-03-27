@@ -550,7 +550,7 @@ const confirmPreparedMatches = async () => {
     return Math.max(...skills) - Math.min(...skills) <= 1; // ทุกคน skill เท่ากัน หรือห่างไม่เกิน 1
   }
 
-  function getAutoNextMatches(players, nMatch = 2, mode = matchMode) {
+  function getAutoNextMatches(players: any[], nMatch = 2, mode = matchMode): any[] {
     const matches = [];
     for (let i = 0; i < nMatch; i++) {
       const group = players.slice(i * 4, i * 4 + 4);
