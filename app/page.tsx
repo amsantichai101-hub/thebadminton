@@ -31,6 +31,8 @@ export default function Home() {
   const [searchPending, setSearchPending] = useState('')
   const [searchQueue, setSearchQueue] = useState('')
   const [selectedPending, setSelectedPending] = useState<string[]>([])
+    const [expandedPending, setExpandedPending] = useState<string[]>([])
+  
   
   const [preparedMatches, setPreparedMatches] = useState<Array<any>>([])
   // เพิ่ม Match Mode Selector
@@ -230,7 +232,7 @@ const confirmPreparedMatches = async () => {
   // --- Modalsต่างๆ (Register, Edit, Add Member) ---
   const openCheckIn = () => {
     Swal.fire({
-      title: '📋 Register Player',
+      title: '📝 Check In',
       html: `
         <div class="flex flex-col gap-3 text-left">
           <label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-slate-100 p-2 rounded cursor-pointer hover:bg-slate-200 transition shadow-sm">
@@ -647,7 +649,7 @@ const confirmPreparedMatches = async () => {
 
           <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 flex gap-3 shadow-lg border border-slate-100 dark:border-slate-700">
               <button onClick={openCheckIn} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl text-sm shadow-md transition transform active:scale-95">
-                + Register / Check In
+                Check In
               </button>
               <button onClick={openSignOut} className="flex-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold py-3.5 rounded-xl text-sm shadow-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition transform active:scale-95">
                 Sign Out
@@ -797,7 +799,16 @@ const confirmPreparedMatches = async () => {
                     />
                     <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                       {state.pending.filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase()) || p.id.includes(searchPending)).map(p => (
-                        <div key={p.id} className={`p-3 rounded-lg border-2 ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} flex justify-between items-center shadow-sm transition-all`}>
+                        <div key={p.id}
+  className={`p-3 rounded-lg border-2 ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} flex-col shadow-sm transition-all duration-300 ' + (expandedPending.includes(p.id) ? 'scale-[1.08] z-10 bg-yellow-100 dark:bg-yellow-900/30' : 'flex justify-between items-center')}`
+  style={{ cursor: 'pointer' }}
+  onClick={e => {
+    if ((e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'BUTTON') {
+      setExpandedPending(exp => exp.includes(p.id) ? exp.filter(id => id !== p.id) : [...exp, p.id]);
+    }
+  }}
+>
+
                           <div className="flex items-center gap-3">
                             <input 
                               type="checkbox" 
@@ -807,9 +818,25 @@ const confirmPreparedMatches = async () => {
                                 else setSelectedPending(prev => prev.filter(id => id !== p.id));
                               }}
                               className="w-5 h-5 text-green-600 focus:ring-green-500 rounded border-slate-300"
+                              onClick={e => e.stopPropagation()}
                             />
-                            <div className="text-sm font-bold dark:text-white flex items-center gap-2">{p.name} <SkillDot skill={p.skill}/></div>
+                            <div className="text-sm font-bold dark:text-white flex items-center gap-2">
+                              {p.name} <SkillDot skill={p.skill}/>
+                              <button
+                                onClick={evt => { evt.stopPropagation(); setExpandedPending(exp => exp.includes(p.id) ? exp.filter(id => id !== p.id) : [...exp, p.id]); }}
+                                className="ml-1 px-1 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-xs"
+                                title={expandedPending.includes(p.id) ? 'ซ่อนรายละเอียด' : 'ขยายรายละเอียด'}
+                              >{expandedPending.includes(p.id) ? 'ย่อ' : 'ขยาย'}</button>
+                            </div>
                           </div>
+                          {expandedPending.includes(p.id) && (
+                            <div className="mt-2 p-3 rounded bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 shadow-inner text-xs text-slate-800 dark:text-slate-100 grid gap-1">
+                              <div><b>ชื่อ (Name):</b> {p.name}</div>
+                              <div><b>รหัส:</b> {p.id}</div>
+                              <div><b>ระดับฝีมือ:</b> {p.skill} {p.skill===1?'(มือใหม่)':p.skill===2?'(ปานกลาง)':p.skill===3?'(ค่อนข้างเก่ง)':'(มือโปร)'}</div>
+                              <div><b>เวลาลงทะเบียน:</b> {p.timestamp ? new Date(p.timestamp).toLocaleString(): '-'}</div>
+                            </div>
+                          ) // ปิด expanded }
                           <div className="flex gap-2">
                             <button onClick={async()=>{ await runApi('/api/approve', { id: p.id }); setSelectedPending(prev => prev.filter(id => id !== p.id)); Toast.fire({ icon: 'success', title: 'Approved!' }); }} className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-md transition transform active:scale-95">✓</button>
                             <button onClick={async()=>{ await runApi('/api/checkout', { id: p.id }); setSelectedPending(prev => prev.filter(id => id !== p.id)); Toast.fire({ icon: 'info', title: 'Rejected' }); }} className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-bold shadow-sm transition transform active:scale-95">✕</button>
