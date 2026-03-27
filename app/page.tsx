@@ -799,15 +799,16 @@ const confirmPreparedMatches = async () => {
                     />
                     <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                       {state.pending.filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase()) || p.id.includes(searchPending)).map(p => (
-                        <div key={p.id}
-  className={`p-3 rounded-lg border-2 ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} flex-col shadow-sm transition-all duration-300 ' + (expandedPending.includes(p.id) ? 'scale-[1.08] z-10 bg-yellow-100 dark:bg-yellow-900/30' : 'flex justify-between items-center')}`
-  style={{ cursor: 'pointer' }}
-  onClick={e => {
-    if ((e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'BUTTON') {
-      setExpandedPending(exp => exp.includes(p.id) ? exp.filter(id => id !== p.id) : [...exp, p.id]);
-    }
-  }}
->
+                        <div
+                          key={p.id}
+                          className={`p-3 rounded-lg border-2 ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} flex-col shadow-sm transition-all duration-300 ' + (expandedPending.includes(p.id) ? 'scale-[1.08] z-10 bg-yellow-100 dark:bg-yellow-900/30' : 'flex justify-between items-center')}`}
+                          style={{ cursor: 'pointer' }}
+                          onClick={e => {
+                            if ((e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'BUTTON') {
+                              setExpandedPending(exp => exp.includes(p.id) ? exp.filter(id => id !== p.id) : [...exp, p.id]);
+                            }
+                          }}
+                        >
 
                           <div className="flex items-center gap-3">
                             <input 
@@ -836,7 +837,8 @@ const confirmPreparedMatches = async () => {
                               <div><b>ระดับฝีมือ:</b> {p.skill} {p.skill===1?'(มือใหม่)':p.skill===2?'(ปานกลาง)':p.skill===3?'(ค่อนข้างเก่ง)':'(มือโปร)'}</div>
                               <div><b>เวลาลงทะเบียน:</b> {p.timestamp ? new Date(p.timestamp).toLocaleString(): '-'}</div>
                             </div>
-                          ) // ปิด expanded }
+                          )} 
+                          
                           <div className="flex gap-2">
                             <button onClick={async()=>{ await runApi('/api/approve', { id: p.id }); setSelectedPending(prev => prev.filter(id => id !== p.id)); Toast.fire({ icon: 'success', title: 'Approved!' }); }} className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-md transition transform active:scale-95">✓</button>
                             <button onClick={async()=>{ await runApi('/api/checkout', { id: p.id }); setSelectedPending(prev => prev.filter(id => id !== p.id)); Toast.fire({ icon: 'info', title: 'Rejected' }); }} className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-bold shadow-sm transition transform active:scale-95">✕</button>
