@@ -31,6 +31,10 @@ export default function Home() {
   const [selectedPending, setSelectedPending] = useState<string[]>([])
   
   const [preparedMatches, setPreparedMatches] = useState<Array<any>>([])
+  // เพิ่ม Match Mode Selector
+  const [matchMode, setMatchMode] = useState<'balanced'|'random'|'skill-gap'|'manual'>('balanced');
+
+
 
   const refresh = async (showLoader = false) => { 
     if(showLoader) setIsLoading(true);
@@ -94,7 +98,7 @@ export default function Home() {
     });
   }
 
-  // --- Logic สำหรับฟังก์ชัน Prepare Matches (แสดง Preview คิวถัดไป) ---
+    // --- Logic สำหรับฟังก์ชัน Prepare Matches (แสดง Preview คิวถัดไป) ---
   const prepareNextMatches = () => {
     if (!state?.waiting || state.waiting.length < 4) {
       Toast.fire({ icon: 'warning', title: 'Need at least 4 players in queue' });
@@ -104,37 +108,87 @@ export default function Home() {
     const nextQueue = [...state.waiting];
     const next: Array<any> = [];
 
-    // ดึงมาจัดทีมทีละ 4 คน (สูงสุด 2 แมตช์ หรือ 8 คน)
-    for (let i = 0; i < 2; i++) {
-      const slice = nextQueue.slice(i * 4, i * 4 + 4);
-      if (slice.length < 4) break;
-
-      // โยน 4 คนเข้าฟังก์ชัน balanceTeams ที่เราสร้างไว้ใน utils/matchmaking.ts
-      const balanced = balanceTeams(slice.map((p: any) => ({ id: p.id, name: p.name, skill: Number(p.skill) })));
-      
-      next.push({
-        matchNumber: i + 1,
-        players: slice,
-        // แยก 4 คนออกเป็น 2 ทีมเพื่อเอาไปแสดงผล
-        teams: [
-          [balanced.teams[0], balanced.teams[1]], // Team A
-          [balanced.teams[2], balanced.teams[3]]  // Team B
-        ],
-        diff: balanced.diff
-      });
+    function pairSkillGap1(players: Array<any>) {
+      if (players.length !== 4) return null;
+      // sort skill ascending
+      const sorted = [...players].sort((a, b) => a.skill - b.skill);
+      // Try pairing: (sorted[0]+sorted[1], sorted[2]+sorted[3])
+      if (
+        Math.abs(sorted[0].skill - sorted[1].skill) <= 1 &&
+        Math.abs(sorted[2].skill - sorted[3].skill) <= 1 &&
+        Math.abs(sorted[1].skill - sorted[2].skill) <= 2
+      ) {
+        return [
+          [sorted[0], sorted[1]], // Team A
+          [sorted[2], sorted[3]], // Team B
+        ];
+      }
+      // Try pairing: (sorted[1]+sorted[2], sorted[0]+sorted[3])
+      if (
+        Math.abs(sorted[1].skill - sorted[2].skill) <= 1 &&
+        Math.abs(sorted[0].skill - sorted[3].skill) <= 1 &&
+        Math.abs(sorted[2].skill - sorted[3].skill) <= 2
+    
+      ) {
+        return [
+          [sorted[1], sorted[2]],
+          [sorted[0], sorted[3]]
+        ];
+      }
+      // fallback null
+      return null;
     }
 
-    setPreparedMatches(next);
-    Toast.fire({ icon: 'info', title: `Prepared ${next.length} match(es)` });
-  }
+    for (let i = 0; i < 2; i++) {
+          const slice = nextQueue.slice(i * 4, i * 4 + 4);
+          if (slice.length < 4) break;
 
-  const confirmPreparedMatches = async () => {
+          let teams, diff;
+          if (matchMode === 'skill-gap') {
+
+  teams = pairSkillGap1(slice);
+  diff = undefined;
+  if (!teams) {
+    Toast.fire({ icon: 'warning', title: 'Cannot pair with skill gap ≤ 1, using random' });
+    // fallback random
+    for (let j = slice.length - 1; j > 0; j--) {
+      const k = Math.floor(Math.random() * (j + 1));
+      [slice[j], slice[k]] = [slice[k], slice[j]];
+    }
+    teams = [
+      [slice[0], slice[1]],
+      [slice[2], slice[3]]
+    ];
+  }
+          } else if (matchMode === 'random') {
+            // สุ่ม shuffle
+            for (let j = slice.length - 1; j > 0; j--) {
+              const k = Math.floor(Math.random() * (j + 1));
+              [slice[j], slice[k]] = [slice[k], slice[j]];
+            }
+            teams = [
+              [slice[0], slice[1]],
+              [slice[2], slice[3]],
+            ];
+            diff = undefined;
+          } else {
+            const balanced = balanceTeams(slice.map((p: any) => ({ id: p.id, name: p.name, skill: Number(p.skill) })));
+        teams = [
+          [balanced.teams[0], balanced.teams[1]],
+          [balanced.teams[2], balanced.teams[3]],
+        ];
+        diff = balanced.diff;
+      }
+      next.push({ matchNumber: i + 1, players: slice, teams, diff });
+
+
+    const confirmPreparedMatches = async () => {
     if (preparedMatches.length === 0) {
       Toast.fire({ icon: 'warning', title: 'Please prepare matches first' });
       return;
     }
 
-    const data = await runApi('/api/match', { mode: 'balanced', forceMatches: preparedMatches.length });
+    const data = await runApi('/api/match', { mode: matchMode, forceMatches: preparedMatches.length });
     if (data?.status === 'success') {
       Toast.fire({ icon: 'success', title: `Confirmed ${preparedMatches.length} match(es)` });
       setPreparedMatches([]);
@@ -142,6 +196,7 @@ export default function Home() {
       Toast.fire({ icon: 'error', title: data?.message || 'Matchmaking failed' });
     }
   }
+
 
   // 🌟 ปรับปรุงรัน API: โชว์ Loader เสมอตอนกดปุ่ม
   const runApi = async (url: string, body?: any, showLoader = true) => {
@@ -688,7 +743,17 @@ export default function Home() {
 
                 <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
                   <h4 className="text-sm font-black text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Quick Actions</h4>
-                  <div className="space-y-3">
+                                    <div className="space-y-3">
+                    {/* Match Mode Selector */}
+                    <div className="mb-2">
+                      <label className="text-xs font-bold mb-1 block">Match Mode</label>
+                      <select value={matchMode} onChange={e => setMatchMode(e.target.value as any)} className="w-full p-2 border rounded-lg text-xs bg-white dark:bg-slate-700">
+                        <option value="balanced">Balanced</option>
+                                                <option value="random">Random</option>
+                                                <option value="skill-gap">Skill Gap ≤ 1</option>
+                                                <option value="manual">Manual</option>
+                      </select>
+                    </div>
                     <button onClick={async()=>{ const res = await runApi('/api/match', { mode:'smart' }); Toast.fire({ icon: res?.status === 'success' ? 'success' : 'info', title: res?.message || 'Action completed' }); }} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white text-lg font-black uppercase tracking-wider py-4 rounded-xl shadow-xl transition transform active:scale-95 hover:shadow-indigo-500/50">⚡ Auto Match</button>
 
                     <div className="grid grid-cols-1 gap-2">
@@ -696,6 +761,7 @@ export default function Home() {
                       <button onClick={confirmPreparedMatches} className="w-full bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white text-sm font-black uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">✅ Confirm Matches</button>
                     </div>
                   </div>
+
                 </div>
 
                 {preparedMatches.length > 0 && (
