@@ -139,40 +139,39 @@ export default function Home() {
       return null;
     }
 
-    for (let i = 0; i < 2; i++) {
-          const slice = nextQueue.slice(i * 4, i * 4 + 4);
-          if (slice.length < 4) break;
+        for (let i = 0; i < 2; i++) {
+      const slice = nextQueue.slice(i * 4, i * 4 + 4);
+      if (slice.length < 4) break;
 
-          let teams, diff;
-          if (matchMode === 'skill-gap') {
-
-  teams = pairSkillGap1(slice);
-  diff = undefined;
-  if (!teams) {
-    Toast.fire({ icon: 'warning', title: 'Cannot pair with skill gap ≤ 1, using random' });
-    // fallback random
-    for (let j = slice.length - 1; j > 0; j--) {
-      const k = Math.floor(Math.random() * (j + 1));
-      [slice[j], slice[k]] = [slice[k], slice[j]];
-    }
-    teams = [
-      [slice[0], slice[1]],
-      [slice[2], slice[3]]
-    ];
-  }
-          } else if (matchMode === 'random') {
-            // สุ่ม shuffle
-            for (let j = slice.length - 1; j > 0; j--) {
-              const k = Math.floor(Math.random() * (j + 1));
-              [slice[j], slice[k]] = [slice[k], slice[j]];
-            }
-            teams = [
-              [slice[0], slice[1]],
-              [slice[2], slice[3]],
-            ];
-            diff = undefined;
-          } else {
-            const balanced = balanceTeams(slice.map((p: any) => ({ id: p.id, name: p.name, skill: Number(p.skill) })));
+      let teams, diff;
+      if (matchMode === 'skill-gap') {
+        teams = pairSkillGap1(slice);
+        diff = undefined;
+        if (!teams) {
+          Toast.fire({ icon: 'warning', title: 'Cannot pair with skill gap ≤ 1, using random' });
+          // fallback random
+          for (let j = slice.length - 1; j > 0; j--) {
+            const k = Math.floor(Math.random() * (j + 1));
+            [slice[j], slice[k]] = [slice[k], slice[j]];
+          }
+          teams = [
+            [slice[0], slice[1]],
+            [slice[2], slice[3]]
+          ];
+        }
+      } else if (matchMode === 'random') {
+        // สุ่ม shuffle
+        for (let j = slice.length - 1; j > 0; j--) {
+          const k = Math.floor(Math.random() * (j + 1));
+          [slice[j], slice[k]] = [slice[k], slice[j]];
+        }
+        teams = [
+          [slice[0], slice[1]],
+          [slice[2], slice[3]],
+        ];
+        diff = undefined;
+      } else {
+        const balanced = balanceTeams(slice.map((p: any) => ({ id: p.id, name: p.name, skill: Number(p.skill) })));
         teams = [
           [balanced.teams[0], balanced.teams[1]],
           [balanced.teams[2], balanced.teams[3]],
@@ -180,22 +179,26 @@ export default function Home() {
         diff = balanced.diff;
       }
       next.push({ matchNumber: i + 1, players: slice, teams, diff });
-
-
-    const confirmPreparedMatches = async () => {
-    if (preparedMatches.length === 0) {
-      Toast.fire({ icon: 'warning', title: 'Please prepare matches first' });
-      return;
     }
-
-    const data = await runApi('/api/match', { mode: matchMode, forceMatches: preparedMatches.length });
-    if (data?.status === 'success') {
-      Toast.fire({ icon: 'success', title: `Confirmed ${preparedMatches.length} match(es)` });
-      setPreparedMatches([]);
-    } else {
-      Toast.fire({ icon: 'error', title: data?.message || 'Matchmaking failed' });
-    }
+    setPreparedMatches(next);
   }
+
+// --- Confirm Prepared Matches ---
+const confirmPreparedMatches = async () => {
+  if (preparedMatches.length === 0) {
+    Toast.fire({ icon: 'warning', title: 'Please prepare matches first' });
+    return;
+  }
+
+  const data = await runApi('/api/match', { mode: matchMode, forceMatches: preparedMatches.length });
+  if (data?.status === 'success') {
+    Toast.fire({ icon: 'success', title: `Confirmed ${preparedMatches.length} match(es)` });
+    setPreparedMatches([]);
+  } else {
+    Toast.fire({ icon: 'error', title: data?.message || 'Matchmaking failed' });
+  }
+}
+
 
 
   // 🌟 ปรับปรุงรัน API: โชว์ Loader เสมอตอนกดปุ่ม
@@ -691,7 +694,7 @@ export default function Home() {
 
                 {state?.pending && state.pending.length > 0 && (
                   <div className="bg-gradient-to-br from-yellow-50 via-orange-50 to-amber-50 dark:from-yellow-900/20 dark:via-orange-900/10 dark:to-amber-900/20 border border-yellow-300 dark:border-yellow-700 rounded-xl p-4 shadow-lg">
-                    <div className="text-sm font-black text-yellow-800 dark:text-yellow-300 mb-3 uppercase tracking-wider mb-4 flex justify-between items-center">
+                    <div className="text-sm font-black text-yellow-800 dark:text-yellow-300 mb-4 uppercase tracking-wider flex justify-between items-center">
                       <span className="flex items-center gap-2">
                         <span className="w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center text-white text-xs font-bold">⏳</span>
                         Pending ({state.pending.length})
