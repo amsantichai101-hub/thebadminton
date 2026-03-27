@@ -544,7 +544,7 @@ const confirmPreparedMatches = async () => {
   )
 
         // --- Next Matches Calculation ---
-    function isSimilarSkillGroup(players) {
+    function isSimilarSkillGroup(players: any[]): boolean {
     if (players.length !== 4) return false;
     const skills = players.map(p => Number(p.skill));
     return Math.max(...skills) - Math.min(...skills) <= 1; // ทุกคน skill เท่ากัน หรือห่างไม่เกิน 1
