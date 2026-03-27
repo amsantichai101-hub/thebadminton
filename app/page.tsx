@@ -18,6 +18,8 @@ const Toast = Swal.mixin({
 });
 
 export default function Home() {
+  // Toggle for showing Next Match Preview (default: true)
+  const [showNextMatchPreview, setShowNextMatchPreview] = useState(true);
   const [state, setState] = useState<AppState | null>(null)
   const [admin, setAdmin] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
@@ -32,7 +34,7 @@ export default function Home() {
   
   const [preparedMatches, setPreparedMatches] = useState<Array<any>>([])
   // เพิ่ม Match Mode Selector
-  const [matchMode, setMatchMode] = useState<'balanced'|'random'|'skill-gap'|'manual'>('balanced');
+  const [matchMode, setMatchMode] = useState<'balanced'|'random'|'skill-gap'|'similar-skill'|'manual'>('balanced');
 
 
 
@@ -232,8 +234,8 @@ const confirmPreparedMatches = async () => {
       html: `
         <div class="flex flex-col gap-3 text-left">
           <label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-slate-100 p-2 rounded cursor-pointer hover:bg-slate-200 transition shadow-sm">
-            <input type="checkbox" id="swGuest" class="w-4 h-4"> <span>New Player / Guest (Auto ID)</span>
-          </label>
+                      <input type="checkbox" id="swGuest" class="w-4 h-4"> <span>Guest (Auto ID)</span>
+                    </label>
           <div>
               <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Search Player (History)</label>
               <div class="flex gap-2">
@@ -244,8 +246,8 @@ const confirmPreparedMatches = async () => {
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
               <div>
-                  <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee ID (8 Digits)</label>
-                  <input id="swID" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. 12345678" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : ''}">
+                  <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No. 8 digit</label>
+                                    <input id="swID" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="00055555" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : ''}">
               </div>
               <div>
                   <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label>
@@ -253,13 +255,13 @@ const confirmPreparedMatches = async () => {
               </div>
           </div>
           <div>
-              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Skill Level</label>
-              <select id="swSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                <option value="1">Level 1 (Beginner)</option>
-                <option value="2" selected>Level 2 (Amateur)</option>
-                <option value="3">Level 3 (Intermediate)</option>
-                <option value="4">Level 4 (Pro)</option>
-              </select>
+              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Level</label>
+                            <select id="swSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                              <option value="1">1 (มือใหม่)</option>
+                              <option value="2" selected>2 (ปานกลาง)</option>
+                              <option value="3">3 (ค่อนข้างเก่ง)</option>
+                              <option value="4">4 (มือโปร)</option>
+                            </select>
           </div>
         </div>
       `,
@@ -541,6 +543,49 @@ const confirmPreparedMatches = async () => {
     </div>
   )
 
+        // --- Next Matches Calculation ---
+    function isSimilarSkillGroup(players) {
+    if (players.length !== 4) return false;
+    const skills = players.map(p => Number(p.skill));
+    return Math.max(...skills) - Math.min(...skills) <= 1; // ทุกคน skill เท่ากัน หรือห่างไม่เกิน 1
+  }
+
+  function getAutoNextMatches(players, nMatch = 2, mode = matchMode) {
+    const matches = [];
+    for (let i = 0; i < nMatch; i++) {
+      const group = players.slice(i * 4, i * 4 + 4);
+      if (group.length < 4) break;
+      if (mode === 'similar-skill') {
+        if (!isSimilarSkillGroup(group)) continue;
+        // แบ่งแบบ balanced เหมือนเดิม
+        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(p.skill) })));
+        matches.push({
+          matchNumber: i + 1,
+          teams: [
+            [balanced.teams[0], balanced.teams[1]],
+            [balanced.teams[2], balanced.teams[3]]
+          ],
+          diff: balanced.diff
+        });
+        continue;
+      }
+      // logic balanced เดิม
+      const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(p.skill) })));
+      matches.push({
+        matchNumber: i + 1,
+        teams: [
+          [balanced.teams[0], balanced.teams[1]],
+          [balanced.teams[2], balanced.teams[3]]
+        ],
+        diff: balanced.diff
+      });
+    }
+    return matches;
+  }
+  const waitingMatches = (state?.waiting && state.waiting.length >= 4) ? getAutoNextMatches(state.waiting, 2, matchMode) : [];
+
+
+
   // --- Main Layout ---
   return (
     <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-10 ${isLoading ? 'opacity-80 pointer-events-none' : 'transition-opacity duration-300'}`}>
@@ -574,7 +619,32 @@ const confirmPreparedMatches = async () => {
 
       <div className="max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4">
         
-        <div className="lg:col-span-8 space-y-6">
+                <div className="lg:col-span-8 space-y-6">
+          {/* Next Matches Preview Section (toggle show) */}
+          {showNextMatchPreview && waitingMatches.length > 0 && (
+            <div className="mb-6">
+              <h3 className="font-black text-base mb-2">🛎️ Next Matches</h3>
+              <div className="grid gap-2">
+                {waitingMatches.map((wm, idx) => (
+                  <div key={idx} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-blue-100 via-white to-indigo-100 border border-blue-200 shadow">
+                    <div className="font-bold text-blue-700">Match #{idx + 1}{wm.diff !== undefined && (
+                      <span className="ml-2 text-xs text-gray-400">(Diff: {wm.diff})</span>
+                    )}</div>
+                    <div className="flex gap-3 items-center flex-1 justify-center text-[15px] font-bold">
+                      <span>{wm.teams[0][0]?.name}</span>
+                      <span>&amp;</span>
+                      <span>{wm.teams[0][1]?.name}</span>
+                      <span className="px-3">VS</span>
+                      <span>{wm.teams[1][0]?.name}</span>
+                      <span>&amp;</span>
+                      <span>{wm.teams[1][1]?.name}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 flex gap-3 shadow-lg border border-slate-100 dark:border-slate-700">
               <button onClick={openCheckIn} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl text-sm shadow-md transition transform active:scale-95">
                 + Register / Check In
@@ -587,10 +657,10 @@ const confirmPreparedMatches = async () => {
           {/* Banner สถานะผู้เล่น */}
           {myProfile && (
             <div className={`p-5 rounded-2xl shadow-lg border flex items-center justify-between transition-all duration-500
-              ${amIPlaying ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-700 shadow-blue-500/30' 
-              : myPending ? 'bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/30 dark:to-orange-900/20 text-yellow-800 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800' 
-              : (myWaitIndex !== undefined && myWaitIndex !== -1 && myWaitIndex < 4) ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-slate-900 border-green-500 animate-pulse shadow-green-500/40' 
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'}`}>
+              ${amIPlaying ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-700 shadow-blue-500/30'
+                            : myPending ? 'bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/30 dark:to-orange-900/20 text-yellow-800 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800'
+                            : (myWaitIndex !== undefined && myWaitIndex !== -1 && myWaitIndex < 4) ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-slate-900 border-green-500 shadow-green-500/40'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'}`}>
               <div>
                 <div className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Your Status: {myProfile.name}</div>
                 {amIPlaying ? ( <div className="text-xl font-black flex items-center gap-2">🏸 Currently Playing!</div>
@@ -603,7 +673,7 @@ const confirmPreparedMatches = async () => {
                       <div className="flex items-center gap-1.5 bg-black/10 px-3 py-1.5 rounded-lg shadow-sm text-sm">
                         ⏱️ Est. Wait: <span className="text-base font-black">~{estWaitMins}</span> mins
                       </div>
-                      {myWaitIndex < 4 && <span className="text-sm bg-red-600 text-white px-3 py-1.5 rounded-lg shadow-sm animate-bounce">🔥 Standby!</span>}
+                      {myWaitIndex < 4 && <span className="text-sm bg-red-600 text-white px-3 py-1.5 rounded-lg shadow-sm">🔥 Standby!</span>}
                    </div>
                 ) : ( <div className="font-bold text-sm">Not in queue. (Click Register below)</div> )}
               </div>
@@ -682,11 +752,17 @@ const confirmPreparedMatches = async () => {
                 </div>
 
                 <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
-                  <div className="grid grid-cols-1 gap-3">
+                                    <div className="grid grid-cols-1 gap-3">
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" checked={state?.autoMatch} onChange={async(e)=>{ await runApi('/api/config', {action:'set', key:'AutoMatch', value:e.target.checked.toString()}); Toast.fire({ icon: 'success', title: 'Auto Match Settings Saved' }); }} className="w-4 h-4 text-blue-600 focus:ring-blue-500 rounded"/>
                         <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Auto Match</span>
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={showNextMatchPreview} onChange={e => setShowNextMatchPreview(e.target.checked)} className="w-4 h-4 text-blue-600 focus:ring-blue-500 rounded" />
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Show Next Match Preview</span>
                       </label>
                     </div>
                   </div>
@@ -751,51 +827,49 @@ const confirmPreparedMatches = async () => {
                     <div className="mb-2">
                       <label className="text-xs font-bold mb-1 block">Match Mode</label>
                       <select value={matchMode} onChange={e => setMatchMode(e.target.value as any)} className="w-full p-2 border rounded-lg text-xs bg-white dark:bg-slate-700">
-                        <option value="balanced">Balanced</option>
-                                                <option value="random">Random</option>
-                                                <option value="skill-gap">Skill Gap ≤ 1</option>
-                                                <option value="manual">Manual</option>
+                        <option value="balanced">สมดุล (ทีม skill ใกล้เคียง)</option>
+                        <option value="random">สุ่ม</option>
+                        <option value="skill-gap">คู่ฝีมือใกล้เคียง</option>
+                        <option value="similar-skill">Skill เดียวกัน/ใกล้กันเท่านั้น</option>
+                        <option value="manual">จับคู่เอง (Admin เท่านั้น)</option>
                       </select>
                     </div>
                     <button onClick={async()=>{ const res = await runApi('/api/match', { mode:'smart' }); Toast.fire({ icon: res?.status === 'success' ? 'success' : 'info', title: res?.message || 'Action completed' }); }} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white text-lg font-black uppercase tracking-wider py-4 rounded-xl shadow-xl transition transform active:scale-95 hover:shadow-indigo-500/50">⚡ Auto Match</button>
 
-                    <div className="grid grid-cols-1 gap-2">
-                      <button onClick={prepareNextMatches} className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-sm font-black uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">🛠️ Prepare Next Matches</button>
-                      <button onClick={confirmPreparedMatches} className="w-full bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white text-sm font-black uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">✅ Confirm Matches</button>
-                    </div>
+                    
                   </div>
 
                 </div>
 
                 {preparedMatches.length > 0 && (
-                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 p-4 rounded-lg shadow-lg">
-                    <div className="text-sm font-black text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-3 flex items-center gap-2">
-                      <span className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">👀</span>
-                      Next Match Preview
-                    </div>
-                    {preparedMatches.map((item:any)=> (
-                      <div key={item.matchNumber} className="text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 mb-2 last:mb-0 shadow-sm">
-                        <div className="font-bold text-blue-700 dark:text-blue-300 mb-2">Match #{item.matchNumber} (Skill Diff: {item.diff})</div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="p-2 border border-blue-200 dark:border-blue-700 rounded-lg bg-blue-50 dark:bg-blue-900/20">
-                            <div className="text-xs text-blue-600 dark:text-blue-400 font-bold mb-1">Team A</div>
-                            <div className="text-sm font-bold flex flex-col">
-                              <span>{item.teams[0][0].name}</span>
-                              <span className="text-xs text-slate-500">+ {item.teams[0][1].name}</span>
-                            </div>
-                          </div>
-                          <div className="p-2 border border-red-200 dark:border-red-700 rounded-lg bg-red-50 dark:bg-red-900/20">
-                            <div className="text-xs text-red-600 dark:text-red-400 font-bold mb-1">Team B</div>
-                            <div className="text-sm font-bold flex flex-col">
-                              <span>{item.teams[1][0].name}</span>
-                              <span className="text-xs text-slate-500">+ {item.teams[1][1].name}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 p-4 rounded-lg shadow-lg">
+                                    <div className="text-sm font-black text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-3 flex items-center gap-2">
+                                      <span className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">👀</span>
+                                      Next Match Preview
+                                    </div>
+                                    {preparedMatches.map((item:any)=> (
+                                      <div key={item.matchNumber} className="text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 mb-2 last:mb-0 shadow-sm">
+                                        <div className="font-bold text-blue-700 dark:text-blue-300 mb-2">Match #{item.matchNumber} (Skill Diff: {item.diff})</div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                          <div className="p-2 border border-blue-200 dark:border-blue-700 rounded-lg bg-blue-50 dark:bg-blue-900/20">
+                                            <div className="text-xs text-blue-600 dark:text-blue-400 font-bold mb-1">Team A</div>
+                                            <div className="text-sm font-bold flex flex-col">
+                                              <span>{item.teams[0][0].name}</span>
+                                              <span className="text-xs text-slate-500">+ {item.teams[0][1].name}</span>
+                                            </div>
+                                          </div>
+                                          <div className="p-2 border border-red-200 dark:border-red-700 rounded-lg bg-red-50 dark:bg-red-900/20">
+                                            <div className="text-xs text-red-600 dark:text-red-400 font-bold mb-1">Team B</div>
+                                            <div className="text-sm font-bold flex flex-col">
+                                              <span>{item.teams[1][0].name}</span>
+                                              <span className="text-xs text-slate-500">+ {item.teams[1][1].name}</span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
 
                 <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
                   <h4 className="text-sm font-black text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Management Tools</h4>
