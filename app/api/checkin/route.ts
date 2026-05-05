@@ -19,11 +19,11 @@ export async function POST(req: Request) {
     await s.from('system_config').upsert({ key: 'GUEST_COUNTER_LAST', value: String(next) })
     type = 'Guest'
   } else {
-    // บังคับว่าถ้าไม่ใช่ Guest ต้องกรอกตัวเลข 8 หลักเท่านั้น
-    if (!finalId || !/^\d{8}$/.test(String(finalId).trim())) {
+    // บังคับว่าถ้าไม่ใช่ Guest ต้องกรอกตัวเลข 3 หลักขึ้นไป (ใช้ {3,} แทน {3})
+    if (!finalId || !/^\d{3,}$/.test(String(finalId).trim())) {
       return NextResponse.json({ 
         status: 'error', 
-        message: 'กรุณากรอกรหัสพนักงาน (Employee ID) เป็นตัวเลข 8 หลักเท่านั้น' 
+        message: 'กรุณากรอกรหัสพนักงาน (Employee ID) เป็นตัวเลข ไม่ต่ำกว่า 3 หลัก' 
       })
     }
     finalId = String(finalId).trim()
