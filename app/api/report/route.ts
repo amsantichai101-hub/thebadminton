@@ -1,39 +1,85 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const dateParam = searchParams.get('date') || new Date().toISOString().split('T')[0];
-  
-  const startDate = new Date(dateParam);
-  startDate.setHours(0, 0, 0, 0);
-  const endDate = new Date(startDate);
-  endDate.setDate(endDate.getDate() + 1);
+export const dynamic = 'force-dynamic'
 
-  const { data: registry } = await supabaseAdmin.from('player_registry').select('id, name, last_seen').gte('last_seen', startDate.toISOString()).lt('last_seen', endDate.toISOString());
-  const { data: logs } = await supabaseAdmin.from('match_logs').select('*').gte('ts', startDate.toISOString()).lt('ts', endDate.toISOString()).eq('action', 'MATCH_FINISH');
+export async function GET(req: NextRequest) {
+  try {
+    const url = new URL(req.url)
+    // รองรับทั้งการส่ง startDate/endDate และแบบ date (ของเดิม)
+    const dateParam = url.searchParams.get('date')
+    const startDate = url.searchParams.get('startDate') || dateParam
+    const endDate = url.searchParams.get('endDate') || dateParam
 
-  let csvContent = "\uFEFFDate,Time,PlayerID,PlayerName,Action,Court,Duration_Min\n";
-  let tableData: any[] = [];
+    if (!startDate || !endDate) {
+      return NextResponse.json({ error: 'Missing date parameters' }, { status: 400 })
+    }
 
-  registry?.forEach(p => {
-    const d = new Date(p.last_seen);
-    csvContent += `"${d.toLocaleDateString()}","${d.toLocaleTimeString()}","${p.id}","${p.name}","REGISTER","-","0"\n`;
-  });
+    // กำหนดเวลาครอบคลุมตั้งแต่ 00:00:00 ของวันเริ่ม จนถึง 23:59:59 ของวันสิ้นสุด
+    const startTs = `${startDate}T00:00:00.000Z`
+    const endTs = `${endDate}T23:59:59.999Z`
 
-  logs?.forEach(log => {
-     const d = new Date(log.ts);
-     try {
-       const players = JSON.parse(log.match_group || '[]');
-       players.forEach((pid: string) => {
-         const pName = registry?.find(r => r.id === pid)?.name || 'Unknown';
-         csvContent += `"${d.toLocaleDateString()}","${d.toLocaleTimeString()}","${pid}","${pName}","PLAYED","${log.court}","${log.duration}"\n`;
-         tableData.push({ time: d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}), id: pid, name: pName, action: 'PLAYED', court: log.court });
-       });
-     } catch(e) {}
-  });
+    const { data: logs, error } = await supabaseAdmin
+      .from('match_logs')
+      .select('*')
+      .gte('ts', startTs)
+      .lte('ts', endTs)
+      .order('ts', { ascending: false })
 
-  tableData.sort((a,b) => a.time.localeCompare(b.time));
+    if (error) {
+      console.error("Supabase Error:", error);
+      throw error;
+    }
 
-  return NextResponse.json({ totalMatches: logs?.length || 0, totalPlayers: registry?.length || 0, tableData, csv: csvContent })
+    const validLogs = logs || []
+
+    // 1. แปลงข้อมูลสำหรับแสดงในตารางหน้าเว็บ
+    const tableData = validLogs.map(l => ({
+      date: new Date(l.ts).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }),
+      time: new Date(l.ts).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+      name: l.player_name || l.match_group || '-',
+      action: l.action || '-',
+      court: l.court || '-'
+    }))
+
+    // 2. สร้างข้อมูลสำหรับ Export เป็น CSV (ฟังก์ชันเดิมที่หายไป)
+    let csv = '\uFEFFDate,Time,Name,Action,Court\n' // \uFEFF ช่วยให้เปิดใน Excel ภาษาไทยไม่เพี้ยน
+    tableData.forEach(r => {
+      csv += `"${r.date}","${r.time}","${r.name}","${r.action}","${r.court}"\n`
+    })
+
+    // 3. ส่วนคำนวณ Analytics สถิติ
+    const matchesEnded = validLogs.filter(l => l.action?.toLowerCase().includes('end'))
+    const totalMatches = matchesEnded.length
+
+    const playerIds = new Set(validLogs.map(l => l.player_id).filter(Boolean))
+    const totalPlayers = playerIds.size
+
+    const playerCounts: Record<string, {name: string, count: number}> = {}
+    validLogs.forEach(l => {
+      // นับเฉพาะตอนเข้าคิว หรือเริ่มเกม (ไม่นับตอนจบเกมซ้ำ)
+      if (l.player_id && l.player_name && !l.action?.toLowerCase().includes('end')) {
+        if (!playerCounts[l.player_id]) playerCounts[l.player_id] = { name: l.player_name, count: 0 }
+        playerCounts[l.player_id].count++
+      }
+    })
+    
+    // จัดอันดับคนที่ตีบ่อยสุด 3 อันดับ
+    const topPlayers = Object.values(playerCounts)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3)
+
+    // ส่งทุกอย่างกลับไปให้หน้าเว็บ
+    return NextResponse.json({
+      totalMatches,
+      totalPlayers,
+      topPlayers,
+      tableData,
+      csv
+    })
+
+  } catch (error: any) {
+    console.error('API Report Error:', error)
+    return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 })
+  }
 }

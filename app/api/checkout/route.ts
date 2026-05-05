@@ -2,37 +2,28 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
 
 export async function POST(req: Request) {
-  const { id } = await req.json(); // รับค่าที่พิมพ์มา (อาจจะเป็นชื่อ หรือ ID)
-  const s = supabaseAdmin;
+  try {
+    const { id } = await req.json()
 
-  if (!id) return NextResponse.json({ status: 'error', message: 'Missing ID or Name' });
-  const searchTerm = String(id).trim();
+    const { data: playerInfo } = await supabaseAdmin.from('player_registry').select('name, latest_skill').eq('id', id).single()
 
-  // 1. ค้นหา ID ที่แท้จริงจากฐานข้อมูลประวัติก่อน (รองรับการพิมพ์ชื่อ)
-  const { data: player } = await s.from('player_registry')
-    .select('id')
-    .or(`id.eq.${searchTerm},name.ilike.${searchTerm}`)
-    .limit(1);
+    // ลบออกจากคิว
+    await supabaseAdmin.from('pending_queue').delete().eq('id', id)
+    await supabaseAdmin.from('player_queue').delete().eq('id', id)
 
-  // ถ้าเจอให้ใช้ ID นั้น ถ้าไม่เจอให้ใช้คำที่พิมพ์มาตรงๆ
-  const targetId = (player && player.length > 0) ? player[0].id : searchTerm;
+    // 📝 เก็บ Log การ Sign Out
+    if (playerInfo) {
+       await supabaseAdmin.from('match_logs').insert({
+         player_id: id,
+         player_name: playerInfo.name,
+         skill: playerInfo.latest_skill || 2,
+         action: 'Sign Out / Leave Queue',
+         duration: 0
+       })
+    }
 
-  // 2. พยายามลบออกจากคิวเล่น (player_queue)
-  const delQ = await s.from('player_queue').delete().eq('id', targetId).select();
-  
-  let removed = false;
-  if (delQ.data && delQ.data.length > 0) {
-    removed = true;
-  } else {
-    // 3. ถ้าไม่มีในคิวเล่น ให้ลองลบออกจากคิวรออนุมัติ (pending_queue)
-    const delP = await s.from('pending_queue').delete().eq('id', targetId).select();
-    if (delP.data && delP.data.length > 0) removed = true;
-  }
-
-  // 4. ส่งสถานะกลับไปให้หน้าเว็บ
-  if (removed) {
-    return NextResponse.json({ status: 'success', message: 'Signed out successfully' });
-  } else {
-    return NextResponse.json({ status: 'error', message: 'Player not found in queue' });
+    return NextResponse.json({ status: 'success' })
+  } catch (error: any) {
+    return NextResponse.json({ status: 'error', message: error.message })
   }
 }

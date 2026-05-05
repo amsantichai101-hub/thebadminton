@@ -2,47 +2,78 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
 
 export async function POST(req: Request) {
-  const { court } = await req.json();
-  const s = supabaseAdmin;
+  try {
+    const { court } = await req.json()
 
-  const { data: active } = await s.from('active_courts').select('*').eq('court', court).single();
-  if (!active) return NextResponse.json({ error: 'Not found' });
+    // 1. ดึงข้อมูลคอร์ทที่กำลังเล่น เพื่อเอาข้อมูลผู้เล่นมาประมวลผล
+    const { data: courtData } = await supabaseAdmin.from('active_courts').select('*').eq('court', court).single()
 
-  await s.from('active_courts').delete().eq('court', court);
+    if (!courtData) {
+      return NextResponse.json({ status: 'error', message: 'Court not found' })
+    }
 
-  const players = [
-    { id: active.p1_id, name: active.p1_name, skill: active.p1_skill },
-    { id: active.p2_id, name: active.p2_name, skill: active.p2_skill },
-    { id: active.p3_id, name: active.p3_name, skill: active.p3_skill },
-    { id: active.p4_id, name: active.p4_name, skill: active.p4_skill }
-  ];
+    // คำนวณเวลาที่ใช้ไปในการตี (นาที)
+    const startTime = new Date(courtData.start_time).getTime()
+    const endTime = new Date().getTime()
+    const duration = Math.max(1, Math.floor((endTime - startTime) / 60000)) // อย่างน้อย 1 นาที
 
-  // ค้นหาจำนวนรอบที่เล่นไปแล้วของวันนี้เพื่อเอาไปโชว์ Badge เฉยๆ
-  const today = new Date(); today.setHours(0,0,0,0);
-  const { data: logs } = await s.from('match_logs').select('match_group').gte('ts', today.toISOString());
-  const getPlayCount = (pid: string) => { let count = 0; logs?.forEach(l => { try { if(JSON.parse(l.match_group||'[]').includes(pid)) count++; } catch(e){} }); return count; }
+    const players = [
+      { id: courtData.p1_id, name: courtData.p1_name, skill: courtData.p1_skill },
+      { id: courtData.p2_id, name: courtData.p2_name, skill: courtData.p2_skill },
+      { id: courtData.p3_id, name: courtData.p3_name, skill: courtData.p3_skill },
+      { id: courtData.p4_id, name: courtData.p4_name, skill: courtData.p4_skill }
+    ].filter(p => p.id); // กรองเอาเฉพาะที่มีข้อมูลจริง
 
-  // 🟢 ส่งผู้เล่นกลับเข้าคิว โดยอัปเดตเวลา (ts) เป็นเวลาปัจจุบัน เพื่อให้ไปต่อท้ายแถวเสมอ
-  for (const p of players) {
-    const type = String(p.id).startsWith('G') ? 'Guest' : 'Emp';
-    await s.from('player_queue').insert({ 
-        id: p.id, 
-        name: p.name, 
-        skill: p.skill, 
-        type, 
-        play_count: getPlayCount(p.id) + 1,
-        ts: new Date().toISOString() 
-    });
+    // 2. 📝 บันทึก Log การเล่นให้ Analytics
+    const logs = players.map(p => ({
+      player_id: p.id,
+      player_name: p.name,
+      skill: p.skill,
+      court: court,
+      action: 'End Match',
+      duration: duration
+    }))
+    await supabaseAdmin.from('match_logs').insert(logs)
+
+    // 3. 🔄 ระบบ Re-queue: นำผู้เล่นกลับเข้าคิว
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString();
+
+    const requeueData = [];
+    
+    for (const p of players) {
+       // นับจำนวนรอบที่เล่นจบไปแล้วในวันนี้ (เพื่อโชว์ใน PlayCount P)
+       const { count } = await supabaseAdmin
+          .from('match_logs')
+          .select('*', { count: 'exact', head: true })
+          .eq('player_id', p.id)
+          .eq('action', 'End Match')
+          .gte('ts', todayStr);
+
+       requeueData.push({
+          id: p.id,
+          name: p.name,
+          skill: p.skill,
+          ts: new Date().toISOString(), // ⏰ อัปเดตเวลาปัจจุบัน เพื่อให้หล่นไปอยู่ "ท้ายคิว"
+          type: p.id.startsWith('G') ? 'Guest' : 'Emp',
+          play_count: (count || 0) + 1 // รอบเดิม + รอบที่เพิ่งตีจบ
+       });
+
+       // อัปเดตสถิติ Total Visits ทั้งหมดให้ในฐานข้อมูลหลักด้วย
+       const { data: reg } = await supabaseAdmin.from('player_registry').select('total_visits').eq('id', p.id).single()
+       await supabaseAdmin.from('player_registry').update({ total_visits: (reg?.total_visits || 0) + 1 }).eq('id', p.id)
+    }
+
+    // 4. พาผู้เล่นทั้ง 4 คน กลับลงไปในคิวรอ (upsert เพื่อความปลอดภัย)
+    await supabaseAdmin.from('player_queue').upsert(requeueData)
+
+    // 5. เคลียร์คอร์ทให้ว่าง
+    await supabaseAdmin.from('active_courts').delete().eq('court', court)
+
+    return NextResponse.json({ status: 'success' })
+  } catch (error: any) {
+    console.error('Finish Match Error:', error)
+    return NextResponse.json({ status: 'error', message: error.message })
   }
-
-  const duration = Math.round((Date.now() - new Date(active.start_time).getTime()) / 60000);
-  await s.from('match_logs').insert({ action: 'MATCH_FINISH', court, match_group: JSON.stringify(players.map(p=>p.id)), duration });
-
-  const { data: conf } = await s.from('system_config').select('value').eq('key', 'AutoMatch').single();
-  if (conf?.value === 'true') {
-     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-     fetch(`${baseUrl}/api/match`, { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ mode: 'smart' }) }).catch(()=>{});
-  }
-
-  return NextResponse.json({ status: 'success' });
 }

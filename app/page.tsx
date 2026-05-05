@@ -316,12 +316,11 @@ export default function Home() {
               const res = await fetch(`/api/player?q=${swSearch.value}`);
               const data = await res.json();
               
-              // ทำให้รองรับข้อมูลทุกรูปแบบ (Object เดี่ยว หรือ Array)
               let playerList = [];
               if (Array.isArray(data)) playerList = data;
               else if (data.list && Array.isArray(data.list)) playerList = data.list;
               else if (data.data && Array.isArray(data.data)) playerList = data.data;
-              else if (data.found && data.id) playerList = [data]; // <-- รองรับ Object เดี่ยวตามในรูป
+              else if (data.found && data.id) playerList = [data];
 
               swTableContainer.classList.remove('hidden');
 
@@ -343,7 +342,7 @@ export default function Home() {
                   const btn = document.createElement('button');
                   btn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded shadow-sm font-bold active:scale-95 transition-transform';
                   btn.textContent = 'Select';
-                  btn.onclick = (e) => {
+                  btn.onmousedown = (e) => {
                     e.preventDefault();
                     lockFields(p);
                   };
@@ -499,41 +498,125 @@ export default function Home() {
     }).then(async r => { if(r.isConfirmed) { await runApi('/api/update-player', r.value, false); Toast.fire({ icon: 'success', title: 'Changes Saved' }); } })
   }
 
-  const showReport = () => {
-    let selectedDate = new Date().toISOString().split('T')[0];
+  // --- 1. Daily Report (แบบเก่า ดูรายวัน) ---
+  const showDailyReport = () => {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
     Swal.fire({
       title: '📊 Daily Report',
       html: `
         <div class="mb-4 text-left">
            <label class="text-xs font-bold text-slate-500 block mb-1">Select Date:</label>
-           <input type="date" id="reportDate" value="${selectedDate}" class="w-full p-2 border rounded shadow-sm text-sm">
+           <input type="date" id="reportDate" value="${today}" class="w-full p-2 border rounded shadow-sm text-sm outline-none focus:border-blue-400">
         </div>
         <div id="reportContent" class="text-center py-4 text-slate-400">Loading...</div>
       `,
       showConfirmButton: false, showCloseButton: true,
       didOpen: async () => {
         const fetchReport = async (date: string) => {
-          document.getElementById('reportContent')!.innerHTML = '⏳ Fetching data...';
-          const res = await fetch(`/api/report?date=${date}`); const data = await res.json();
-          const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8;' });
-          const url = URL.createObjectURL(blob);
-          
-          let tableHtml = `<div class="max-h-48 overflow-y-auto text-xs mt-4 border rounded shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">Time</th><th class="p-2">Name</th><th class="p-2">Action</th></tr></thead><tbody>`;
-          data.tableData.forEach((row: any) => { tableHtml += `<tr class="border-t"><td class="p-2">${row.time}</td><td class="p-2 font-bold">${row.name}</td><td class="p-2 text-blue-600">${row.action}</td></tr>`; });
-          tableHtml += `</tbody></table></div>`;
+          document.getElementById('reportContent')!.innerHTML = '<div class="py-5 text-blue-500 font-bold animate-pulse">⏳ Fetching data...</div>';
+          try {
+            const res = await fetch(`/api/report?date=${date}`); 
+            if (!res.ok) throw new Error('API failed');
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
 
-          document.getElementById('reportContent')!.innerHTML = `
-            <div class="grid grid-cols-2 gap-4">
-                <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 shadow-sm"><div class="text-2xl font-black text-blue-600">${data.totalMatches}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Matches</div></div>
-                <div class="bg-green-50 p-3 rounded-xl border border-green-100 shadow-sm"><div class="text-2xl font-black text-green-600">${data.totalPlayers}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Players</div></div>
-            </div>
-            ${tableHtml}
-            <a href="${url}" download="badminton_report_${date}.csv" class="w-full mt-4 block text-center bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-lg text-sm font-bold shadow-md transition">📥 Download CSV</a>
-          `;
+            const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            let tableHtml = `<div class="max-h-48 overflow-y-auto text-xs mt-4 border rounded shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">Time</th><th class="p-2">Name</th><th class="p-2">Action</th></tr></thead><tbody>`;
+            (data.tableData || []).forEach((row: any) => { tableHtml += `<tr class="border-t"><td class="p-2">${row.time}</td><td class="p-2 font-bold">${row.name}</td><td class="p-2 text-blue-600">${row.action}</td></tr>`; });
+            tableHtml += `</tbody></table></div>`;
+
+            document.getElementById('reportContent')!.innerHTML = `
+              <div class="grid grid-cols-2 gap-4">
+                  <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 shadow-sm"><div class="text-2xl font-black text-blue-600">${data.totalMatches || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Matches</div></div>
+                  <div class="bg-green-50 p-3 rounded-xl border border-green-100 shadow-sm"><div class="text-2xl font-black text-green-600">${data.totalPlayers || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Players</div></div>
+              </div>
+              ${tableHtml}
+              <a href="${url}" download="badminton_report_${date}.csv" class="w-full mt-4 block text-center bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-lg text-sm font-bold shadow-md transition">📥 Download CSV</a>
+            `;
+          } catch (e) {
+            document.getElementById('reportContent')!.innerHTML = '<div class="py-5 text-red-500 font-bold">❌ Error loading report</div>';
+          }
         };
         const dateInput = document.getElementById('reportDate') as HTMLInputElement;
         dateInput.addEventListener('change', (e) => fetchReport((e.target as HTMLInputElement).value));
-        await fetchReport(selectedDate);
+        await fetchReport(today);
+      }
+    });
+  }
+
+  // --- 2. Analytics Report (แบบเลือกช่วงวันที่) ---
+  const showAnalytics = () => {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
+    
+    Swal.fire({
+      title: '📈 Analytics & Report',
+      width: '600px',
+      html: `
+        <div class="flex gap-3 mb-4 text-left">
+           <div class="flex-1">
+             <label class="text-xs font-bold text-slate-500 block mb-1 uppercase tracking-wider">Start Date:</label>
+             <input type="date" id="reportStart" value="${today}" class="w-full p-2 border border-slate-200 rounded-lg shadow-sm text-sm outline-none focus:border-blue-400">
+           </div>
+           <div class="flex-1">
+             <label class="text-xs font-bold text-slate-500 block mb-1 uppercase tracking-wider">End Date:</label>
+             <input type="date" id="reportEnd" value="${today}" class="w-full p-2 border border-slate-200 rounded-lg shadow-sm text-sm outline-none focus:border-blue-400">
+           </div>
+        </div>
+        <div id="reportContent" class="text-center py-4 text-slate-400">Loading...</div>
+      `,
+      showConfirmButton: false, 
+      showCloseButton: true,
+      didOpen: async () => {
+        const fetchReport = async (sDate: string, eDate: string) => {
+          document.getElementById('reportContent')!.innerHTML = '<div class="py-10 text-blue-500 font-bold animate-pulse">⏳ Fetching analytics...</div>';
+          try {
+            const res = await fetch(`/api/report?startDate=${sDate}&endDate=${eDate}`); 
+            if (!res.ok) throw new Error('API failed');
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            
+            const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            let topPlayersHtml = (data.topPlayers || []).map((p:any, i:number) => `<div class="text-xs truncate py-0.5 border-b border-amber-100 last:border-0"><span class="font-bold text-amber-600">#${i+1}</span> ${p.name} <span class="text-[9px] text-slate-400">(${p.count})</span></div>`).join('') || '<div class="text-xs text-slate-400">No data</div>';
+
+            let tableHtml = `<div class="max-h-56 overflow-y-auto text-xs mt-4 border border-slate-200 rounded-xl shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0 shadow-sm text-slate-600 uppercase tracking-widest text-[9px]"><tr><th class="p-3">Date</th><th class="p-3">Time</th><th class="p-3">Name/Group</th><th class="p-3">Action</th></tr></thead><tbody>`;
+            (data.tableData || []).forEach((row: any) => { tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-3">${row.date}</td><td class="p-3">${row.time}</td><td class="p-3 font-bold truncate max-w-[150px] text-slate-700">${row.name}</td><td class="p-3 text-blue-600 font-medium">${row.action}</td></tr>`; });
+            tableHtml += `</tbody></table></div>`;
+
+            document.getElementById('reportContent')!.innerHTML = `
+              <div class="grid grid-cols-3 gap-3">
+                  <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 shadow-sm flex flex-col justify-center transition hover:shadow-md">
+                    <div class="text-2xl font-black text-blue-600">${data.totalMatches || 0}</div>
+                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Matches</div>
+                  </div>
+                  <div class="bg-green-50 p-3 rounded-xl border border-green-100 shadow-sm flex flex-col justify-center transition hover:shadow-md">
+                    <div class="text-2xl font-black text-green-600">${data.totalPlayers || 0}</div>
+                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Unique Players</div>
+                  </div>
+                  <div class="bg-amber-50 p-3 rounded-xl border border-amber-100 shadow-sm flex flex-col justify-center text-left transition hover:shadow-md">
+                    <div class="text-[10px] font-black text-amber-800 uppercase mb-2 tracking-widest">Top Players</div>
+                    ${topPlayersHtml}
+                  </div>
+              </div>
+              ${tableHtml}
+              <a href="${url}" download="badminton_analytics_${sDate}_to_${eDate}.csv" class="w-full mt-4 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold shadow-md transition active:scale-95">📥 Download CSV Report</a>
+            `;
+          } catch (e) {
+            console.error(e);
+            document.getElementById('reportContent')!.innerHTML = '<div class="py-10 text-red-500 font-bold">❌ Error loading report</div>';
+          }
+        };
+
+        const startInput = document.getElementById('reportStart') as HTMLInputElement;
+        const endInput = document.getElementById('reportEnd') as HTMLInputElement;
+        
+        startInput.addEventListener('change', (e) => fetchReport((e.target as HTMLInputElement).value, endInput.value));
+        endInput.addEventListener('change', (e) => fetchReport(startInput.value, (e.target as HTMLInputElement).value));
+        
+        await fetchReport(today, today);
       }
     });
   }
@@ -1010,8 +1093,9 @@ export default function Home() {
                     <button onClick={openAddMember} className="col-span-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">➕ Add Member</button>
                     <button onClick={async()=>{ if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'Select exactly 4 players' }); Toast.fire({icon:'info', title:'Matching...'}); await fetch('/api/manual-match', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ids: selected})}); setSelected([]); refresh(false); Toast.fire({ icon: 'success', title: 'Matched Selected' }); }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Match Selected</button>
                     <button onClick={async()=>{ const c = prompt('Courts (comma separated)', (state?.courtNames || []).join(', ')); if(c){ await fetch('/api/config', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({action:'set', key:'Courts', value: c})}); Toast.fire({ icon: 'success', title: 'Courts updated' }); refresh(false); } }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Setup Courts</button>
-                    <button onClick={showReport} className="col-span-1 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm transition active:scale-95">📊 Report</button>
-                    <button onClick={resetDay} className="col-span-1 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm hover:bg-red-100 transition active:scale-95">⚠️ Reset</button>
+                    <button onClick={showDailyReport} className="col-span-1 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm transition active:scale-95">📊 Daily Report</button>
+                    <button onClick={showAnalytics} className="col-span-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm transition active:scale-95">📈 Analytics</button>
+                    <button onClick={resetDay} className="col-span-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm hover:bg-red-100 transition active:scale-95">⚠️ Reset Day</button>
                   </div>
                 </div>
               </div>
