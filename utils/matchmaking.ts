@@ -8,8 +8,8 @@ export type Player = {
 }
 
 export type MatchHistory = {
-  t1: string[]; // [id1, id2]
-  t2: string[]; // [id3, id4]
+  t1: string[]; 
+  t2: string[]; 
 }
 
 // ตรวจสอบว่าเคยอยู่ทีมเดียวกันไหม
@@ -17,7 +17,7 @@ function isSameTeam(teamA: string[], teamB: string[]) {
   return (teamA.includes(teamB[0]) && teamA.includes(teamB[1]));
 }
 
-// คำนวณค่าปรับ (Penalty) ยิ่งค่าปรับเยอะ ยิ่งไม่อยากจับคู่ให้
+// คำนวณค่าปรับ (Penalty) เพื่อไม่ให้เจอคู่เดิมซ้ำ
 function checkHistoryPenalty(t1: Player[], t2: Player[], history: MatchHistory[]): number {
   if (!history || history.length === 0) return 0;
   
@@ -29,11 +29,11 @@ function checkHistoryPenalty(t1: Player[], t2: Player[], history: MatchHistory[]
     const sameT1 = isSameTeam(h.t1, t1Ids) || isSameTeam(h.t2, t1Ids);
     const sameT2 = isSameTeam(h.t1, t2Ids) || isSameTeam(h.t2, t2Ids);
     
-    // โดนปรับ 50 คะแนน ถ้าคู่ใดคู่หนึ่งดันเป็นคู่เดิม
+    // โดนปรับ 50 คะแนน ถ้าใครคนใดคนหนึ่งดันได้คู่เดิม
     if (sameT1) penalty += 50; 
     if (sameT2) penalty += 50; 
     
-    // โดนปรับ 200 คะแนน (หนักสุด) ถ้าแมตช์นี้คือคู่เดิมเป๊ะๆ มาเจอกันอีกรอบ
+    // โดนปรับ 200 คะแนน (หนักสุด) ถ้าแมตช์นี้คือคู่เดิมเป๊ะๆ 4 คนมาเจอกันอีกรอบ
     if ((isSameTeam(h.t1, t1Ids) && isSameTeam(h.t2, t2Ids)) || 
         (isSameTeam(h.t1, t2Ids) && isSameTeam(h.t2, t1Ids))) {
       penalty += 200; 
@@ -42,7 +42,6 @@ function checkHistoryPenalty(t1: Player[], t2: Player[], history: MatchHistory[]
   return penalty;
 }
 
-// 1. ฟังก์ชันจับคู่แบบ Balanced (เน้นฝีมือใกล้เคียง + ไม่ซ้ำคู่เดิม)
 export function balanceTeams(players: Player[], history: MatchHistory[] = []) {
   const combos = [
     { t1: [0,1], t2:[2,3] },
@@ -64,7 +63,7 @@ export function balanceTeams(players: Player[], history: MatchHistory[] = []) {
     const diff = Math.abs(s1 - s2);
     const penalty = checkHistoryPenalty(team1, team2, history);
     
-    const totalScore = diff + penalty; // เอาความห่างฝีมือ + ค่าปรับเล่นซ้ำ
+    const totalScore = diff + penalty; // ความห่างฝีมือ + ค่าปรับเล่นซ้ำ
 
     if (totalScore < bestScore) {
       bestScore = totalScore;
@@ -75,7 +74,6 @@ export function balanceTeams(players: Player[], history: MatchHistory[] = []) {
   return { diff: bestDiff, teams: bestOrder };
 }
 
-// 2. ฟังก์ชันจับคู่แบบ Smart (เงื่อนไขในทีมห่างไม่เกิน 3, ทีมชนทีมห่างไม่เกิน 1 + ไม่ซ้ำคู่เดิม)
 export function extractBestMatch(queue: Player[], history: MatchHistory[] = []) {
   if (queue.length < 4) return null;
   let bestFallback: any = null;
@@ -101,12 +99,11 @@ export function extractBestMatch(queue: Player[], history: MatchHistory[] = []) 
 
             const penalty = checkHistoryPenalty(t1, t2, history);
 
-            // แมตช์สมบูรณ์แบบ (ฝีมือใกล้ และ ไม่เคยเล่นคู่กันเลย penalty = 0)
+            // แมตช์สมบูรณ์แบบ (ฝีมือใกล้ และ ไม่เคยเล่นคู่กันเลย)
             if (diff1 <= 3 && diff2 <= 3 && matchDiff <= 1 && penalty === 0) {
               return { players: [p1, p2, p3, p4], teams: [t1, t2], diff: matchDiff, indices: [i, j, k, l] };
             }
 
-            // ถ้าหาเพอร์เฟคไม่ได้ ให้จัดลำดับความเหมาะสม (โดนปรับน้อยสุดขึ้นก่อน)
             const fallbackScore = matchDiff + (diff1 > 3 ? 5 : 0) + (diff2 > 3 ? 5 : 0) + (i + j + k + l) + penalty;
             if (fallbackScore < bestFallbackScore) {
               bestFallbackScore = fallbackScore;
