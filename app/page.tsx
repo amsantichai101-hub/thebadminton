@@ -95,23 +95,30 @@ export default function Home() {
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
 
-  const estWaitMins = useCallback(() => {
+    const estWaitMins = (() => {
     if (myWaitIndex === -1 || !myProfile || pausedIds.includes(myProfile.id)) return 0;
     const activeWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
     const realWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
     if (realWaitIndex === -1) return 0;
+    
     const teamIndex = Math.floor(realWaitIndex / 4); 
-    const courtRemaining = (state?.playing || []).map(c => Math.max(avgMatchDuration - ((Date.now() - new Date(c.startTime).getTime()) / 60000), 0));
+    const courtRemaining = (state?.playing || []).map(c => 
+      Math.max(avgMatchDuration - ((Date.now() - new Date(c.startTime).getTime()) / 60000), 0)
+    );
+    
     while (courtRemaining.length < courtsCount) courtRemaining.push(0);
+    
     const timeline = courtRemaining.sort((a,b) => a - b);
     let estimatedFinish = 0;
+    
     for (let i = 0; i <= teamIndex; i++) {
       estimatedFinish = timeline.shift() ?? 0;
       timeline.push(estimatedFinish + avgMatchDuration);
       timeline.sort((a,b) => a - b);
     }
+    
     return Math.max(1, Math.ceil(estimatedFinish));
-  }, [state, myProfile, myWaitIndex, pausedIds, avgMatchDuration, courtsCount]);
+  })();
 
   const notifiedStandby = useRef(false);
   const notifiedPlay = useRef(false);
