@@ -1,21 +1,62 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import Swal from 'sweetalert2'
-import type { AppState } from '@/lib/types'
+import type { AppState, Player } from '@/lib/types'
 import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
 
 const Toast = Swal.mixin({
   toast: true,
-  position: 'top-end',
+  position: 'top',
   showConfirmButton: false,
-  timer: 2500,
+  timer: 3500,
   timerProgressBar: true,
+  background: 'rgba(15, 23, 42, 0.9)',
+  color: '#fff',
+  customClass: { popup: 'backdrop-blur-md border border-slate-700 shadow-2xl rounded-2xl text-xs sm:text-sm' },
   didOpen: (toast) => {
     toast.addEventListener('mouseenter', Swal.stopTimer)
     toast.addEventListener('mouseleave', Swal.resumeTimer)
   }
 });
+
+const safeStorageSave = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e: any) {
+    if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+      Swal.fire({
+        title: '⚠️ ความจำเบราว์เซอร์เต็ม!',
+        text: 'ระบบกำลังล้างแคชเครื่องนี้ให้คุณใหม่ ข้อมูลคิวหลักไม่หาย แต่คุณต้องกดกู้คืนโปรไฟล์ใหม่อีกครั้งนะครับ',
+        icon: 'warning', confirmButtonColor: '#ef4444'
+      }).then(() => {
+        localStorage.clear(); sessionStorage.clear(); window.location.reload();
+      });
+    }
+  }
+};
+
+const playBeep = () => {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine'; osc.frequency.setValueAtTime(800, ctx.currentTime);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    osc.start(); osc.stop(ctx.currentTime + 0.3);
+  } catch(e) {}
+}
+
+const playDing = () => {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'triangle'; osc.frequency.setValueAtTime(1200, ctx.currentTime);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    osc.start(); osc.stop(ctx.currentTime + 0.6);
+  } catch(e) {}
+}
 
 export default function Home() {
   const [state, setState] = useState<AppState | null>(null)
@@ -31,23 +72,22 @@ export default function Home() {
   const [selectedPending, setSelectedPending] = useState<string[]>([])
   
   const [matchMode, setMatchMode] = useState<'smart'|'balanced'|'random'|'skill-gap'|'similar-skill'|'manual'>('smart');
-
   const [globalPreview, setGlobalPreview] = useState(true);
   const [playStartTime, setPlayStartTime] = useState('20:00');
   const [playEndTime, setPlayEndTime] = useState('22:30');
 
   const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
   const [manualPreviews, setManualPreviews] = useState<any[]>([]);
+  const [pausedIds, setPausedIds] = useState<string[]>([]);
+  const [loadingCourt, setLoadingCourt] = useState<string | null>(null);
 
   const wakeLockRef = useRef<any>(null);
   const [isAwake, setIsAwake] = useState(false);
-  
   const [notifyPerm, setNotifyPerm] = useState<string>('default');
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   const myWaitIndex = state?.waiting?.findIndex(p => p.id === myProfile?.id) ?? -1;
   const myPending = state?.pending?.find(p => p.id === myProfile?.id);
-  
-  // ตรวจสอบว่าลงคอร์ทจริงๆ หรือยัง พร้อมเช็คเวลาที่เริ่มตี
   const myActiveCourt = state?.playing?.find(c => c.p1Id === myProfile?.id || c.p2Id === myProfile?.id || c.p3Id === myProfile?.id || c.p4Id === myProfile?.id);
   const amIPlaying = !!myActiveCourt;
   const playDurationMs = myActiveCourt ? Date.now() - new Date(myActiveCourt.startTime).getTime() : 0;
@@ -55,51 +95,60 @@ export default function Home() {
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
 
-  const estWaitMins = (() => {
-    if (myWaitIndex === -1) return 0;
-    const teamIndex = Math.floor(myWaitIndex / 4); 
-    const groupsToCollect = teamIndex + 1;
-
-    const courtRemaining = (state?.playing || []).map(c => {
-      const elapsed = (Date.now() - new Date(c.startTime).getTime()) / 60000;
-      return Math.max(avgMatchDuration - elapsed, 0);
-    });
-
+  const estWaitMins = useCallback(() => {
+    if (myWaitIndex === -1 || !myProfile || pausedIds.includes(myProfile.id)) return 0;
+    const activeWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
+    const realWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
+    if (realWaitIndex === -1) return 0;
+    const teamIndex = Math.floor(realWaitIndex / 4); 
+    const courtRemaining = (state?.playing || []).map(c => Math.max(avgMatchDuration - ((Date.now() - new Date(c.startTime).getTime()) / 60000), 0));
     while (courtRemaining.length < courtsCount) courtRemaining.push(0);
-
     const timeline = courtRemaining.sort((a,b) => a - b);
     let estimatedFinish = 0;
-
-    for (let i = 0; i < groupsToCollect; i++) {
-      const nextAvailable = timeline.shift() ?? 0;
-      const finishTime = nextAvailable + avgMatchDuration;
-      timeline.push(finishTime);
+    for (let i = 0; i <= teamIndex; i++) {
+      estimatedFinish = timeline.shift() ?? 0;
+      timeline.push(estimatedFinish + avgMatchDuration);
       timeline.sort((a,b) => a - b);
-      if (i === groupsToCollect - 1) estimatedFinish = finishTime;
     }
     return Math.max(1, Math.ceil(estimatedFinish));
-  })();
+  }, [state, myProfile, myWaitIndex, pausedIds, avgMatchDuration, courtsCount]);
 
   const notifiedStandby = useRef(false);
   const notifiedPlay = useRef(false);
 
   useEffect(() => {
-    if ('Notification' in window) {
+    const handler = (e: any) => { e.preventDefault(); setDeferredPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
       setNotifyPerm(Notification.permission);
     }
   }, []);
 
   const requestNotify = async () => {
-    if ('Notification' in window) {
-      const perm = await Notification.requestPermission();
-      setNotifyPerm(perm);
-      if (perm === 'granted') {
-        Toast.fire({ icon: 'success', title: 'เปิดระบบแจ้งเตือนสำเร็จ!' });
-      } else {
-        Toast.fire({ icon: 'warning', title: 'คุณปฏิเสธการแจ้งเตือน' });
-      }
-    } else {
-      Toast.fire({ icon: 'error', title: 'เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน' });
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const perm = await Notification.requestPermission();
+        setNotifyPerm(perm);
+        if (perm === 'granted') Toast.fire({ icon: 'success', title: 'เปิดแจ้งเตือนสำเร็จ!' });
+      } catch (e) {}
+    }
+    if (deferredPrompt) {
+      setTimeout(() => {
+        Swal.fire({
+          title: '📱 ติดตั้งแอป Badminton Club',
+          text: 'เพิ่มไอคอนลงหน้าจอหลักมือถือ เพื่อให้ใช้งานลื่นไหลและแจ้งเตือนได้ดีที่สุดฮะ!',
+          icon: 'info', showCancelButton: true, confirmButtonText: 'ติดตั้งแอป', cancelButtonText: 'ไว้ทีหลัง'
+        }).then((res) => {
+          if (res.isConfirmed) {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
+          }
+        });
+      }, 1000);
     }
   };
 
@@ -111,69 +160,47 @@ export default function Home() {
   }, [myWaitIndex, amIPlaying]);
 
   useEffect(() => {
-    if (!myProfile) return;
-
-    const fireNotification = (title: string, body: string, vibratePattern: number[]) => {
-      if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(title, { body, icon: '/favicon.ico' });
-      }
-      Swal.fire({
-        title: title,
-        text: body,
-        icon: 'success',
-        position: 'top',
-        toast: true,
-        showConfirmButton: false,
-        timer: 6000
-      });
+    if (!myProfile || typeof window === 'undefined') return;
+    const fireNotification = (title: string, body: string, vibratePattern: number[], isDing = false) => {
+      try { if (window.isSecureContext && 'vibrate' in navigator) navigator.vibrate(vibratePattern); } catch(e) {}
+      try { if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body, icon: '/icon.png' }); } catch(e) {}
+      if (isDing) playDing(); else playBeep();
+      Toast.fire({ icon: 'success', title, text: body });
     };
 
-    if (myWaitIndex >= 0 && myWaitIndex < 4 && !notifiedStandby.current) {
-      fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [200, 100, 200]);
+    const activeWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
+    const realWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
+
+    if (realWaitIndex >= 0 && realWaitIndex < 4 && !notifiedStandby.current) {
+      fireNotification('🔥 ยืดเส้นรอเลย!', 'เตรียมตัวนะฮะ คิวของคุณอยู่อีกไม่เกิน 4 คิวแล้ว!', [200, 100, 200], false);
       notifiedStandby.current = true;
     }
 
-    // 💡 แจ้งเตือนเมื่อลงคอร์ทจริงๆ เท่านั้น และเพิ่งลงคอร์ทไม่เกิน 2 นาที (กันการแจ้งเตือนซ้ำตอนรีเฟรชจอ)
     if (amIPlaying && playDurationMs < 120000 && !notifiedPlay.current) {
-      fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt?.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 500]);
+      fireNotification('🏸 ลงสนามได้เลย!', `ถึงคิวคุณแล้วครับวัยรุ่น! เชิญที่คอร์ท [ ${myActiveCourt?.court} ] ได้เลย!`, [500, 200, 500, 200, 500], true);
       notifiedPlay.current = true;
     }
-  }, [myWaitIndex, amIPlaying, myProfile, playDurationMs, myActiveCourt]);
+  }, [state, myProfile, playDurationMs, myActiveCourt, pausedIds]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
-      if (wakeLockRef.current) {
-        try { await wakeLockRef.current.release(); } catch(e){}
-        wakeLockRef.current = null;
-      }
-      setIsAwake(false);
-      Toast.fire({ icon: 'info', title: 'ปิดโหมดห้ามจอดับ 🌙' });
+      if (wakeLockRef.current) { try { await wakeLockRef.current.release(); } catch(e){} wakeLockRef.current = null; }
+      setIsAwake(false); Toast.fire({ icon: 'info', title: 'ปิดโหมดห้ามจอดับ 🌙' });
     } else {
       try {
         if ('wakeLock' in navigator) {
           wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-          setIsAwake(true);
-          Toast.fire({ icon: 'success', title: 'เปิดโหมดห้ามหน้าจอดับ ☀️' });
-          
-          wakeLockRef.current.addEventListener('release', () => {
-            setIsAwake(false);
-          });
-        } else {
-          Toast.fire({ icon: 'warning', title: 'Browser ไม่รองรับระบบนี้' });
-        }
-      } catch (err: any) {
-        Toast.fire({ icon: 'error', title: `ล็อคหน้าจอไม่ได้: ${err.message}` });
-      }
+          setIsAwake(true); Toast.fire({ icon: 'success', title: 'เปิดโหมดห้ามหน้าจอดับ ☀️' });
+          wakeLockRef.current.addEventListener('release', () => setIsAwake(false));
+        } else { Toast.fire({ icon: 'warning', title: 'เบราว์เซอร์ไม่รองรับ WakeLock' }); }
+      } catch (err: any) { Toast.fire({ icon: 'error', title: `ล็อคไม่ได้: ${err.message}` }); }
     }
   };
 
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && isAwake && 'wakeLock' in navigator) {
-        try {
-          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-        } catch(e) {}
+        try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch(e) {}
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -185,11 +212,43 @@ export default function Home() {
     try {
       const res = await fetch('/api/state', { cache: 'no-store' }); 
       const d = await res.json(); 
+      if(d.waiting) d.waiting.sort((a:any, b:any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
       setState(d)
-      
       if (d.globalShowPreview !== undefined) setGlobalPreview(d.globalShowPreview);
       if (d.playStartTime) setPlayStartTime(d.playStartTime);
       if (d.playEndTime) setPlayEndTime(d.playEndTime);
+
+      if (localStorage.getItem('adminAuth') === 'true' && d.playing) {
+        const now = new Date().getTime();
+        const avgMs = (d.avgMatchDuration || 15) * 60000;
+        d.playing.forEach(async (m: any) => {
+          const elapsed = now - new Date(m.startTime).getTime();
+          if (elapsed >= avgMs + (5 * 60000)) {
+             Toast.fire({ icon: 'info', title: `[Auto] จบเกมคอร์ท ${m.court} (เกินเวลา)` });
+             await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court: m.court }) });
+          }
+        });
+        if (d.autoMatch && d.waiting && d.waiting.length >= 4) {
+           const sTime = new Date(); const eTime = new Date();
+           const sParts = (d.playStartTime || '20:00').split(':');
+           const eParts = (d.playEndTime || '22:30').split(':');
+           sTime.setHours(+sParts[0], +sParts[1], 0); eTime.setHours(+eParts[0], +eParts[1], 0);
+           if (now >= sTime.getTime() && now <= eTime.getTime()) {
+              const availableCourtsCount = d.courtNames.filter((cn:any) => !d.playing.find((p:any) => p.court === cn)).length || 0;
+              const finalCourtSlots = availableCourtsCount - manualPreviews.length;
+              if (finalCourtSlots > 0) {
+                 const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
+                 const finalWaiting = d.waiting.filter((p:any) => !pausedIds.includes(p.id) && !manualIdsList.includes(p.id));
+                 const matches = getAutoNextMatches(finalWaiting, finalCourtSlots, matchMode, matchHistory);
+                 for (const m of matches) {
+                    const ids = [m.teams[0][0].id, m.teams[0][1].id, m.teams[1][0].id, m.teams[1][1].id];
+                    recordMatchToHistory(ids);
+                    await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids }) });
+                 }
+              }
+           }
+        }
+      }
     } catch(e) {}
     finally { setIsLoading(false); }
   }
@@ -199,12 +258,12 @@ export default function Home() {
     const savedTheme = localStorage.getItem('theme') as 'light'|'dark' || 'light';
     setTheme(savedTheme);
     if(savedTheme === 'dark') document.documentElement.classList.add('dark');
-
     const savedProfile = localStorage.getItem('myProfile');
     if(savedProfile) setMyProfile(JSON.parse(savedProfile));
-
     const savedHistory = localStorage.getItem('localMatchHistory');
     if (savedHistory) setMatchHistory(JSON.parse(savedHistory));
+    const savedPaused = localStorage.getItem('pausedIds');
+    if (savedPaused) setPausedIds(JSON.parse(savedPaused));
 
     refresh(true); 
     const t = setInterval(() => refresh(false), Number(process.env.NEXT_PUBLIC_AUTO_REFRESH_MS || 5000)); 
@@ -216,14 +275,25 @@ export default function Home() {
     const newRecord = { t1: [ids[0], ids[1]], t2: [ids[2], ids[3]] };
     setMatchHistory(prev => {
       const updated = [newRecord, ...prev].slice(0, 100); 
-      localStorage.setItem('localMatchHistory', JSON.stringify(updated));
+      safeStorageSave('localMatchHistory', JSON.stringify(updated));
+      return updated;
+    });
+  }
+
+  const togglePause = (id: string, e: any) => {
+    e.stopPropagation();
+    setPausedIds(prev => {
+      const isPaused = prev.includes(id);
+      const updated = isPaused ? prev.filter(x => x !== id) : [...prev, id];
+      safeStorageSave('pausedIds', JSON.stringify(updated));
+      Toast.fire({ icon: 'info', title: isPaused ? '▶️ กลับเข้าคิว' : '⏸️ พักคิวชั่วคราว' });
       return updated;
     });
   }
 
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme); localStorage.setItem('theme', newTheme);
+    setTheme(newTheme); safeStorageSave('theme', newTheme);
     if(newTheme === 'dark') document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }
@@ -231,33 +301,16 @@ export default function Home() {
   const clearBrowserData = () => {
     Swal.fire({
       title: '🧹 Clear Browser Data',
-      html: `
-        <div class="text-left text-sm text-slate-600 space-y-2">
-          <p><strong>This will clear:</strong></p>
-          <ul class="list-disc list-inside text-xs text-slate-500 ml-2">
-            <li>Your saved profile (name, ID)</li>
-            <li>Admin login session</li>
-            <li>Theme preference</li>
-            <li>Match History (ลืมประวัติคู่ซ้ำ)</li>
-          </ul>
-        </div>
-      `,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Clear All Data',
-      confirmButtonColor: '#ef4444',
-      preConfirm: () => {
-        localStorage.clear();
-        sessionStorage.clear();
-        setMyProfile(null);
-        setAdmin(false);
-        setSelected([]);
-        setTheme('light');
-        setMatchHistory([]);
-        setManualPreviews([]);
+      text: 'ล้างโปรไฟล์และประวัติทั้งหมดบนเครื่องนี้? (ชื่อในคิวจะไม่หายไป)',
+      icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'ล้างข้อมูล'
+    }).then((r) => {
+      if(r.isConfirmed) {
+        localStorage.clear(); sessionStorage.clear();
+        setMyProfile(null); setAdmin(false); setSelected([]); setTheme('light');
+        setMatchHistory([]); setManualPreviews([]); setPausedIds([]);
         document.documentElement.classList.remove('dark');
-        Toast.fire({ icon: 'success', title: 'Data cleared! Reloading...' });
-        setTimeout(() => window.location.reload(), 1500);
+        Toast.fire({ icon: 'success', title: 'ล้างข้อมูลสำเร็จ' });
+        setTimeout(() => window.location.reload(), 1000);
       }
     });
   }
@@ -265,33 +318,19 @@ export default function Home() {
   const toggleGlobalPreviewState = async (checked: boolean) => {
     setGlobalPreview(checked); 
     if (admin) {
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set', key: 'GlobalShowPreview', value: checked.toString() })
-      });
+      await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'GlobalShowPreview', value: checked.toString() }) });
     }
   }
 
   const savePlayTime = async () => {
-    Toast.fire({ icon: 'info', title: 'Saving Time...' });
-    await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set', key: 'PlayStartTime', value: playStartTime })
-    });
-    await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set', key: 'PlayEndTime', value: playEndTime })
-    });
-    Toast.fire({ icon: 'success', title: 'Play Time Saved' });
+    Toast.fire({ icon: 'info', title: 'กำลังบันทึก...' });
+    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayStartTime', value: playStartTime }) });
+    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayEndTime', value: playEndTime }) });
+    Toast.fire({ icon: 'success', title: 'บันทึกเวลาเล่นแล้ว' });
   }
 
   const runApi = async (url: string, body?: any, showLoader = true) => {
-    if (showLoader) {
-      Swal.fire({ title: 'Processing...', toast: true, position: 'top-end', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-    }
+    if (showLoader) Swal.fire({ title: 'กำลังประมวลผล...', toast: true, position: 'top-end', showConfirmButton: false, didOpen: () => Swal.showLoading() });
     try {
       const res = await fetch(url, { method: body ? 'POST' : 'GET', headers: body ? {'content-type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined });
       const data = await res.json(); 
@@ -299,63 +338,41 @@ export default function Home() {
       if (showLoader) Swal.close();
       return data;
     } catch (e) {
-      if (showLoader) Swal.close();
-      Toast.fire({ icon: 'error', title: 'Network Error' });
-      return null;
+      if (showLoader) Swal.close(); Toast.fire({ icon: 'error', title: 'Network Error' }); return null;
     }
   }
 
   const executeAutoMatch = async () => {
-    if (!state?.waiting || state.waiting.length < 4) {
-      Toast.fire({ icon: 'warning', title: 'Need at least 4 players in queue' });
-      return;
-    }
+    const availableWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
+    if (availableWaiting.length < 4) return Toast.fire({ icon: 'warning', title: 'คิวที่พร้อมมีไม่ถึง 4 คน' });
+    
+    const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
+    const finalWaiting = availableWaiting.filter(p => !manualIdsList.includes(p.id));
 
     const availableCourtsCount = state?.courtNames.filter(cn => !state.playing.find(p => p.court === cn)).length || 0;
-    const matchTarget = Math.max(1, availableCourtsCount); 
-    
-    const manualIds = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
-    const availableWaiting = (state?.waiting || []).filter(p => !manualIds.includes(p.id));
+    const matches = getAutoNextMatches(finalWaiting, Math.max(1, availableCourtsCount), matchMode, matchHistory);
 
-    const matches = getAutoNextMatches(availableWaiting, matchTarget, matchMode, matchHistory);
+    if (matches.length === 0) return Toast.fire({ icon: 'warning', title: 'ไม่สามารถหาคู่ที่ลงตัวได้' });
 
-    if (matches.length === 0) {
-      Toast.fire({ icon: 'warning', title: 'Cannot find suitable match right now' });
-      return;
-    }
-
-    Toast.fire({ icon: 'info', title: `Starting ${matches.length} match(es)...` });
+    Toast.fire({ icon: 'info', title: `กำลังนำ ${matches.length} คู่ลงสนาม...` });
 
     for (const m of matches) {
       const ids = [m.teams[0][0].id, m.teams[0][1].id, m.teams[1][0].id, m.teams[1][1].id];
       recordMatchToHistory(ids); 
-      await fetch('/api/manual-match', {
-        method: 'POST',
-        headers: {'content-type':'application/json'},
-        body: JSON.stringify({ ids })
-      });
+      await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids }) });
     }
     refresh(false);
-    Toast.fire({ icon: 'success', title: 'Matches Started!' });
   }
 
-  const confirmSpecificMatch = async (matchData: any) => {
-    Toast.fire({ icon: 'info', title: `Confirming Match...` });
-    const ids = [
-      matchData.teams[0][0].id, matchData.teams[0][1].id, 
-      matchData.teams[1][0].id, matchData.teams[1][1].id
-    ];
+  const confirmSpecificMatch = async (matchData: any, courtName: string) => {
+    setLoadingCourt(courtName);
+    const ids = [matchData.teams[0][0].id, matchData.teams[0][1].id, matchData.teams[1][0].id, matchData.teams[1][1].id];
     recordMatchToHistory(ids); 
-    await fetch('/api/manual-match', {
-      method: 'POST',
-      headers: {'content-type':'application/json'},
-      body: JSON.stringify({ ids })
-    });
-    
+    await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids, court: courtName }) });
     setManualPreviews(prev => prev.filter(m => m !== matchData));
-
-    refresh(false);
-    Toast.fire({ icon: 'success', title: 'Match Started!' });
+    await refresh(false);
+    setLoadingCourt(null);
+    Toast.fire({ icon: 'success', title: 'เริ่มเกมแล้ว!' });
   }
 
   const openCheckIn = () => {
@@ -364,86 +381,54 @@ export default function Home() {
       html: `
         <style>
           .swal2-container .swal2-popup { overflow: visible !important; }
+          #swTableContainer, #syncTableContainer { -webkit-overflow-scrolling: touch; }
         </style>
         <div class="flex flex-col gap-4 text-left w-full relative">
-          
           <input type="hidden" id="currentMode" value="search">
-          <input type="hidden" id="hidId">
-          <input type="hidden" id="hidName">
-          <input type="hidden" id="hidSkill">
+          <input type="hidden" id="hidId"> <input type="hidden" id="hidName"> <input type="hidden" id="hidSkill">
 
           <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner gap-1">
-            <button type="button" id="tabSearch" class="flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all">🔍 เข้าคิว (เคยมีข้อมูล)</button>
-            <button type="button" id="tabNew" class="flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all">✨ เข้าคิว (มาครั้งแรก)</button>
+            <button type="button" id="tabSearch" class="flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all">🔍 มีข้อมูลเดิม</button>
+            <button type="button" id="tabNew" class="flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all">✨ ลงทะเบียนใหม่</button>
             <button type="button" id="tabSync" class="flex-1 py-2 text-[11px] font-bold rounded-md text-red-500 hover:text-red-700 transition-all">🔄 กู้คืนโปรไฟล์</button>
           </div>
 
-          <!-- หมวดที่ 1: ค้นหาคนเก่า -->
           <div id="secSearch" class="flex flex-col gap-2 min-h-[180px]">
              <label class="text-[10px] font-bold text-slate-500 block uppercase">ค้นหาด้วยชื่อ หรือ รหัสพนักงาน</label>
              <div class="flex gap-2 relative">
-                <input id="swSearch" class="w-full p-3 border border-blue-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-slate-400" placeholder="พิมพ์ชื่อ หรือรหัส..." autocomplete="off">
+                <input id="swSearch" class="w-full p-3 border border-blue-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="พิมพ์ชื่อ หรือรหัส..." autocomplete="off">
                 <button id="swClearBtn" type="button" class="bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold px-3 rounded-lg shadow-sm hidden transition">✕</button>
              </div>
-             
              <div id="swTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-1"></div>
-             
              <div id="searchSelectedPreview" class="hidden mt-2 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl shadow-sm text-sm">
-                <div class="text-[10px] text-blue-500 font-black mb-2 tracking-widest uppercase">✅ เลือกผู้เล่นนี้แล้ว</div>
                 <div class="flex justify-between items-center bg-white p-2 rounded-lg shadow-sm">
-                  <div class="flex flex-col">
-                    <span id="previewName" class="font-bold text-slate-700 text-base"></span>
-                    <span id="previewId" class="text-[10px] font-mono text-slate-400"></span>
-                  </div>
-                  <span id="previewSkill" class="bg-blue-600 text-white text-[10px] px-2.5 py-1 rounded-md font-bold shadow-sm"></span>
+                  <div class="flex flex-col"><span id="previewName" class="font-bold text-slate-700 text-base"></span><span id="previewId" class="text-[10px] font-mono text-slate-400"></span></div>
+                  <span id="previewSkill" class="bg-blue-600 text-white text-[10px] px-2.5 py-1 rounded-md font-bold"></span>
                 </div>
-                <p class="text-[10px] text-slate-500 mt-3 text-center">กดปุ่ม Check In ด้านล่างเพื่อเข้าคิวได้เลย</p>
+                <p class="text-[10px] text-slate-500 mt-3 text-center">✅ เลือกแล้ว กดปุ่ม Check In ด้านล่างได้เลย</p>
              </div>
           </div>
 
-          <!-- หมวดที่ 2: ลงทะเบียนใหม่ / Guest -->
           <div id="secNew" class="hidden flex-col gap-3 min-h-[180px]">
-              <label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg cursor-pointer hover:bg-amber-100 transition shadow-sm">
-                <input type="checkbox" id="swGuest" class="w-4 h-4 text-amber-600"> <span class="flex flex-col">Guest <span class="text-[10px] font-normal text-slate-500">ไม่มี ID พนักงาน ระบบจะสุ่มให้</span></span>
+              <label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg cursor-pointer shadow-sm">
+                <input type="checkbox" id="swGuest" class="w-4 h-4 text-amber-600"> <span>Guest <span class="text-[10px] font-normal text-slate-500">(ระบบจะสุ่ม ID ให้)</span></span>
               </label>
-              
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
-                  <div>
-                      <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No. (รหัสพนักงาน)</label>
-                      <input id="swID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors" placeholder="e.g. 12345" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : ''}">
-                  </div>
-                  <div>
-                      <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name (ชื่อเล่น)</label>
-                      <input id="swName" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors" placeholder="Name" value="${myProfile?.name || ''}">
-                  </div>
+              <div class="grid grid-cols-2 gap-3 mt-1">
+                  <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">รหัสพนักงาน</label><input id="swID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. 12345"></div>
+                  <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">ชื่อเล่น (ที่แสดง)</label><input id="swName" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Name"></div>
               </div>
-              
-              <div class="mt-1">
-                  <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Level (เลือกระดับฝีมือตามจริง)</label>
-                  <select id="swSkill" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors">
-                    <option value="1">1 (มือใหม่แกะกล่อง)</option>
-                    <option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option>
-                    <option value="3">3 (มือกลาง มีพื้นฐาน)</option>
-                    <option value="4">4 (มือตึง สายคุมเกมส์)</option>
-                    <option value="5">5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
+              <div class="mt-1"><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">ระดับฝีมือ</label>
+                  <select id="swSkill" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="1">1 (มือใหม่แกะกล่อง)</option><option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option><option value="3">3 (มือกลาง)</option><option value="4">4 (มือตึง)</option><option value="5">5 (มือปีศาจ)</option>
                   </select>
               </div>
           </div>
 
-          <!-- 💡 หมวดที่ 3: กู้คืนโปรไฟล์ (Sync Device) -->
           <div id="secSync" class="hidden flex-col gap-2 min-h-[180px]">
-             <div class="bg-red-50 border border-red-200 p-3 rounded-lg mb-2">
-                <p class="text-xs text-red-600 font-bold mb-1">⚠️ ใช้กรณีไหน?</p>
-                <p class="text-[10px] text-red-500 leading-tight">ใช้เมื่อคุณ <b>"มีชื่ออยู่ในคิวแล้ว"</b> แต่เผลอเคลียร์แคช หรือหน้าจอเปลี่ยนมือถือ ทำให้ระบบไม่จำหน้าโปรไฟล์คุณ (ไม่ต้องกดเข้าคิวใหม่ให้ซ้ำซ้อน)</p>
-             </div>
-             
-             <div class="flex gap-2 relative">
-                <input id="syncSearchInput" class="w-full p-3 border border-red-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none placeholder-slate-400" placeholder="🔍 ค้นหาชื่อเพื่อดึงโปรไฟล์กลับมา..." autocomplete="off">
-             </div>
-             
+             <div class="bg-red-50 border border-red-200 p-3 rounded-lg text-[10px] text-red-500 mb-2">ใช้เมื่อ <b>มีชื่อในคิวอยู่แล้ว</b> แต่หน้าจอหลุด (ไม่ต้องกดต่อคิวใหม่)</div>
+             <input id="syncSearchInput" class="w-full p-3 border border-red-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none" placeholder="🔍 ค้นหาชื่อเพื่อผูกโปรไฟล์..." autocomplete="off">
              <div id="syncTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-1"></div>
           </div>
-
         </div>
       `,
       didOpen: () => {
@@ -451,249 +436,125 @@ export default function Home() {
         const tabSearch = document.getElementById('tabSearch') as HTMLButtonElement;
         const tabNew = document.getElementById('tabNew') as HTMLButtonElement;
         const tabSync = document.getElementById('tabSync') as HTMLButtonElement;
-        
         const secSearch = document.getElementById('secSearch') as HTMLDivElement;
         const secNew = document.getElementById('secNew') as HTMLDivElement;
         const secSync = document.getElementById('secSync') as HTMLDivElement;
 
-        // สลับโหมด UI
         const switchTab = (mode: string) => {
           currentMode.value = mode;
-          
           tabSearch.className = mode === 'search' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
           tabNew.className = mode === 'new' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
           tabSync.className = mode === 'sync' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-red-500 text-white transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-red-500 hover:text-red-700 transition-all bg-transparent shadow-none';
-
-          secSearch.classList.toggle('hidden', mode !== 'search');
-          secSearch.classList.toggle('flex', mode === 'search');
-          
-          secNew.classList.toggle('hidden', mode !== 'new');
-          secNew.classList.toggle('flex', mode === 'new');
-
-          secSync.classList.toggle('hidden', mode !== 'sync');
-          secSync.classList.toggle('flex', mode === 'sync');
+          secSearch.classList.toggle('hidden', mode !== 'search'); secSearch.classList.toggle('flex', mode === 'search');
+          secNew.classList.toggle('hidden', mode !== 'new'); secNew.classList.toggle('flex', mode === 'new');
+          secSync.classList.toggle('hidden', mode !== 'sync'); secSync.classList.toggle('flex', mode === 'sync');
         };
 
-        tabSearch.onclick = () => switchTab('search');
-        tabNew.onclick = () => switchTab('new');
-        tabSync.onclick = () => switchTab('sync');
+        tabSearch.onclick = () => switchTab('search'); tabNew.onclick = () => switchTab('new'); tabSync.onclick = () => switchTab('sync');
 
-        // Logic หมวดค้นหา (Check In)
         const swSearch = document.getElementById('swSearch') as HTMLInputElement;
         const swTableContainer = document.getElementById('swTableContainer') as HTMLDivElement;
         const swClearBtn = document.getElementById('swClearBtn') as HTMLButtonElement;
         const searchSelectedPreview = document.getElementById('searchSelectedPreview') as HTMLDivElement;
-        
         const hidId = document.getElementById('hidId') as HTMLInputElement;
         const hidName = document.getElementById('hidName') as HTMLInputElement;
         const hidSkill = document.getElementById('hidSkill') as HTMLInputElement;
 
         const lockFields = (p: any) => {
            hidId.value = p.id; hidName.value = p.name; hidSkill.value = p.skill;
-           
-           document.getElementById('previewId')!.textContent = 'ID: ' + p.id;
-           document.getElementById('previewName')!.textContent = p.name;
-           document.getElementById('previewSkill')!.textContent = 'Lv ' + p.skill;
-           
-           searchSelectedPreview.classList.remove('hidden');
-           swSearch.classList.add('hidden');
-           swTableContainer.classList.add('hidden');
-           swClearBtn.classList.remove('hidden');
+           document.getElementById('previewId')!.textContent = 'ID: ' + p.id; document.getElementById('previewName')!.textContent = p.name; document.getElementById('previewSkill')!.textContent = 'Lv ' + p.skill;
+           searchSelectedPreview.classList.remove('hidden'); swSearch.classList.add('hidden'); swTableContainer.classList.add('hidden'); swClearBtn.classList.remove('hidden');
         };
 
-        const unlockFields = () => {
+        swClearBtn.addEventListener('click', () => {
            hidId.value = ''; hidName.value = ''; hidSkill.value = '';
-           searchSelectedPreview.classList.add('hidden');
-           swSearch.classList.remove('hidden');
-           swSearch.value = '';
-           swClearBtn.classList.add('hidden');
-           swTableContainer.innerHTML = '';
-           swSearch.focus();
-        };
-
-        swClearBtn.addEventListener('click', unlockFields);
+           searchSelectedPreview.classList.add('hidden'); swSearch.classList.remove('hidden'); swSearch.value = ''; swClearBtn.classList.add('hidden'); swTableContainer.innerHTML = ''; swSearch.focus();
+        });
 
         let timeout: any;
         swSearch.addEventListener('input', () => {
-          clearTimeout(timeout);
-          swTableContainer.innerHTML = '';
+          clearTimeout(timeout); swTableContainer.innerHTML = '';
           if(swSearch.value.length < 2) { swTableContainer.classList.add('hidden'); return; }
-          
           timeout = setTimeout(async () => {
             try {
               const res = await fetch(`/api/player?q=${swSearch.value}`);
               const data = await res.json();
-              
-              let playerList = [];
-              if (Array.isArray(data)) playerList = data;
-              else if (data.list && Array.isArray(data.list)) playerList = data.list;
-              else if (data.data && Array.isArray(data.data)) playerList = data.data;
-              else if (data.found && data.id) playerList = [data];
-
+              let playerList = Array.isArray(data) ? data : data.list || data.data || (data.found ? [data] : []);
+              playerList = Array.from(new Map(playerList.map((item:any) => [item.id, item])).values());
               swTableContainer.classList.remove('hidden');
-
               if(playerList.length > 0) {
-                const table = document.createElement('table');
-                table.className = 'w-full text-left text-xs';
-                table.innerHTML = '<thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">ID</th><th class="p-2">Name</th><th class="p-2 text-center">Lv</th><th class="p-2 text-center">Action</th></tr></thead>';
+                const table = document.createElement('table'); table.className = 'w-full text-left text-xs';
+                table.innerHTML = '<thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">Name / ID</th><th class="p-2 text-center">Lv</th></tr></thead>';
                 const tbody = document.createElement('tbody');
-                
                 playerList.forEach((p: any) => {
-                  const tr = document.createElement('tr');
-                  tr.className = 'border-b border-slate-100 hover:bg-blue-50 transition-colors cursor-pointer';
-                  tr.onmousedown = (e) => { e.preventDefault(); lockFields(p); };
-                  
-                  const tdId = document.createElement('td'); tdId.className = 'p-2 font-bold text-blue-600'; tdId.textContent = p.id;
-                  const tdName = document.createElement('td'); tdName.className = 'p-2 font-medium'; tdName.textContent = p.name;
-                  const tdLv = document.createElement('td'); tdLv.className = 'p-2 text-center'; tdLv.innerHTML = `<span class="bg-slate-200 px-1.5 py-0.5 rounded shadow-inner font-bold">${p.skill}</span>`;
-                  const tdAction = document.createElement('td'); tdAction.className = 'p-2 text-center';
-                  
-                  const btn = document.createElement('button');
-                  btn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform';
-                  btn.textContent = 'Select';
-                  
-                  tdAction.appendChild(btn);
-                  tr.append(tdId, tdName, tdLv, tdAction);
+                  const tr = document.createElement('tr'); tr.className = 'border-b border-slate-100 hover:bg-blue-50 transition-colors cursor-pointer';
+                  tr.onmousedown = (e) => { e.preventDefault(); lockFields(p); }; 
+                  tr.innerHTML = `<td class="p-3"><div class="font-bold text-slate-700">${p.name}</div><div class="text-[10px] text-blue-500">${p.id}</div></td><td class="p-3 text-center"><span class="bg-slate-200 px-2 py-1 rounded shadow-inner font-bold">${p.skill}</span></td>`;
                   tbody.appendChild(tr);
                 });
-                table.appendChild(tbody);
-                swTableContainer.appendChild(table);
-              } else {
-                swTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูลผู้เล่น <br/>(กดแท็บ "มาครั้งแรก" ด้านบนเพื่อลงทะเบียน)</div>';
-              }
+                table.appendChild(tbody); swTableContainer.appendChild(table);
+              } else { swTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูล</div>'; }
+            } catch (e) {}
+          }, 300);
+        });
+
+        const syncSearchInput = document.getElementById('syncSearchInput') as HTMLInputElement;
+        const syncTableContainer = document.getElementById('syncTableContainer') as HTMLDivElement;
+        let syncTimeout: any;
+        syncSearchInput.addEventListener('input', () => {
+          clearTimeout(syncTimeout); syncTableContainer.innerHTML = '';
+          if(syncSearchInput.value.length < 2) { syncTableContainer.classList.add('hidden'); return; }
+          syncTimeout = setTimeout(async () => {
+            try {
+              const res = await fetch(`/api/player?q=${syncSearchInput.value}`);
+              const data = await res.json();
+              let playerList = Array.isArray(data) ? data : data.list || data.data || (data.found ? [data] : []);
+              playerList = Array.from(new Map(playerList.map((item:any) => [item.id, item])).values());
+              syncTableContainer.classList.remove('hidden');
+              if(playerList.length > 0) {
+                const table = document.createElement('table'); table.className = 'w-full text-left text-xs';
+                table.innerHTML = '<thead class="bg-red-100 sticky top-0 text-red-800"><tr><th class="p-2">Name</th><th class="p-2 text-center">Action</th></tr></thead>';
+                const tbody = document.createElement('tbody');
+                playerList.forEach((p: any) => {
+                  const tr = document.createElement('tr'); tr.className = 'border-b border-slate-100 hover:bg-red-50';
+                  const tdName = document.createElement('td'); tdName.className = 'p-3 font-bold text-slate-700'; tdName.innerHTML = `${p.name}<br><span class="text-[10px] text-red-400 font-mono">${p.id}</span>`;
+                  const tdAction = document.createElement('td'); tdAction.className = 'p-3 text-center';
+                  const btn = document.createElement('button'); btn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded shadow-sm font-bold';
+                  btn.textContent = 'Sync Device';
+                  btn.onclick = (e) => { e.preventDefault(); const profileData = { id: p.id, name: p.name }; safeStorageSave('myProfile', JSON.stringify(profileData)); setMyProfile(profileData); Swal.close(); Toast.fire({ icon: 'success', title: 'กู้คืนโปรไฟล์สำเร็จ!' }); };
+                  tdAction.appendChild(btn); tr.append(tdName, tdAction); tbody.appendChild(tr);
+                });
+                table.appendChild(tbody); syncTableContainer.appendChild(table);
+              } else { syncTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูล</div>'; }
             } catch (e) {}
           }, 300);
         });
 
         const swGuest = document.getElementById('swGuest') as HTMLInputElement;
         const swID = document.getElementById('swID') as HTMLInputElement;
-        
         swGuest.addEventListener('change', (e) => {
            const isGuest = (e.target as HTMLInputElement).checked;
-           swID.disabled = isGuest; 
-           if(isGuest) { 
-             swID.classList.add('bg-slate-100', 'cursor-not-allowed', 'opacity-50');
-             swID.value = '';
-           } else { 
-             swID.classList.remove('bg-slate-100', 'cursor-not-allowed', 'opacity-50');
-           }
+           swID.disabled = isGuest; if(isGuest) { swID.classList.add('bg-slate-100'); swID.value = ''; } else swID.classList.remove('bg-slate-100');
         });
-
-        // Logic หมวดกู้คืนโปรไฟล์ (Sync Mode)
-        const syncSearchInput = document.getElementById('syncSearchInput') as HTMLInputElement;
-        const syncTableContainer = document.getElementById('syncTableContainer') as HTMLDivElement;
-        
-        let syncTimeout: any;
-        syncSearchInput.addEventListener('input', () => {
-          clearTimeout(syncTimeout);
-          syncTableContainer.innerHTML = '';
-          if(syncSearchInput.value.length < 2) { syncTableContainer.classList.add('hidden'); return; }
-          
-          syncTimeout = setTimeout(async () => {
-            try {
-              const res = await fetch(`/api/player?q=${syncSearchInput.value}`);
-              const data = await res.json();
-              
-              let playerList = [];
-              if (Array.isArray(data)) playerList = data;
-              else if (data.list && Array.isArray(data.list)) playerList = data.list;
-              else if (data.data && Array.isArray(data.data)) playerList = data.data;
-              else if (data.found && data.id) playerList = [data];
-
-              syncTableContainer.classList.remove('hidden');
-
-              if(playerList.length > 0) {
-                const table = document.createElement('table');
-                table.className = 'w-full text-left text-xs';
-                table.innerHTML = '<thead class="bg-red-100 sticky top-0 text-red-800"><tr><th class="p-2">Name</th><th class="p-2 text-center">Action</th></tr></thead>';
-                const tbody = document.createElement('tbody');
-                
-                playerList.forEach((p: any) => {
-                  const tr = document.createElement('tr');
-                  tr.className = 'border-b border-slate-100 hover:bg-red-50 transition-colors';
-                  
-                  const tdName = document.createElement('td'); tdName.className = 'p-2 font-bold text-slate-700'; tdName.textContent = p.name;
-                  const tdAction = document.createElement('td'); tdAction.className = 'p-2 text-center';
-                  
-                  const btn = document.createElement('button');
-                  btn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform';
-                  btn.textContent = 'Sync Device';
-                  btn.onclick = (e) => {
-                    e.preventDefault();
-                    // บันทึกข้าม API ตรงเข้า LocalStorage ได้เลย
-                    const profileData = { id: p.id, name: p.name };
-                    localStorage.setItem('myProfile', JSON.stringify(profileData));
-                    setMyProfile(profileData);
-                    Swal.close();
-                    Toast.fire({ icon: 'success', title: 'กู้คืนโปรไฟล์สำเร็จ!' });
-                  };
-                  
-                  tdAction.appendChild(btn);
-                  tr.append(tdName, tdAction);
-                  tbody.appendChild(tr);
-                });
-                table.appendChild(tbody);
-                syncTableContainer.appendChild(table);
-              } else {
-                syncTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูล</div>';
-              }
-            } catch (e) {}
-          }, 300);
-        });
-
       },
       showCancelButton: true, confirmButtonText: 'Check In', confirmButtonColor: '#2563eb',
       preConfirm: async () => {
         const mode = (document.getElementById('currentMode') as HTMLInputElement).value;
-
-        if (mode === 'sync') {
-            Swal.showValidationMessage('กรุณากดปุ่ม Sync Device ที่รายชื่อของคุณ');
-            return false;
-        } else if (mode === 'search') {
+        if (mode === 'sync') { Swal.showValidationMessage('กรุณากดปุ่ม Sync ที่รายชื่อ'); return false; } 
+        else if (mode === 'search') {
             const id = (document.getElementById('hidId') as HTMLInputElement).value;
             const name = (document.getElementById('hidName') as HTMLInputElement).value;
             const skill = (document.getElementById('hidSkill') as HTMLInputElement).value;
-            
-            if (!id) {
-              Swal.showValidationMessage('กรุณาค้นหาและเลือกรายชื่อผู้เล่นก่อน หรือไปที่แท็บลงทะเบียนใหม่');
-              return false;
-            }
+            if (!id) { Swal.showValidationMessage('กรุณาเลือกผู้เล่นก่อน'); return false; }
             return { id, name, skill: Number(skill), isGuest: false };
         } else {
-            const swGuest = document.getElementById('swGuest') as HTMLInputElement;
-            const swID = document.getElementById('swID') as HTMLInputElement;
-            const swName = document.getElementById('swName') as HTMLInputElement;
-            const swSkill = document.getElementById('swSkill') as HTMLSelectElement;
-
-            const isGuest = swGuest.checked;
-            const idVal = swID.value.trim();
-            const nameVal = swName.value.trim();
-
-            if(!isGuest && !idVal) { Swal.showValidationMessage('กรุณากรอกรหัสพนักงาน หรือเลือกเป็น Guest'); return false; }
-            if(!nameVal) { Swal.showValidationMessage('กรุณากรอกชื่อเล่นที่ต้องการแสดง'); return false; }
-
-            if (!isGuest) {
-               try {
-                 const res = await fetch(`/api/player?q=${nameVal}`);
-                 const data = await res.json();
-                 let playerList: any[] = [];
-                 if (Array.isArray(data)) playerList = data;
-                 else if (data.list && Array.isArray(data.list)) playerList = data.list;
-                 else if (data.data && Array.isArray(data.data)) playerList = data.data;
-                 else if (data.found && data.id) playerList = [data];
-
-                 const isDup = playerList.some(p => 
-                    (p.name && p.name.toLowerCase() === nameVal.toLowerCase()) || 
-                    (p.id && p.id.toString() === idVal.toString())
-                 );
-                 if (isDup) {
-                   Swal.showValidationMessage('ชื่อหรือรหัสนี้ซ้ำในระบบ กรุณากดแท็บค้นหารายชื่อแทน');
-                   return false;
-                 }
-               } catch(e) {}
-            }
-
-            return { id: isGuest ? undefined : idVal, name: nameVal, skill: Number(swSkill.value), isGuest }
+            const isGuest = (document.getElementById('swGuest') as HTMLInputElement).checked;
+            const idVal = (document.getElementById('swID') as HTMLInputElement).value.trim();
+            const nameVal = (document.getElementById('swName') as HTMLInputElement).value.trim();
+            const skillVal = (document.getElementById('swSkill') as HTMLSelectElement).value;
+            if(!isGuest && !idVal) { Swal.showValidationMessage('กรุณากรอกรหัสพนักงาน'); return false; }
+            if(!nameVal) { Swal.showValidationMessage('กรุณากรอกชื่อเล่น'); return false; }
+            return { id: isGuest ? undefined : idVal, name: nameVal, skill: Number(skillVal), isGuest }
         }
       }
     }).then(async (r) => {
@@ -701,26 +562,19 @@ export default function Home() {
         const res = await runApi('/api/checkin', r.value, false);
         if(res && (res.ok || res.status === 'success')) {
           const newProfile = { id: r.value.id || res.generatedId || 'Guest', name: r.value.name };
-          localStorage.setItem('myProfile', JSON.stringify(newProfile)); setMyProfile(newProfile);
-          
-          if ('Notification' in window && Notification.permission === 'default') {
-            const perm = await Notification.requestPermission();
-            setNotifyPerm(perm);
+          safeStorageSave('myProfile', JSON.stringify(newProfile)); setMyProfile(newProfile);
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+            requestNotify(); 
           }
-
-          Toast.fire({ icon: 'success', title: 'Checked in! Wait for approval.' });
-        } else { Toast.fire({ icon: 'error', title: res?.message || 'Error checking in' }); }
+          Toast.fire({ icon: 'success', title: 'เข้าคิวสำเร็จ! รอแอดมินอนุมัติฮะ' });
+        } else Toast.fire({ icon: 'error', title: res?.message || 'Error' });
       }
     });
   }
-
   const openSignOut = () => {
     Swal.fire({
       title: '👋 Sign Out',
-      html: `
-        <div class="text-left text-sm mb-2 text-slate-500 font-bold uppercase tracking-widest">Search your name or ID:</div>
-        <input id="soSearch" class="w-full p-2 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none" placeholder="Name or ID" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : myProfile?.name || ''}">
-      `,
+      html: `<div class="text-left text-sm mb-2 text-slate-500 font-bold uppercase tracking-widest">Search your name or ID:</div><input id="soSearch" class="w-full p-2 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none" placeholder="Name or ID" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : myProfile?.name || ''}">`,
       showCancelButton: true, confirmButtonText: 'Sign Out', confirmButtonColor: '#ef4444',
       preConfirm: async () => {
         const val = (document.getElementById('soSearch') as HTMLInputElement).value;
@@ -730,11 +584,9 @@ export default function Home() {
     }).then(async (r) => {
       if(r.isConfirmed) {
         Toast.fire({ icon: 'info', title: 'Signing out...' });
-        fetch('/api/checkout', {
-          method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(r.value)
-        }).then(() => refresh(false));
+        fetch('/api/checkout', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(r.value) }).then(() => refresh(false));
         localStorage.removeItem('myProfile'); setMyProfile(null);
-        Toast.fire({ icon: 'success', title: 'Signed Out Successfully' });
+        Toast.fire({ icon: 'success', title: 'ออกจากระบบคิวแล้ว' });
       }
     })
   }
@@ -748,11 +600,7 @@ export default function Home() {
           <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label><input id="amName" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Name"></div>
           <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Skill Level</label>
             <select id="amSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-              <option value="1">1 (มือใหม่แกะกล่อง)</option>
-              <option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option>
-              <option value="3">3 (มือกลาง มีพื้นฐาน)</option>
-              <option value="4">4 (มือตึง สายคุมเกมส์)</option>
-              <option value="5">5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
+              <option value="1">1 (มือใหม่แกะกล่อง)</option><option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option><option value="3">3 (มือกลาง)</option><option value="4">4 (มือตึง)</option><option value="5">5 (มือปีศาจ)</option>
             </select>
           </div>
         </div>
@@ -776,7 +624,8 @@ export default function Home() {
     });
   }
 
-  const openAdminEdit = (p: any) => {
+  const openAdminEdit = (p: Player, e: any) => {
+    e.stopPropagation();
     Swal.fire({
       title: '✏️ Edit Player',
       html: `
@@ -786,11 +635,7 @@ export default function Home() {
           <div><label class="text-[10px] font-bold text-slate-500">Display Name</label><input id="editName" value="${p.name}" class="w-full p-2 border rounded text-sm"></div>
           <div><label class="text-[10px] font-bold text-slate-500">Skill</label>
             <select id="editSkill" class="w-full p-2 border rounded text-sm">
-              <option value="1" ${p.skill===1?'selected':''}>1 (มือใหม่แกะกล่อง)</option>
-              <option value="2" ${p.skill===2?'selected':''}>2 (มือใหม่เริ่มมีทรง)</option>
-              <option value="3" ${p.skill===3?'selected':''}>3 (มือกลาง มีพื้นฐาน)</option>
-              <option value="4" ${p.skill===4?'selected':''}>4 (มือตึง สายคุมเกมส์)</option>
-              <option value="5" ${p.skill===5?'selected':''}>5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
+              <option value="1" ${p.skill===1?'selected':''}>1 (มือใหม่แกะกล่อง)</option><option value="2" ${p.skill===2?'selected':''}>2 (มือใหม่เริ่มมีทรง)</option><option value="3" ${p.skill===3?'selected':''}>3 (มือกลาง)</option><option value="4" ${p.skill===4?'selected':''}>4 (มือตึง)</option><option value="5" ${p.skill===5?'selected':''}>5 (มือปีศาจ)</option>
             </select>
           </div>
         </div>
@@ -805,10 +650,7 @@ export default function Home() {
     Swal.fire({
       title: '📊 Daily Report',
       html: `
-        <div class="mb-4 text-left">
-           <label class="text-xs font-bold text-slate-500 block mb-1">Select Date:</label>
-           <input type="date" id="reportDate" value="${today}" class="w-full p-2 border rounded shadow-sm text-sm outline-none focus:border-blue-400">
-        </div>
+        <div class="mb-4 text-left"><label class="text-xs font-bold text-slate-500 block mb-1">Select Date:</label><input type="date" id="reportDate" value="${today}" class="w-full p-2 border rounded shadow-sm text-sm outline-none focus:border-blue-400"></div>
         <div id="reportContent" class="text-center py-4 text-slate-400">Loading...</div>
       `,
       showConfirmButton: false, showCloseButton: true,
@@ -817,31 +659,15 @@ export default function Home() {
           document.getElementById('reportContent')!.innerHTML = '<div class="py-5 text-blue-500 font-bold animate-pulse">⏳ Fetching data...</div>';
           try {
             const res = await fetch(`/api/report?date=${date}`); 
-            if (!res.ok) throw new Error('API failed');
-            const data = await res.json();
-            if (data.error) throw new Error(data.error);
-
-            const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            
+            if (!res.ok) throw new Error('API failed'); const data = await res.json(); if (data.error) throw new Error(data.error);
+            const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob);
             let tableHtml = `<div class="max-h-48 overflow-y-auto text-xs mt-4 border rounded shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">Time</th><th class="p-2">Name</th><th class="p-2">Action</th></tr></thead><tbody>`;
             (data.tableData || []).forEach((row: any) => { tableHtml += `<tr class="border-t"><td class="p-2">${row.time}</td><td class="p-2 font-bold">${row.name}</td><td class="p-2 text-blue-600">${row.action}</td></tr>`; });
             tableHtml += `</tbody></table></div>`;
-
-            document.getElementById('reportContent')!.innerHTML = `
-              <div class="grid grid-cols-2 gap-4">
-                  <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 shadow-sm"><div class="text-2xl font-black text-blue-600">${data.totalMatches || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Matches</div></div>
-                  <div class="bg-green-50 p-3 rounded-xl border border-green-100 shadow-sm"><div class="text-2xl font-black text-green-600">${data.totalPlayers || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Players</div></div>
-              </div>
-              ${tableHtml}
-              <a href="${url}" download="badminton_report_${date}.csv" class="w-full mt-4 block text-center bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-lg text-sm font-bold shadow-md transition">📥 Download CSV</a>
-            `;
-          } catch (e) {
-            document.getElementById('reportContent')!.innerHTML = '<div class="py-5 text-red-500 font-bold">❌ Error loading report</div>';
-          }
+            document.getElementById('reportContent')!.innerHTML = `<div class="grid grid-cols-2 gap-4"><div class="bg-blue-50 p-3 rounded-xl border border-blue-100 shadow-sm"><div class="text-2xl font-black text-blue-600">${data.totalMatches || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Matches</div></div><div class="bg-green-50 p-3 rounded-xl border border-green-100 shadow-sm"><div class="text-2xl font-black text-green-600">${data.totalPlayers || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Players</div></div></div>${tableHtml}<a href="${url}" download="badminton_report_${date}.csv" class="w-full mt-4 block text-center bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-lg text-sm font-bold shadow-md transition">📥 Download CSV</a>`;
+          } catch (e) { document.getElementById('reportContent')!.innerHTML = '<div class="py-5 text-red-500 font-bold">❌ Error loading report</div>'; }
         };
-        const dateInput = document.getElementById('reportDate') as HTMLInputElement;
-        dateInput.addEventListener('change', (e) => fetchReport((e.target as HTMLInputElement).value));
+        document.getElementById('reportDate')!.addEventListener('change', (e) => fetchReport((e.target as HTMLInputElement).value));
         await fetchReport(today);
       }
     });
@@ -849,86 +675,42 @@ export default function Home() {
 
   const showAnalytics = () => {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
-    
     Swal.fire({
-      title: '📈 Analytics & Report',
-      width: '600px',
+      title: '📈 Analytics & Report', width: '600px',
       html: `
-        <div class="flex gap-3 mb-4 text-left">
-           <div class="flex-1">
-             <label class="text-xs font-bold text-slate-500 block mb-1 uppercase tracking-wider">Start Date:</label>
-             <input type="date" id="reportStart" value="${today}" class="w-full p-2 border border-slate-200 rounded-lg shadow-sm text-sm outline-none focus:border-blue-400">
-           </div>
-           <div class="flex-1">
-             <label class="text-xs font-bold text-slate-500 block mb-1 uppercase tracking-wider">End Date:</label>
-             <input type="date" id="reportEnd" value="${today}" class="w-full p-2 border border-slate-200 rounded-lg shadow-sm text-sm outline-none focus:border-blue-400">
-           </div>
-        </div>
+        <div class="flex gap-3 mb-4 text-left"><div class="flex-1"><label class="text-xs font-bold text-slate-500 block mb-1 uppercase tracking-wider">Start Date:</label><input type="date" id="reportStart" value="${today}" class="w-full p-2 border border-slate-200 rounded-lg shadow-sm text-sm outline-none focus:border-blue-400"></div><div class="flex-1"><label class="text-xs font-bold text-slate-500 block mb-1 uppercase tracking-wider">End Date:</label><input type="date" id="reportEnd" value="${today}" class="w-full p-2 border border-slate-200 rounded-lg shadow-sm text-sm outline-none focus:border-blue-400"></div></div>
         <div id="reportContent" class="text-center py-4 text-slate-400">Loading...</div>
       `,
-      showConfirmButton: false, 
-      showCloseButton: true,
+      showConfirmButton: false, showCloseButton: true,
       didOpen: async () => {
         const fetchReport = async (sDate: string, eDate: string) => {
           document.getElementById('reportContent')!.innerHTML = '<div class="py-10 text-blue-500 font-bold animate-pulse">⏳ Fetching analytics...</div>';
           try {
             const res = await fetch(`/api/report?startDate=${sDate}&endDate=${eDate}`); 
-            if (!res.ok) throw new Error('API failed');
-            const data = await res.json();
-            if (data.error) throw new Error(data.error);
-            
-            const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            
+            if (!res.ok) throw new Error('API failed'); const data = await res.json(); if (data.error) throw new Error(data.error);
+            const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob);
             let topPlayersHtml = (data.topPlayers || []).map((p:any, i:number) => `<div class="text-xs truncate py-0.5 border-b border-amber-100 last:border-0"><span class="font-bold text-amber-600">#${i+1}</span> ${p.name} <span class="text-[9px] text-slate-400">(${p.count})</span></div>`).join('') || '<div class="text-xs text-slate-400">No data</div>';
-
             let tableHtml = `<div class="max-h-56 overflow-y-auto text-xs mt-4 border border-slate-200 rounded-xl shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0 shadow-sm text-slate-600 uppercase tracking-widest text-[9px]"><tr><th class="p-3">Date</th><th class="p-3">Time</th><th class="p-3">Name/Group</th><th class="p-3">Action</th></tr></thead><tbody>`;
             (data.tableData || []).forEach((row: any) => { tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-3">${row.date}</td><td class="p-3">${row.time}</td><td class="p-3 font-bold truncate max-w-[150px] text-slate-700">${row.name}</td><td class="p-3 text-blue-600 font-medium">${row.action}</td></tr>`; });
             tableHtml += `</tbody></table></div>`;
-
-            document.getElementById('reportContent')!.innerHTML = `
-              <div class="grid grid-cols-3 gap-3">
-                  <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 shadow-sm flex flex-col justify-center transition hover:shadow-md">
-                    <div class="text-2xl font-black text-blue-600">${data.totalMatches || 0}</div>
-                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Matches</div>
-                  </div>
-                  <div class="bg-green-50 p-3 rounded-xl border border-green-100 shadow-sm flex flex-col justify-center transition hover:shadow-md">
-                    <div class="text-2xl font-black text-green-600">${data.totalPlayers || 0}</div>
-                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Unique Players</div>
-                  </div>
-                  <div class="bg-amber-50 p-3 rounded-xl border border-amber-100 shadow-sm flex flex-col justify-center text-left transition hover:shadow-md">
-                    <div class="text-[10px] font-black text-amber-800 uppercase mb-2 tracking-widest">Top Players</div>
-                    ${topPlayersHtml}
-                  </div>
-              </div>
-              ${tableHtml}
-              <a href="${url}" download="badminton_analytics_${sDate}_to_${eDate}.csv" class="w-full mt-4 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold shadow-md transition active:scale-95">📥 Download CSV Report</a>
-            `;
-          } catch (e) {
-            console.error(e);
-            document.getElementById('reportContent')!.innerHTML = '<div class="py-10 text-red-500 font-bold">❌ Error loading report</div>';
-          }
+            document.getElementById('reportContent')!.innerHTML = `<div class="grid grid-cols-3 gap-3"><div class="bg-blue-50 p-3 rounded-xl border border-blue-100 shadow-sm flex flex-col justify-center transition hover:shadow-md"><div class="text-2xl font-black text-blue-600">${data.totalMatches || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Matches</div></div><div class="bg-green-50 p-3 rounded-xl border border-green-100 shadow-sm flex flex-col justify-center transition hover:shadow-md"><div class="text-2xl font-black text-green-600">${data.totalPlayers || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Unique Players</div></div><div class="bg-amber-50 p-3 rounded-xl border border-amber-100 shadow-sm flex flex-col justify-center text-left transition hover:shadow-md"><div class="text-[10px] font-black text-amber-800 uppercase mb-2 tracking-widest">Top Players</div>${topPlayersHtml}</div></div>${tableHtml}<a href="${url}" download="badminton_analytics_${sDate}_to_${eDate}.csv" class="w-full mt-4 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold shadow-md transition active:scale-95">📥 Download CSV Report</a>`;
+          } catch (e) { document.getElementById('reportContent')!.innerHTML = '<div class="py-10 text-red-500 font-bold">❌ Error loading report</div>'; }
         };
-
-        const startInput = document.getElementById('reportStart') as HTMLInputElement;
-        const endInput = document.getElementById('reportEnd') as HTMLInputElement;
-        
-        startInput.addEventListener('change', (e) => fetchReport((e.target as HTMLInputElement).value, endInput.value));
-        endInput.addEventListener('change', (e) => fetchReport(startInput.value, (e.target as HTMLInputElement).value));
-        
+        const sI = document.getElementById('reportStart') as HTMLInputElement; const eI = document.getElementById('reportEnd') as HTMLInputElement;
+        sI.addEventListener('change', (e) => fetchReport((e.target as HTMLInputElement).value, eI.value));
+        eI.addEventListener('change', (e) => fetchReport(sI.value, (e.target as HTMLInputElement).value));
         await fetchReport(today, today);
       }
     });
   }
 
   const resetDay = () => {
-    Swal.fire({ title: 'Reset Entire Day?', text: "This will clear all active courts, queues, and memory.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes, Reset!' })
+    Swal.fire({ title: 'Reset Entire Day?', text: "ล้างข้อมูล คอร์ท, คิว และประวัติการจัดทีม", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes, Reset!' })
     .then(async r => { 
       if(r.isConfirmed) { 
-        localStorage.removeItem('localMatchHistory');
-        setMatchHistory([]);
-        await runApi('/api/reset-day', {}); 
-        Toast.fire({ icon: 'success', title: 'System Reset Complete' }); 
+        localStorage.removeItem('localMatchHistory'); localStorage.removeItem('pausedIds');
+        setMatchHistory([]); setPausedIds([]); setManualPreviews([]);
+        await runApi('/api/reset-day', {}); Toast.fire({ icon: 'success', title: 'System Reset Complete' }); 
       } 
     })
   }
@@ -944,7 +726,7 @@ export default function Home() {
   const logout = () => { localStorage.removeItem('adminAuth'); setAdmin(false); Toast.fire({ icon: 'info', title: 'Logged Out' }); }
   
   const finish = (court: string) => { 
-    Swal.fire({title: `Finish Match at ${court}?`, showCancelButton: true}).then(async r => { 
+    Swal.fire({title: `จบเกมที่คอร์ท ${court}?`, showCancelButton: true}).then(async r => { 
       if(r.isConfirmed) { 
         setState(prev => prev ? { ...prev, playing: (prev.playing || []).filter(c => c.court !== court) } : prev); 
         Toast.fire({ icon: 'success', title: 'Match Finished' });
@@ -965,12 +747,10 @@ export default function Home() {
   }
 
   function getAutoNextMatches(players: any[], availableSlots = 3, mode = matchMode, history = matchHistory): any[] {
-    const matches = [];
-    let currentPlayers = [...players];
-
+    const matches = []; let currentPlayers = [...players];
     for (let i = 0; i < availableSlots; i++) {
       if (currentPlayers.length < 4) break;
-
+      if (mode === 'manual') break; 
       if (mode === 'smart') {
         const match = extractBestMatch(currentPlayers, history); 
         if (!match) break;
@@ -978,37 +758,28 @@ export default function Home() {
         currentPlayers = currentPlayers.filter((_, index) => !match.indices.includes(index));
       } else {
         const group = currentPlayers.slice(0, 4);
-        if (mode === 'similar-skill' && !isSimilarSkillGroup(group)) {
-            currentPlayers = currentPlayers.slice(4);
-            continue;
-        }
+        if (mode === 'similar-skill' && !isSimilarSkillGroup(group)) { currentPlayers = currentPlayers.slice(4); continue; }
         const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(p.skill) })), history);
-        matches.push({
-          matchNumber: i + 1,
-          teams: [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ],
-          diff: balanced.diff
-        });
+        matches.push({ matchNumber: i + 1, teams: [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ], diff: balanced.diff });
         currentPlayers = currentPlayers.slice(4);
       }
     }
     return matches;
   }
-  
+
+  // คำนวณคิวและจัดเตรียมการแสดงผลคอร์ท
   const availableCourts = (state?.courtNames || []).filter(cn => !(state?.playing || []).find(p => p.court === cn));
-  
-  const manualIds = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
-  const availableWaiting = (state?.waiting || []).filter(p => !manualIds.includes(p.id));
-  
+  const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
+  const availableWaiting = (state?.waiting || []).filter(p => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
   const remainingSlots = availableCourts.length - manualPreviews.length;
-  const autoMatches = (globalPreview && availableWaiting.length >= 4 && remainingSlots > 0) 
-    ? getAutoNextMatches(availableWaiting, remainingSlots, matchMode, matchHistory) 
-    : [];
-    
+  
+  const autoMatches = (globalPreview && availableWaiting.length >= 4 && remainingSlots > 0 && matchMode !== 'manual') 
+    ? getAutoNextMatches(availableWaiting, remainingSlots, matchMode, matchHistory) : [];
   const allPreviews = [...manualPreviews, ...autoMatches];
 
   if (fullscreen) {
     return (
-      <div className="fixed inset-0 bg-slate-950 z-[100] overflow-y-auto p-3 sm:p-6 flex flex-col">
+      <div className="fixed inset-0 bg-slate-950 z-[100] overflow-y-auto p-3 sm:p-6 flex flex-col -webkit-overflow-scrolling-touch">
         <div className="flex justify-between items-center mb-6 pt-2 pb-4 border-b border-slate-800">
             <div className="flex flex-col">
               <h1 className="text-xl sm:text-3xl font-black text-white tracking-widest">LIVE FOCUS</h1>
@@ -1020,91 +791,54 @@ export default function Home() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5 flex-1 pb-10">
           {(state?.courtNames || []).map(cn => {
             const m = (state?.playing || []).find(p => p.court === cn);
+            if (loadingCourt === cn) {
+              return (
+                <div key={cn} className="bg-slate-900 border border-slate-800 rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl animate-pulse flex items-center justify-center p-4">
+                  <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                  <span className="text-blue-500 font-bold text-xs">จัดเตรียมสนาม...</span>
+                </div>
+              )
+            }
             if (m) {
               const min = Math.floor((Date.now()-new Date(m.startTime).getTime())/60000);
               const isLate = min >= avgMatchDuration;
               return (
                 <div key={cn} className={`bg-slate-900 border ${isLate ? 'border-red-500' : 'border-slate-800'} rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all`}>
-                  
-                  <div className="absolute top-2 right-2 z-20">
-                     <div className="bg-slate-950/80 backdrop-blur border border-slate-700 text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">
-                        {cn}
-                     </div>
-                  </div>
-                  
-                  <div className="absolute top-2 left-2 z-20">
-                     <div className={`text-white px-2.5 py-1 rounded-lg text-xs font-black shadow-sm ${isLate?'bg-red-600 animate-pulse':'bg-slate-800 border border-slate-700'}`}>
-                        ⏱ {min}m
-                     </div>
-                  </div>
-
+                  <div className="absolute top-2 right-2 z-20"><div className="bg-slate-950/80 backdrop-blur border border-slate-700 text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">{cn}</div></div>
+                  <div className="absolute top-2 left-2 z-20"><div className={`text-white px-2.5 py-1 rounded-lg text-xs font-black shadow-sm ${isLate?'bg-red-600 animate-pulse':'bg-slate-800 border border-slate-700'}`}>⏱ {min}m</div></div>
                   <div className="flex-1 flex flex-col justify-center gap-1.5 p-3 pt-12 z-10">
                     <div className="bg-blue-900/30 border border-blue-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-blue-500">
-                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%]">{m.p1Name}</div>
-                      <div className="text-blue-400 font-black text-[10px]">&</div>
-                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p2Name}</div>
+                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%]">{m.p1Name}</div><div className="text-blue-400 font-black text-[10px]">&</div><div className="text-white text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p2Name}</div>
                     </div>
-                    <div className="flex justify-center -my-2.5 z-20">
-                      <span className="bg-slate-950 border border-slate-700 text-slate-400 px-2 py-0.5 rounded-full font-black text-[9px] shadow-sm">VS</span>
-                    </div>
+                    <div className="flex justify-center -my-2.5 z-20"><span className="bg-slate-950 border border-slate-700 text-slate-400 px-2 py-0.5 rounded-full font-black text-[9px] shadow-sm">VS</span></div>
                     <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-red-500">
-                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%]">{m.p3Name}</div>
-                      <div className="text-red-400 font-black text-[10px]">&</div>
-                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p4Name}</div>
+                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%]">{m.p3Name}</div><div className="text-red-400 font-black text-[10px]">&</div><div className="text-white text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p4Name}</div>
                     </div>
                   </div>
-                  {admin && (
-                    <button onClick={() => finish(m.court)} className="mx-3 mb-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-black uppercase transition active:scale-95 shadow-md">
-                      End Match
-                    </button>
-                  )}
+                  {admin && (<button onClick={() => finish(m.court)} className="mx-3 mb-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-black uppercase transition active:scale-95 shadow-md">End Match</button>)}
                 </div>
               )
             } else {
               const availIndex = availableCourts.indexOf(cn);
               const prepMatch = allPreviews[availIndex];
-              
               if (prepMatch) {
                 return (
                   <div key={cn} className="bg-slate-900 border border-dashed border-emerald-500/50 rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl opacity-95 transition-all">
-                    
-                    <div className="absolute top-2 right-2 z-20">
-                       <div className="bg-slate-950/80 backdrop-blur border border-slate-700 text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">
-                          {cn}
-                       </div>
-                    </div>
-
-                    <div className="absolute top-2 left-2 z-20">
-                       <div className={`px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm uppercase tracking-widest ${prepMatch.isManual ? 'bg-blue-400 text-blue-900' : 'bg-emerald-400 text-emerald-900 animate-pulse'}`}>
-                          {prepMatch.isManual ? 'MANUAL' : 'UP NEXT'}
-                       </div>
-                    </div>
-
+                    <div className="absolute top-2 right-2 z-20"><div className="bg-slate-950/80 backdrop-blur border border-slate-700 text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">{cn}</div></div>
+                    <div className="absolute top-2 left-2 z-20"><div className={`px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm uppercase tracking-widest ${prepMatch.isManual ? 'bg-blue-400 text-blue-900' : 'bg-emerald-400 text-emerald-900 animate-pulse'}`}>{prepMatch.isManual ? 'MANUAL' : 'UP NEXT'}</div></div>
                     <div className="flex-1 flex flex-col justify-center gap-1.5 p-3 pt-12 z-10">
                       <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-slate-500">
-                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[0][0].name}</div>
-                        <div className="text-slate-500 font-black text-[10px]">&</div>
-                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[0][1].name}</div>
+                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[0][0].name}</div><div className="text-slate-500 font-black text-[10px]">&</div><div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[0][1].name}</div>
                       </div>
-                      <div className="flex justify-center -my-2.5 z-20">
-                        <span className="bg-slate-950 border border-slate-700 text-slate-500 px-2 py-0.5 rounded-full font-black text-[9px] shadow-sm">VS</span>
-                      </div>
+                      <div className="flex justify-center -my-2.5 z-20"><span className="bg-slate-950 border border-slate-700 text-slate-500 px-2 py-0.5 rounded-full font-black text-[9px] shadow-sm">VS</span></div>
                       <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-slate-500">
-                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[1][0].name}</div>
-                        <div className="text-slate-500 font-black text-[10px]">&</div>
-                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[1][1].name}</div>
+                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[1][0].name}</div><div className="text-slate-500 font-black text-[10px]">&</div><div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[1][1].name}</div>
                       </div>
                     </div>
                     {admin && (
                       <div className="flex gap-2 mx-3 mb-3 z-20">
-                        <button onClick={() => confirmSpecificMatch(prepMatch)} className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black uppercase transition active:scale-95 flex items-center justify-center gap-1.5 shadow-md">
-                          ✅ Confirm
-                        </button>
-                        {prepMatch.isManual && (
-                          <button onClick={() => setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-black transition active:scale-95 shadow-md">
-                            ✕
-                          </button>
-                        )}
+                        <button onClick={() => confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black uppercase transition active:scale-95 flex items-center justify-center gap-1.5 shadow-md">✅ Confirm</button>
+                        {prepMatch.isManual && (<button onClick={() => setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-black transition active:scale-95 shadow-md">✕</button>)}
                       </div>
                     )}
                   </div>
@@ -1112,9 +846,7 @@ export default function Home() {
               } else {
                 return (
                   <div key={cn} className="bg-slate-900 border border-dashed border-slate-800 rounded-2xl flex flex-col items-center justify-center p-4 relative overflow-hidden min-h-[140px] sm:min-h-[180px]">
-                    <div className="z-10 bg-slate-800/80 px-4 py-2 rounded-xl backdrop-blur-sm shadow-sm border border-slate-700">
-                       <h3 className="text-sm sm:text-base font-black text-slate-400 tracking-widest">{cn}</h3>
-                    </div>
+                    <div className="z-10 bg-slate-800/80 px-4 py-2 rounded-xl backdrop-blur-sm shadow-sm border border-slate-700"><h3 className="text-sm sm:text-base font-black text-slate-400 tracking-widest">{cn}</h3></div>
                   </div>
                 )
               }
@@ -1133,17 +865,20 @@ export default function Home() {
   )
 
   return (
-    <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-10 ${isLoading ? 'opacity-80 pointer-events-none' : 'transition-opacity duration-300'}`}>
+    <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-10 ${isLoading ? 'opacity-80 pointer-events-none' : 'transition-opacity duration-300'} -webkit-overflow-scrolling-touch`}>
       
       {state?.announcement && (
         <div className="bg-blue-600 text-white text-xs py-2 px-4 shadow-md flex items-center relative overflow-hidden">
             <span className="mr-2 z-10 bg-blue-600 pr-2 font-bold shadow-[10px_0_10px_#2563eb]">📢 ALERT:</span>
-            <div className="flex-1 overflow-hidden">
-                <div className="animate-marquee font-medium tracking-wide">{state.announcement}</div>
-            </div>
-            {admin && <button onClick={async() => { const txt = prompt('Edit Announcement (Leave blank to clear)', state.announcement); if(txt!==null){ await fetch('/api/config', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({action:'set', key:'Announcement', value:txt})}); refresh(false); Toast.fire({icon:'success', title:'Announcement Updated'}); } }} className="ml-4 z-10 bg-blue-600 pl-2 text-blue-200 hover:text-white">✏️</button>}
+            <div className="flex-1 overflow-hidden"><div className="animate-marquee font-medium tracking-wide">{state.announcement}</div></div>
+            {admin && <button onClick={async() => { const txt = prompt('Edit Announcement', state.announcement); if(txt!==null){ await fetch('/api/config', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({action:'set', key:'Announcement', value:txt})}); refresh(false); Toast.fire({icon:'success', title:'Updated'}); } }} className="ml-4 z-10 bg-blue-600 pl-2 text-blue-200 hover:text-white">✏️</button>}
         </div>
       )}
+
+      {/* 💡 ปุ่มลอย (Floating Action Button) สำหรับรีเฟรช PWA */}
+      <button onClick={() => refresh(true)} className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.3)] flex items-center justify-center text-2xl transition transform active:scale-90 border-2 border-white/20">
+        🔄
+      </button>
 
       <nav className="bg-white/90 dark:bg-slate-900/90 border-b border-gray-200 dark:border-slate-800 px-4 py-3 backdrop-blur-lg sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
@@ -1168,12 +903,8 @@ export default function Home() {
         
         <div className="lg:col-span-8 space-y-6">
           <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 flex gap-3 shadow-lg border border-slate-100 dark:border-slate-700">
-              <button onClick={openCheckIn} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl text-sm shadow-md transition transform active:scale-95">
-                Check In
-              </button>
-              <button onClick={openSignOut} className="flex-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold py-3.5 rounded-xl text-sm shadow-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition transform active:scale-95">
-                Sign Out
-              </button>
+              <button onClick={openCheckIn} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl text-sm shadow-md transition transform active:scale-95">Check In</button>
+              <button onClick={openSignOut} className="flex-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold py-3.5 rounded-xl text-sm shadow-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition transform active:scale-95">Sign Out</button>
           </div>
 
           {myProfile && (
@@ -1183,39 +914,25 @@ export default function Home() {
                             : (myWaitIndex !== -1) ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-slate-900 border-green-500'
                             : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200'}`}>
               <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                
                 <div className="flex items-center gap-2">
-                   <div className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center text-sm font-black shadow-inner">
-                     {myProfile.name.charAt(0).toUpperCase()}
-                   </div>
+                   <div className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center text-sm font-black shadow-inner">{myProfile.name.charAt(0).toUpperCase()}</div>
                    <div className="flex flex-col">
                      <span className="text-[10px] font-black uppercase tracking-widest opacity-80 leading-none mb-0.5">Status</span>
                      <span className="font-bold text-sm leading-tight truncate max-w-[120px]">{myProfile.name}</span>
                    </div>
                 </div>
-                
                 <div className="flex justify-start sm:justify-end">
-                  {amIPlaying ? ( 
-                     <div className="text-sm font-black flex items-center gap-1.5 bg-black/10 px-3 py-1.5 rounded-lg shadow-inner">🏸 Currently Playing!</div>
-                  ) : myPending ? ( 
-                     <div className="font-bold text-xs bg-black/10 px-3 py-1.5 rounded-lg shadow-inner">⏳ Waiting Approval...</div>
+                  {pausedIds.includes(myProfile.id) ? ( <div className="text-sm font-black flex items-center gap-1.5 bg-black/20 text-white px-3 py-1.5 rounded-lg shadow-inner animate-pulse">⏸️ พักคิวชั่วคราว</div>
+                  ) : amIPlaying ? ( <div className="text-sm font-black flex items-center gap-1.5 bg-black/10 px-3 py-1.5 rounded-lg shadow-inner">🏸 Currently Playing!</div>
+                  ) : myPending ? ( <div className="font-bold text-xs bg-black/10 px-3 py-1.5 rounded-lg shadow-inner">⏳ Waiting Approval...</div>
                   ) : myWaitIndex !== -1 ? (
                      <div className="flex items-center gap-2 flex-wrap">
                         {myWaitIndex < 4 && <span className="text-[10px] bg-red-600 text-white font-bold px-2 py-1 rounded shadow-sm animate-pulse">🔥 Standby</span>}
-                        <div className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded-lg shadow-inner">
-                          <span className="text-[10px] uppercase font-bold opacity-80">Queue</span>
-                          <span className="text-lg font-black leading-none">{myWaitIndex + 1}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded-lg shadow-inner">
-                          <span className="text-[10px] uppercase font-bold opacity-80">Wait</span>
-                          <span className="text-sm font-black leading-none">~{estWaitMins}m</span>
-                        </div>
+                        <div className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded-lg shadow-inner"><span className="text-[10px] uppercase font-bold opacity-80">Queue</span><span className="text-lg font-black leading-none">{myWaitIndex + 1}</span></div>
+                        <div className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded-lg shadow-inner"><span className="text-[10px] uppercase font-bold opacity-80">Wait</span><span className="text-sm font-black leading-none">~{estWaitMins}m</span></div>
                      </div>
-                  ) : ( 
-                     <div className="font-bold text-xs bg-black/10 px-3 py-1.5 rounded-lg shadow-inner">Not in queue</div> 
-                  )}
+                  ) : ( <div className="font-bold text-xs bg-black/10 px-3 py-1.5 rounded-lg shadow-inner">Not in queue</div> )}
                 </div>
-
               </div>
             </div>
           )}
@@ -1229,6 +946,14 @@ export default function Home() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               {(state?.courtNames || []).map(cn => {
                 const m = (state?.playing || []).find(p=>p.court === cn);
+                if (loadingCourt === cn) {
+                  return (
+                    <div key={cn} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-xl flex flex-col items-center justify-center min-h-[160px] animate-pulse">
+                      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                      <span className="text-blue-500 font-bold text-sm">กำลังจัดเตรียมสนาม...</span>
+                    </div>
+                  )
+                }
                 if (m) {
                   const min = Math.floor((Date.now()-new Date(m.startTime).getTime())/60000);
                   const isLate = min >= avgMatchDuration; 
@@ -1242,15 +967,11 @@ export default function Home() {
                         </div>
                         <div className="flex flex-col gap-2">
                           <div className="flex justify-between items-center px-3 py-2 rounded-xl bg-gradient-to-r from-blue-50 to-blue-100/50 border border-blue-100 dark:from-blue-900/20 dark:to-blue-800/10 dark:border-blue-800/50 shadow-sm">
-                            <div className="font-bold text-sm truncate w-[45%] dark:text-slate-200">{m.p1Name} <SkillDot skill={m.p1Skill}/></div>
-                            <div className="text-[10px] text-blue-500 font-black">&</div>
-                            <div className="font-bold text-sm truncate w-[45%] text-right dark:text-slate-200">{m.p2Name} <SkillDot skill={m.p2Skill}/></div>
+                            <div className="font-bold text-sm truncate w-[45%] dark:text-slate-200">{m.p1Name} <SkillDot skill={m.p1Skill}/></div><div className="text-[10px] text-blue-500 font-black">&</div><div className="font-bold text-sm truncate w-[45%] text-right dark:text-slate-200">{m.p2Name} <SkillDot skill={m.p2Skill}/></div>
                           </div>
                           <div className="flex justify-center -my-2.5"><span className="bg-white dark:bg-slate-800 text-slate-400 px-2 text-[9px] font-black uppercase relative z-20 shadow-sm rounded-full border border-slate-100 dark:border-slate-700">VS</span></div>
                           <div className="flex justify-between items-center px-3 py-2 rounded-xl bg-gradient-to-r from-red-50 to-red-100/50 border border-red-100 dark:from-red-900/20 dark:to-red-800/10 dark:border-red-800/50 shadow-sm">
-                            <div className="font-bold text-sm truncate w-[45%] dark:text-slate-200">{m.p3Name} <SkillDot skill={m.p3Skill}/></div>
-                            <div className="text-[10px] text-red-500 font-black">&</div>
-                            <div className="font-bold text-sm truncate w-[45%] text-right dark:text-slate-200">{m.p4Name} <SkillDot skill={m.p4Skill}/></div>
+                            <div className="font-bold text-sm truncate w-[45%] dark:text-slate-200">{m.p3Name} <SkillDot skill={m.p3Skill}/></div><div className="text-[10px] text-red-500 font-black">&</div><div className="font-bold text-sm truncate w-[45%] text-right dark:text-slate-200">{m.p4Name} <SkillDot skill={m.p4Skill}/></div>
                           </div>
                         </div>
                         {admin && <button onClick={()=>finish(m.court)} className="mt-4 w-full py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg uppercase shadow-md transition transform active:scale-95">Finish Match</button>}
@@ -1274,27 +995,17 @@ export default function Home() {
                           </div>
                           <div className="flex flex-col gap-2 opacity-80">
                             <div className="flex justify-between items-center px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
-                              <div className="font-bold text-sm truncate w-[45%] dark:text-slate-200">{prepMatch.teams[0][0].name} <span className="text-[10px] font-normal text-slate-400">Lv {prepMatch.teams[0][0].skill}</span></div>
-                              <div className="text-[10px] text-slate-400 font-black">&</div>
-                              <div className="font-bold text-sm truncate w-[45%] text-right dark:text-slate-200">{prepMatch.teams[0][1].name} <span className="text-[10px] font-normal text-slate-400">Lv {prepMatch.teams[0][1].skill}</span></div>
+                              <div className="font-bold text-sm truncate w-[45%] dark:text-slate-200">{prepMatch.teams[0][0].name} <span className="text-[10px] font-normal text-slate-400">Lv {prepMatch.teams[0][0].skill}</span></div><div className="text-[10px] text-slate-400 font-black">&</div><div className="font-bold text-sm truncate w-[45%] text-right dark:text-slate-200">{prepMatch.teams[0][1].name} <span className="text-[10px] font-normal text-slate-400">Lv {prepMatch.teams[0][1].skill}</span></div>
                             </div>
                             <div className="flex justify-center -my-2.5"><span className="bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 px-2 text-[9px] font-black uppercase relative z-20 shadow-sm rounded-full">VS</span></div>
                             <div className="flex justify-between items-center px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
-                              <div className="font-bold text-sm truncate w-[45%] dark:text-slate-200">{prepMatch.teams[1][0].name} <span className="text-[10px] font-normal text-slate-400">Lv {prepMatch.teams[1][0].skill}</span></div>
-                              <div className="text-[10px] text-slate-400 font-black">&</div>
-                              <div className="font-bold text-sm truncate w-[45%] text-right dark:text-slate-200">{prepMatch.teams[1][1].name} <span className="text-[10px] font-normal text-slate-400">Lv {prepMatch.teams[1][1].skill}</span></div>
+                              <div className="font-bold text-sm truncate w-[45%] dark:text-slate-200">{prepMatch.teams[1][0].name} <span className="text-[10px] font-normal text-slate-400">Lv {prepMatch.teams[1][0].skill}</span></div><div className="text-[10px] text-slate-400 font-black">&</div><div className="font-bold text-sm truncate w-[45%] text-right dark:text-slate-200">{prepMatch.teams[1][1].name} <span className="text-[10px] font-normal text-slate-400">Lv {prepMatch.teams[1][1].skill}</span></div>
                             </div>
                           </div>
                           {admin && (
                              <div className="mt-4 flex gap-2 relative z-20">
-                               <button onClick={()=>confirmSpecificMatch(prepMatch)} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg uppercase shadow-md transition transform active:scale-95 flex items-center justify-center gap-2">
-                                 ✅ Confirm Match
-                               </button>
-                               {prepMatch.isManual && (
-                                 <button onClick={()=>setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 text-xs font-bold rounded-lg shadow-md transition transform active:scale-95">
-                                   ✕
-                                 </button>
-                               )}
+                               <button onClick={()=>confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg uppercase shadow-md transition transform active:scale-95 flex items-center justify-center gap-2">✅ Confirm Match</button>
+                               {prepMatch.isManual && (<button onClick={()=>setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 text-xs font-bold rounded-lg shadow-md transition transform active:scale-95">✕</button>)}
                              </div>
                           )}
                         </div>
@@ -1318,9 +1029,7 @@ export default function Home() {
           <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-6">
             {!admin ? (
               <div className="text-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-slate-400 to-slate-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
-                  <span className="text-2xl">🔐</span>
-                </div>
+                <div className="w-16 h-16 bg-gradient-to-br from-slate-400 to-slate-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg"><span className="text-2xl">🔐</span></div>
                 <h3 className="text-sm font-black text-slate-600 dark:text-slate-300 uppercase mb-4 tracking-widest">Admin Access Required</h3>
                 <button onClick={auth} className="w-full bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900 text-white text-sm py-3 rounded-xl font-bold shadow-lg transition transform active:scale-95">🔓 Login as Admin</button>
               </div>
@@ -1328,15 +1037,9 @@ export default function Home() {
               <div className="space-y-4">
                 <div className="bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-800 rounded-xl p-4 mb-4 shadow-inner border border-slate-300 dark:border-slate-600">
                   <div className="flex justify-between items-center mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center shadow-md">
-                        <span className="text-white font-black text-sm">⚙️</span>
-                      </div>
-                      <span className="font-black text-lg text-slate-800 dark:text-slate-200 uppercase tracking-wide">Admin Console</span>
-                    </div>
+                    <div className="flex items-center gap-3"><div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center shadow-md"><span className="text-white font-black text-sm">⚙️</span></div><span className="font-black text-lg text-slate-800 dark:text-slate-200 uppercase tracking-wide">Admin Console</span></div>
                     <button onClick={logout} className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-lg shadow-md transition transform active:scale-95">🚪 Logout</button>
                   </div>
-                  
                   <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Play Time:</span>
@@ -1365,72 +1068,16 @@ export default function Home() {
                   </div>
                 </div>
 
-                {(state?.pending || []).length > 0 && (
-                  <div className="bg-gradient-to-br from-yellow-50 via-orange-50 to-amber-50 dark:from-yellow-900/20 dark:via-orange-900/10 dark:to-amber-900/20 border border-yellow-300 dark:border-yellow-700 rounded-xl p-4 shadow-lg">
-                    <div className="text-sm font-black text-yellow-800 dark:text-yellow-300 mb-4 uppercase tracking-wider flex justify-between items-center">
-                      <span className="flex items-center gap-2">
-                        <span className="w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center text-white text-xs font-bold">⏳</span>
-                        Pending ({(state?.pending || []).length})
-                      </span>
-                      {selectedPending.length > 0 && (
-                        <button 
-                          onClick={async() => {
-                            const ids = [...selectedPending];
-                            setSelectedPending([]); 
-                            Toast.fire({ icon: 'info', title: `Approving ${ids.length} players...` });
-                            for (const id of ids) { await fetch('/api/approve', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id})}); }
-                            refresh(false);
-                            Toast.fire({ icon: 'success', title: `Approved ${ids.length} players!` });
-                          }}
-                          className="bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-3 py-2 rounded-lg shadow-md transition transform active:scale-95"
-                        >
-                          ✓ Approve Selected
-                        </button>
-                      )}
-                    </div>
-                    <input 
-                      type="text" 
-                      placeholder="🔍 Search name or ID..." 
-                      value={searchPending}
-                      onChange={(e) => setSearchPending(e.target.value)}
-                      className="w-full p-2 border border-yellow-300 rounded-lg text-xs mb-2 focus:ring-2 focus:ring-yellow-500 outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-yellow-700"
-                    />
-                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                      {(state?.pending || []).filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase()) || p.id.includes(searchPending)).map(p => (
-                        <div key={p.id} className={`p-3 rounded-lg border-2 ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} flex justify-between items-center shadow-sm transition-all`}>
-                          <div className="flex items-center gap-3">
-                            <input 
-                              type="checkbox" 
-                              checked={selectedPending.includes(p.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) setSelectedPending(prev => [...prev, p.id]);
-                                else setSelectedPending(prev => prev.filter(id => id !== p.id));
-                              }}
-                              className="w-5 h-5 text-green-600 focus:ring-green-500 rounded border-slate-300"
-                            />
-                            <div className="text-sm font-bold dark:text-white flex items-center gap-2">{p.name} <SkillDot skill={p.skill}/></div>
-                          </div>
-                          <div className="flex gap-2">
-                            <button onClick={async()=>{ Toast.fire({icon:'info', title:'Approving...'}); await fetch('/api/approve', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id: p.id})}); setSelectedPending(prev => prev.filter(id => id !== p.id)); refresh(false); Toast.fire({ icon: 'success', title: 'Approved!' }); }} className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-md transition transform active:scale-95">✓</button>
-                            <button onClick={async()=>{ Toast.fire({icon:'info', title:'Removing...'}); await fetch('/api/checkout', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id: p.id})}); setSelectedPending(prev => prev.filter(id => id !== p.id)); refresh(false); Toast.fire({ icon: 'info', title: 'Rejected' }); }} className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-bold shadow-sm transition transform active:scale-95">✕</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
                   <h4 className="text-sm font-black text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Quick Actions</h4>
                   <div className="space-y-3">
                     <div className="mb-2">
                       <label className="text-xs font-bold mb-1 block">Match Mode</label>
-                      <select value={matchMode} onChange={e => setMatchMode(e.target.value as any)} className="w-full p-2 border rounded-lg text-xs bg-white dark:bg-slate-700 outline-none">
-                        <option value="smart">Smart (ในทีมห่าง≤3, ระหว่างทีมห่าง≤1)</option>
-                        <option value="balanced">Balanced (สมดุล/ใกล้เคียงที่สุด)</option>
-                        <option value="random">Random (สุ่ม)</option>
-                        <option value="skill-gap">Skill Gap (คู่ฝีมือใกล้เคียง)</option>
-                        <option value="similar-skill">Similar Skill (ฝีมือเดียวกัน/ใกล้กัน)</option>
+                      <select value={matchMode} onChange={e => setMatchMode(e.target.value as any)} className="w-full p-2 border rounded-lg text-xs bg-white dark:bg-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="smart">Smart (จัดสมดุล, ไม่ซ้ำคู่เดิม)</option>
+                        <option value="balanced">Balanced (เน้นฝีมือสูสีที่สุด)</option>
+                        <option value="random">Random (สุ่มสนุกๆ)</option>
+                        <option value="manual">Manual (ข้ามกฎทั้งหมด ยึดตามลำดับที่ติ๊ก)</option>
                       </select>
                     </div>
                     <button onClick={executeAutoMatch} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:via-purple-700 hover:to-indigo-800 text-white text-lg font-black uppercase tracking-wider py-4 rounded-xl shadow-xl transition transform active:scale-95 hover:shadow-indigo-500/50">
@@ -1445,29 +1092,27 @@ export default function Home() {
                     <button onClick={openAddMember} className="col-span-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">➕ Add Member</button>
                     
                     <button onClick={async()=>{ 
-                        if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'Select exactly 4 players' }); 
-                        
+                        if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'กรุณาเลือกผู้เล่นให้ครบ 4 คน' }); 
                         const selectedPlayers = state?.waiting?.filter(p => selected.includes(p.id)) || [];
-                        const balanced = balanceTeams(selectedPlayers, matchHistory);
+                        let finalTeams;
+                        if (matchMode === 'manual') {
+                           const sortedBySelection = selected.map(id => selectedPlayers.find(p => p.id === id)).filter(Boolean);
+                           finalTeams = [ [sortedBySelection[0], sortedBySelection[1]], [sortedBySelection[2], sortedBySelection[3]] ];
+                        } else {
+                           const balanced = balanceTeams(selectedPlayers, matchHistory);
+                           finalTeams = [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ];
+                        }
                         
-                        if (state?.autoMatch) {
+                        if (state?.autoMatch && matchMode !== 'manual') {
                             Toast.fire({icon:'info', title:'Matching...'}); 
-                            const ids = [balanced.teams[0].id, balanced.teams[1].id, balanced.teams[2].id, balanced.teams[3].id];
+                            const ids = [finalTeams[0][0].id, finalTeams[0][1].id, finalTeams[1][0].id, finalTeams[1][1].id];
                             recordMatchToHistory(ids);
                             await fetch('/api/manual-match', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ids})}); 
-                            setSelected([]); 
-                            refresh(false); 
-                            Toast.fire({ icon: 'success', title: 'Matched Selected' }); 
+                            setSelected([]); refresh(false); Toast.fire({ icon: 'success', title: 'Matched Selected' }); 
                         } else {
-                            const matchData = {
-                                isManual: true,
-                                matchNumber: Date.now(),
-                                teams: [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ],
-                                diff: balanced.diff
-                            };
+                            const matchData = { isManual: true, matchNumber: Date.now(), teams: finalTeams, diff: 0 };
                             setManualPreviews(prev => [...prev, matchData]);
-                            setSelected([]);
-                            Toast.fire({ icon: 'success', title: 'Added to Pre-Match Court!' });
+                            setSelected([]); Toast.fire({ icon: 'success', title: 'เพิ่มลงคิวแทรกแล้ว (รอ Confirm)!' });
                         }
                     }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Match Selected</button>
 
@@ -1485,35 +1130,42 @@ export default function Home() {
             <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800 backdrop-blur-md flex-col gap-2">
               <div className="flex justify-between items-center w-full">
                 <h3 className="font-black text-sm dark:text-white flex items-center gap-2">⏳ Queue <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px]">{(state?.waiting || []).length}</span></h3>
-                <button onClick={()=>refresh(true)} className="text-[10px] font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded hover:bg-slate-300 transition shadow-sm active:scale-95">Refresh</button>
               </div>
-              <input 
-                type="text" 
-                placeholder="🔍 Search name or ID..." 
-                value={searchQueue}
-                onChange={(e) => setSearchQueue(e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-slate-600"
-              />
+              <input type="text" placeholder="🔍 Search name or ID..." value={searchQueue} onChange={(e) => setSearchQueue(e.target.value)} className="w-full p-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-slate-600" />
             </div>
-            <div className="flex-1 overflow-y-auto bg-slate-50/30 dark:bg-slate-900/20 p-3 space-y-2">
+            
+            <div className="flex-1 overflow-y-auto bg-slate-50/30 dark:bg-slate-900/20 p-3 space-y-2 -webkit-overflow-scrolling-touch">
               {(state?.waiting || []).length === 0 ? <div className="text-center py-12 text-slate-400 text-xs font-bold uppercase tracking-widest opacity-50">Queue Empty</div> 
               : (state?.waiting || []).filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase()) || p.id.includes(searchQueue)).length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-xs font-bold uppercase tracking-widest opacity-50">No Results Found</div>
               ) : (state?.waiting || []).filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase()) || p.id.includes(searchQueue)).map((p, i) => {
-                const isSel = selected.includes(p.id);
+                
+                const selIndex = selected.indexOf(p.id);
+                const isSel = selIndex !== -1;
                 const isMe = p.id === myProfile?.id;
+                const isPaused = pausedIds.includes(p.id);
+                
+                let teamBadge = null;
+                if (isSel && matchMode === 'manual') {
+                   if (selIndex === 0 || selIndex === 1) teamBadge = <span className="text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded shadow-sm font-bold tracking-widest uppercase">Team A</span>;
+                   if (selIndex === 2 || selIndex === 3) teamBadge = <span className="text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded shadow-sm font-bold tracking-widest uppercase">Team B</span>;
+                }
                 
                 return (
-                  <div key={p.id} className={`p-3 rounded-xl border-2 ${isSel ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md' : isMe ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 shadow-sm' : 'border-transparent bg-white dark:bg-slate-800 shadow-sm'} flex items-center justify-between transition-all group`}>
+                  <div key={p.id} 
+                       onClick={() => admin ? setSelected(prev => prev.includes(p.id) ? prev.filter(x=>x!==p.id) : (prev.length>=4?prev:[...prev, p.id])) : null}
+                       className={`p-3 rounded-xl border-2 ${isPaused ? 'border-slate-300 bg-slate-100 opacity-60 dark:bg-slate-800 dark:border-slate-700' : isSel ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md' : isMe ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 shadow-sm' : 'border-transparent bg-white dark:bg-slate-800 shadow-sm hover:border-blue-200'} flex items-center justify-between transition-all group ${admin ? 'cursor-pointer' : ''}`}>
                     <div className="flex items-center gap-3">
                       {admin ? (
-                        <input type="checkbox" checked={isSel} onChange={() => setSelected(prev => prev.includes(p.id) ? prev.filter(x=>x!==p.id) : (prev.length>=4?prev:[...prev, p.id]))} className="w-4 h-4 cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-500"/>
+                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isSel ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 bg-white'}`}>{isSel && '✓'}</div>
                       ) : <span className="text-[11px] font-black text-slate-400 w-5 text-center">{i+1}.</span>}
                       <div>
-                        <div className="text-xs font-black text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                        <div className="text-xs font-black text-slate-700 dark:text-slate-200 flex items-center gap-1.5 flex-wrap">
                           {p.name}
+                          {isPaused && <span className="text-[9px] bg-slate-500 text-white px-1.5 py-0.5 rounded shadow-sm uppercase tracking-wider">⏸️ พักคิว</span>}
                           {p.playCount !== undefined && p.playCount > 0 && <span className="bg-slate-200 dark:bg-slate-700 text-[9px] px-1.5 py-0.5 rounded-md text-slate-600 dark:text-slate-300 font-mono shadow-inner">{p.playCount}P</span>}
                           {isMe && <span className="text-[9px] bg-gradient-to-r from-amber-400 to-orange-400 text-white font-bold px-1.5 py-0.5 rounded-md shadow-sm uppercase tracking-wider">You</span>}
+                          {teamBadge}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <SkillDot skill={p.skill} />
@@ -1521,13 +1173,15 @@ export default function Home() {
                         </div>
                       </div>
                     </div>
-                    <div className="text-right flex items-center gap-2">
+                    <div className="text-right flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       {admin && (
-                        <button onClick={()=>openAdminEdit(p)} className="w-7 h-7 flex items-center justify-center text-[12px] bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-md shadow-sm transition active:scale-95" title="Edit">✏️</button>
+                        <>
+                          <button onClick={(e)=>togglePause(p.id, e)} className={`w-7 h-7 flex items-center justify-center text-[12px] rounded-md shadow-sm transition active:scale-95 ${isPaused ? 'bg-green-50 text-green-600' : 'bg-slate-200 text-slate-600'}`} title={isPaused ? "กลับเข้าคิว" : "พักชั่วคราว"}>{isPaused ? '▶️' : '⏸️'}</button>
+                          <button onClick={(e)=>openAdminEdit(p, e)} className="w-7 h-7 flex items-center justify-center text-[12px] bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-md shadow-sm transition active:scale-95" title="Edit">✏️</button>
+                          <button onClick={async(e)=>{ e.stopPropagation(); Toast.fire({icon:'info', title:'Removing...'}); await fetch('/api/checkout', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id: p.id})}); Toast.fire({ icon: 'info', title: 'Player Removed' }); refresh(false); }} className="w-7 h-7 flex items-center justify-center text-[12px] bg-red-50 hover:bg-red-100 text-red-600 rounded-md shadow-sm transition active:scale-95" title="Remove">🗑️</button>
+                        </>
                       )}
-                      {admin ? (
-                        <button onClick={async()=>{ Toast.fire({icon:'info', title:'Removing...'}); await fetch('/api/checkout', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id: p.id})}); Toast.fire({ icon: 'info', title: 'Player Removed' }); refresh(false); }} className="w-7 h-7 flex items-center justify-center text-[12px] bg-red-50 hover:bg-red-100 text-red-600 rounded-md shadow-sm transition active:scale-95" title="Remove">🗑️</button>
-                      ) : (
+                      {!admin && (
                         <span className="text-[10px] text-slate-400 font-mono font-bold bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded shadow-inner">
                           {p.timestamp ? new Date(p.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''}
                         </span>
