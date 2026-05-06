@@ -42,15 +42,18 @@ export async function GET(req: NextRequest) {
       court: l.court || '-'
     }))
 
-    // 2. สร้างข้อมูลสำหรับ Export เป็น CSV (ฟังก์ชันเดิมที่หายไป)
-    let csv = '\uFEFFDate,Time,Name,Action,Court\n' // \uFEFF ช่วยให้เปิดใน Excel ภาษาไทยไม่เพี้ยน
+    // 2. สร้างข้อมูลสำหรับ Export เป็น CSV
+    let csv = '\uFEFFDate,Time,Name,Action,Court\n' 
     tableData.forEach(r => {
       csv += `"${r.date}","${r.time}","${r.name}","${r.action}","${r.court}"\n`
     })
 
     // 3. ส่วนคำนวณ Analytics สถิติ
     const matchesEnded = validLogs.filter(l => l.action?.toLowerCase().includes('end'))
-    const totalMatches = matchesEnded.length
+    
+    // 💡 แก้ไข: จับกลุ่มรายการจบเกมที่คอร์ทเดียวกันและเวลาเดียวกัน ให้นับเป็น 1 แมตช์
+    const uniqueMatches = new Set(matchesEnded.map(l => `${l.court}_${l.ts}`))
+    const totalMatches = uniqueMatches.size
 
     const playerIds = new Set(validLogs.map(l => l.player_id).filter(Boolean))
     const totalPlayers = playerIds.size

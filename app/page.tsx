@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import Swal from 'sweetalert2'
 import type { AppState } from '@/lib/types'
-import { balanceTeams, extractBestMatch } from '@/utils/matchmaking'
+import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
 
 const Toast = Swal.mixin({
   toast: true,
@@ -36,17 +36,50 @@ export default function Home() {
   const [playStartTime, setPlayStartTime] = useState('20:00');
   const [playEndTime, setPlayEndTime] = useState('22:30');
 
-  const wakeLockRef = useRef<any>(null);
+  const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
+  const [manualPreviews, setManualPreviews] = useState<any[]>([]);
 
-  const requestWakeLock = async () => {
-    try {
-      if ('wakeLock' in navigator) {
-        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+  const wakeLockRef = useRef<any>(null);
+  const [isAwake, setIsAwake] = useState(false);
+
+  const toggleWakeLock = async () => {
+    if (isAwake) {
+      if (wakeLockRef.current) {
+        try { await wakeLockRef.current.release(); } catch(e){}
+        wakeLockRef.current = null;
       }
-    } catch (err) {
-      console.log('Wake lock failed', err);
+      setIsAwake(false);
+      Toast.fire({ icon: 'info', title: 'ปิดโหมดห้ามจอดับ 🌙' });
+    } else {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+          setIsAwake(true);
+          Toast.fire({ icon: 'success', title: 'เปิดโหมดห้ามหน้าจอดับ ☀️' });
+          
+          wakeLockRef.current.addEventListener('release', () => {
+            setIsAwake(false);
+          });
+        } else {
+          Toast.fire({ icon: 'warning', title: 'Browser ไม่รองรับระบบนี้' });
+        }
+      } catch (err: any) {
+        Toast.fire({ icon: 'error', title: `ล็อคหน้าจอไม่ได้: ${err.message}` });
+      }
     }
   };
+
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && isAwake && 'wakeLock' in navigator) {
+        try {
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        } catch(e) {}
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isAwake]);
 
   const refresh = async (showLoader = false) => { 
     if(showLoader) setIsLoading(true);
@@ -71,15 +104,23 @@ export default function Home() {
     const savedProfile = localStorage.getItem('myProfile');
     if(savedProfile) setMyProfile(JSON.parse(savedProfile));
 
-    requestWakeLock();
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') requestWakeLock();
-    });
+    const savedHistory = localStorage.getItem('localMatchHistory');
+    if (savedHistory) setMatchHistory(JSON.parse(savedHistory));
 
     refresh(true); 
     const t = setInterval(() => refresh(false), Number(process.env.NEXT_PUBLIC_AUTO_REFRESH_MS || 5000)); 
     return () => clearInterval(t);
   }, [])
+
+  const recordMatchToHistory = (ids: string[]) => {
+    if (ids.length !== 4) return;
+    const newRecord = { t1: [ids[0], ids[1]], t2: [ids[2], ids[3]] };
+    setMatchHistory(prev => {
+      const updated = [newRecord, ...prev].slice(0, 100); 
+      localStorage.setItem('localMatchHistory', JSON.stringify(updated));
+      return updated;
+    });
+  }
 
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
@@ -98,6 +139,7 @@ export default function Home() {
             <li>Your saved profile (name, ID)</li>
             <li>Admin login session</li>
             <li>Theme preference</li>
+            <li>Match History (ลืมประวัติคู่ซ้ำ)</li>
           </ul>
         </div>
       `,
@@ -112,6 +154,8 @@ export default function Home() {
         setAdmin(false);
         setSelected([]);
         setTheme('light');
+        setMatchHistory([]);
+        setManualPreviews([]);
         document.documentElement.classList.remove('dark');
         Toast.fire({ icon: 'success', title: 'Data cleared! Reloading...' });
         setTimeout(() => window.location.reload(), 1500);
@@ -170,7 +214,11 @@ export default function Home() {
 
     const availableCourtsCount = state?.courtNames.filter(cn => !state.playing.find(p => p.court === cn)).length || 0;
     const matchTarget = Math.max(1, availableCourtsCount); 
-    const matches = getAutoNextMatches(state.waiting, matchTarget, matchMode);
+    
+    const manualIds = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
+    const availableWaiting = (state?.waiting || []).filter(p => !manualIds.includes(p.id));
+
+    const matches = getAutoNextMatches(availableWaiting, matchTarget, matchMode, matchHistory);
 
     if (matches.length === 0) {
       Toast.fire({ icon: 'warning', title: 'Cannot find suitable match right now' });
@@ -181,6 +229,7 @@ export default function Home() {
 
     for (const m of matches) {
       const ids = [m.teams[0][0].id, m.teams[0][1].id, m.teams[1][0].id, m.teams[1][1].id];
+      recordMatchToHistory(ids); 
       await fetch('/api/manual-match', {
         method: 'POST',
         headers: {'content-type':'application/json'},
@@ -197,11 +246,15 @@ export default function Home() {
       matchData.teams[0][0].id, matchData.teams[0][1].id, 
       matchData.teams[1][0].id, matchData.teams[1][1].id
     ];
+    recordMatchToHistory(ids); 
     await fetch('/api/manual-match', {
       method: 'POST',
       headers: {'content-type':'application/json'},
       body: JSON.stringify({ ids })
     });
+    
+    setManualPreviews(prev => prev.filter(m => m !== matchData));
+
     refresh(false);
     Toast.fire({ icon: 'success', title: 'Match Started!' });
   }
@@ -211,96 +264,133 @@ export default function Home() {
       title: '📝 Check In',
       html: `
         <style>
-          .swal2-container .swal2-popup, .swal2-container .swal2-html-container {
-            overflow: visible !important; 
-          }
+          .swal2-container .swal2-popup { overflow: visible !important; }
         </style>
-        <div class="flex flex-col gap-3 text-left w-full relative">
-          <label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-slate-100 p-2 rounded cursor-pointer hover:bg-slate-200 transition shadow-sm">
-            <input type="checkbox" id="swGuest" class="w-4 h-4"> <span>Guest (ไม่มี ID พนักงาน)</span>
-          </label>
+        <div class="flex flex-col gap-4 text-left w-full relative">
           
-          <div class="relative w-full">
-              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Search Player (พนักงานที่มีข้อมูลแล้ว)</label>
-              <div class="flex gap-2 relative">
-                <input id="swSearch" class="w-full p-2 border border-blue-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-slate-400" placeholder="พิมพ์ชื่อ หรือรหัสพนักงาน..." autocomplete="off">
-                <button id="swClearBtn" type="button" class="bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold px-3 rounded shadow-sm hidden transition">✕</button>
-              </div>
-              <div id="swTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-2"></div>
-              <p id="swMasterNotice" class="text-[10px] text-green-600 font-bold hidden mt-1">✓ ล็อคข้อมูลจากฐานข้อมูลหลักแล้ว</p>
+          <input type="hidden" id="currentMode" value="search">
+          <input type="hidden" id="hidId">
+          <input type="hidden" id="hidName">
+          <input type="hidden" id="hidSkill">
+
+          <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner">
+            <button type="button" id="tabSearch" class="flex-1 py-2 text-xs font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all">🔍 เคยมาแล้ว (ค้นหา)</button>
+            <button type="button" id="tabNew" class="flex-1 py-2 text-xs font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all">✨ มาครั้งแรก</button>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-100">
-              <div>
-                  <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No.</label>
-                  <input id="swID" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors" placeholder="e.g. 12345" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : ''}">
+          <div id="secSearch" class="flex flex-col gap-2 min-h-[180px]">
+             <label class="text-[10px] font-bold text-slate-500 block uppercase">ค้นหาด้วยชื่อ หรือ รหัสพนักงาน</label>
+             <div class="flex gap-2 relative">
+                <input id="swSearch" class="w-full p-3 border border-blue-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-slate-400" placeholder="พิมพ์ชื่อ หรือรหัส..." autocomplete="off">
+                <button id="swClearBtn" type="button" class="bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold px-3 rounded-lg shadow-sm hidden transition">✕</button>
+             </div>
+             
+             <div id="swTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-1"></div>
+             
+             <div id="searchSelectedPreview" class="hidden mt-2 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl shadow-sm text-sm">
+                <div class="text-[10px] text-blue-500 font-black mb-2 tracking-widest uppercase">✅ เลือกผู้เล่นนี้แล้ว</div>
+                <div class="flex justify-between items-center bg-white p-2 rounded-lg shadow-sm">
+                  <div class="flex flex-col">
+                    <span id="previewName" class="font-bold text-slate-700 text-base"></span>
+                    <span id="previewId" class="text-[10px] font-mono text-slate-400"></span>
+                  </div>
+                  <span id="previewSkill" class="bg-blue-600 text-white text-[10px] px-2.5 py-1 rounded-md font-bold shadow-sm"></span>
+                </div>
+                <p class="text-[10px] text-slate-500 mt-3 text-center">กดปุ่ม Check In ด้านล่างเพื่อเข้าคิวได้เลย</p>
+             </div>
+          </div>
+
+          <div id="secNew" class="hidden flex-col gap-3 min-h-[180px]">
+              <label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg cursor-pointer hover:bg-amber-100 transition shadow-sm">
+                <input type="checkbox" id="swGuest" class="w-4 h-4 text-amber-600"> <span class="flex flex-col">Guest <span class="text-[10px] font-normal text-slate-500">ไม่มี ID พนักงาน ระบบจะสุ่มให้</span></span>
+              </label>
+              
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
+                  <div>
+                      <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No. (รหัสพนักงาน)</label>
+                      <input id="swID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors" placeholder="e.g. 12345" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : ''}">
+                  </div>
+                  <div>
+                      <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name (ชื่อเล่น)</label>
+                      <input id="swName" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors" placeholder="Name" value="${myProfile?.name || ''}">
+                  </div>
               </div>
-              <div>
-                  <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label>
-                  <input id="swName" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors" placeholder="Name" value="${myProfile?.name || ''}">
+              
+              <div class="mt-1">
+                  <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Level (เลือกระดับฝีมือตามจริง)</label>
+                  <select id="swSkill" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors">
+                    <option value="1">1 (มือใหม่แกะกล่อง)</option>
+                    <option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option>
+                    <option value="3">3 (มือกลาง มีพื้นฐาน)</option>
+                    <option value="4">4 (มือตึง สายคุมเกมส์)</option>
+                    <option value="5">5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
+                  </select>
               </div>
           </div>
-          <div>
-              <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Level (1-5)</label>
-              <select id="swSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors">
-                <option value="1">1 (มือใหม่แกะกล่อง)</option>
-                <option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option>
-                <option value="3">3 (มือกลาง มีพื้นฐาน)</option>
-                <option value="4">4 (มือตึง สายคุมเกมส์)</option>
-                <option value="5">5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
-              </select>
-          </div>
+
         </div>
       `,
       didOpen: () => {
+        const currentMode = document.getElementById('currentMode') as HTMLInputElement;
+        const tabSearch = document.getElementById('tabSearch') as HTMLButtonElement;
+        const tabNew = document.getElementById('tabNew') as HTMLButtonElement;
+        const secSearch = document.getElementById('secSearch') as HTMLDivElement;
+        const secNew = document.getElementById('secNew') as HTMLDivElement;
+
+        tabSearch.onclick = () => {
+          currentMode.value = 'search';
+          tabSearch.className = 'flex-1 py-2 text-xs font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all';
+          tabNew.className = 'flex-1 py-2 text-xs font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
+          secSearch.classList.remove('hidden');
+          secSearch.classList.add('flex');
+          secNew.classList.add('hidden');
+          secNew.classList.remove('flex');
+        };
+
+        tabNew.onclick = () => {
+          currentMode.value = 'new';
+          tabNew.className = 'flex-1 py-2 text-xs font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all';
+          tabSearch.className = 'flex-1 py-2 text-xs font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
+          secNew.classList.remove('hidden');
+          secNew.classList.add('flex');
+          secSearch.classList.add('hidden');
+          secSearch.classList.remove('flex');
+        };
+
         const swSearch = document.getElementById('swSearch') as HTMLInputElement;
         const swTableContainer = document.getElementById('swTableContainer') as HTMLDivElement;
-        const swID = document.getElementById('swID') as HTMLInputElement;
-        const swName = document.getElementById('swName') as HTMLInputElement;
-        const swSkill = document.getElementById('swSkill') as HTMLSelectElement;
-        const swGuest = document.getElementById('swGuest') as HTMLInputElement;
-        const swMasterNotice = document.getElementById('swMasterNotice') as HTMLParagraphElement;
         const swClearBtn = document.getElementById('swClearBtn') as HTMLButtonElement;
+        const searchSelectedPreview = document.getElementById('searchSelectedPreview') as HTMLDivElement;
+        
+        const hidId = document.getElementById('hidId') as HTMLInputElement;
+        const hidName = document.getElementById('hidName') as HTMLInputElement;
+        const hidSkill = document.getElementById('hidSkill') as HTMLInputElement;
 
         const lockFields = (p: any) => {
-           swID.value = p.id; swName.value = p.name; swSkill.value = p.skill.toString(); swSearch.value = p.name;
+           hidId.value = p.id; hidName.value = p.name; hidSkill.value = p.skill;
            
-           swID.readOnly = true; swID.classList.add('bg-slate-100', 'cursor-not-allowed');
-           swName.readOnly = true; swName.classList.add('bg-slate-100', 'cursor-not-allowed');
-           swSkill.disabled = true; swSkill.classList.add('bg-slate-100', 'cursor-not-allowed');
-           swSearch.readOnly = true; swSearch.classList.add('bg-slate-100', 'cursor-not-allowed');
+           document.getElementById('previewId')!.textContent = 'ID: ' + p.id;
+           document.getElementById('previewName')!.textContent = p.name;
+           document.getElementById('previewSkill')!.textContent = 'Lv ' + p.skill;
            
+           searchSelectedPreview.classList.remove('hidden');
+           swSearch.classList.add('hidden');
            swTableContainer.classList.add('hidden');
-           swMasterNotice.classList.remove('hidden');
            swClearBtn.classList.remove('hidden');
         };
 
         const unlockFields = () => {
-           swID.value = ''; swID.readOnly = false; swID.classList.remove('bg-slate-100', 'cursor-not-allowed');
-           swName.value = ''; swName.readOnly = false; swName.classList.remove('bg-slate-100', 'cursor-not-allowed');
-           swSkill.value = '2'; swSkill.disabled = false; swSkill.classList.remove('bg-slate-100', 'cursor-not-allowed');
-           swSearch.value = ''; swSearch.readOnly = false; swSearch.classList.remove('bg-slate-100', 'cursor-not-allowed');
+           hidId.value = ''; hidName.value = ''; hidSkill.value = '';
            
-           swMasterNotice.classList.add('hidden');
+           searchSelectedPreview.classList.add('hidden');
+           swSearch.classList.remove('hidden');
+           swSearch.value = '';
            swClearBtn.classList.add('hidden');
            swTableContainer.innerHTML = '';
            swSearch.focus();
         };
 
         swClearBtn.addEventListener('click', unlockFields);
-
-        swGuest.addEventListener('change', (e) => {
-           const isGuest = (e.target as HTMLInputElement).checked;
-           swSearch.disabled = isGuest; swID.disabled = isGuest; 
-           if(isGuest) { 
-             unlockFields();
-             swSearch.classList.add('bg-slate-100', 'cursor-not-allowed'); 
-             swID.classList.add('bg-slate-100', 'cursor-not-allowed');
-           } else { 
-             swSearch.classList.remove('bg-slate-100', 'cursor-not-allowed'); 
-             swID.classList.remove('bg-slate-100', 'cursor-not-allowed');
-           }
-        });
 
         let timeout: any;
         swSearch.addEventListener('input', () => {
@@ -332,7 +422,8 @@ export default function Home() {
                 
                 playerList.forEach((p: any) => {
                   const tr = document.createElement('tr');
-                  tr.className = 'border-b border-slate-100 hover:bg-blue-50 transition-colors';
+                  tr.className = 'border-b border-slate-100 hover:bg-blue-50 transition-colors cursor-pointer';
+                  tr.onmousedown = (e) => { e.preventDefault(); lockFields(p); };
                   
                   const tdId = document.createElement('td'); tdId.className = 'p-2 font-bold text-blue-600'; tdId.textContent = p.id;
                   const tdName = document.createElement('td'); tdName.className = 'p-2 font-medium'; tdName.textContent = p.name;
@@ -340,12 +431,8 @@ export default function Home() {
                   const tdAction = document.createElement('td'); tdAction.className = 'p-2 text-center';
                   
                   const btn = document.createElement('button');
-                  btn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded shadow-sm font-bold active:scale-95 transition-transform';
+                  btn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform';
                   btn.textContent = 'Select';
-                  btn.onmousedown = (e) => {
-                    e.preventDefault();
-                    lockFields(p);
-                  };
                   
                   tdAction.appendChild(btn);
                   tr.append(tdId, tdName, tdLv, tdAction);
@@ -354,51 +441,76 @@ export default function Home() {
                 table.appendChild(tbody);
                 swTableContainer.appendChild(table);
               } else {
-                swTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูลผู้เล่น (กรอกข้อมูลใหม่ด้านล่างได้เลย)</div>';
+                swTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูลผู้เล่น <br/>(กดแท็บ "มาครั้งแรก" ด้านบนเพื่อลงทะเบียน)</div>';
               }
             } catch (e) {}
           }, 300);
         });
+
+        const swGuest = document.getElementById('swGuest') as HTMLInputElement;
+        const swID = document.getElementById('swID') as HTMLInputElement;
+        
+        swGuest.addEventListener('change', (e) => {
+           const isGuest = (e.target as HTMLInputElement).checked;
+           swID.disabled = isGuest; 
+           if(isGuest) { 
+             swID.classList.add('bg-slate-100', 'cursor-not-allowed', 'opacity-50');
+             swID.value = '';
+           } else { 
+             swID.classList.remove('bg-slate-100', 'cursor-not-allowed', 'opacity-50');
+           }
+        });
       },
       showCancelButton: true, confirmButtonText: 'Check In', confirmButtonColor: '#2563eb',
       preConfirm: async () => {
-        const swGuest = document.getElementById('swGuest') as HTMLInputElement;
-        const swID = document.getElementById('swID') as HTMLInputElement;
-        const swName = document.getElementById('swName') as HTMLInputElement;
-        const swSkill = document.getElementById('swSkill') as HTMLSelectElement;
-        const swMasterNotice = document.getElementById('swMasterNotice') as HTMLParagraphElement;
+        const mode = (document.getElementById('currentMode') as HTMLInputElement).value;
 
-        const isGuest = swGuest.checked;
-        const idVal = swID.value.trim();
-        const nameVal = swName.value.trim();
-        const isLocked = !swMasterNotice.classList.contains('hidden');
+        if (mode === 'search') {
+            const id = (document.getElementById('hidId') as HTMLInputElement).value;
+            const name = (document.getElementById('hidName') as HTMLInputElement).value;
+            const skill = (document.getElementById('hidSkill') as HTMLInputElement).value;
+            
+            if (!id) {
+              Swal.showValidationMessage('กรุณาค้นหาและเลือกรายชื่อผู้เล่นก่อน หรือไปที่แท็บลงทะเบียนใหม่');
+              return false;
+            }
+            return { id, name, skill: Number(skill), isGuest: false };
+        } else {
+            const swGuest = document.getElementById('swGuest') as HTMLInputElement;
+            const swID = document.getElementById('swID') as HTMLInputElement;
+            const swName = document.getElementById('swName') as HTMLInputElement;
+            const swSkill = document.getElementById('swSkill') as HTMLSelectElement;
 
-        if(!isGuest && !idVal) { Swal.showValidationMessage('Please enter Employee No.'); return false; }
-        if(!nameVal) { Swal.showValidationMessage('Please enter Display Name'); return false; }
+            const isGuest = swGuest.checked;
+            const idVal = swID.value.trim();
+            const nameVal = swName.value.trim();
 
-        if (!isGuest && !isLocked) {
-           try {
-             const res = await fetch(`/api/player?q=${nameVal}`);
-             const data = await res.json();
-             
-             let playerList: any[] = [];
-             if (Array.isArray(data)) playerList = data;
-             else if (data.list && Array.isArray(data.list)) playerList = data.list;
-             else if (data.data && Array.isArray(data.data)) playerList = data.data;
-             else if (data.found && data.id) playerList = [data];
+            if(!isGuest && !idVal) { Swal.showValidationMessage('กรุณากรอกรหัสพนักงาน หรือเลือกเป็น Guest'); return false; }
+            if(!nameVal) { Swal.showValidationMessage('กรุณากรอกชื่อเล่นที่ต้องการแสดง'); return false; }
 
-             const isDup = playerList.some(p => 
-                (p.name && p.name.toLowerCase() === nameVal.toLowerCase()) || 
-                (p.id && p.id.toString() === idVal.toString())
-             );
-             if (isDup) {
-               Swal.showValidationMessage('ชื่อหรือรหัสนี้ซ้ำในระบบ กรุณาใช้รายชื่อจากตารางค้นหา หรือติดต่อ Admin');
-               return false;
-             }
-           } catch(e) {}
+            if (!isGuest) {
+               try {
+                 const res = await fetch(`/api/player?q=${nameVal}`);
+                 const data = await res.json();
+                 let playerList: any[] = [];
+                 if (Array.isArray(data)) playerList = data;
+                 else if (data.list && Array.isArray(data.list)) playerList = data.list;
+                 else if (data.data && Array.isArray(data.data)) playerList = data.data;
+                 else if (data.found && data.id) playerList = [data];
+
+                 const isDup = playerList.some(p => 
+                    (p.name && p.name.toLowerCase() === nameVal.toLowerCase()) || 
+                    (p.id && p.id.toString() === idVal.toString())
+                 );
+                 if (isDup) {
+                   Swal.showValidationMessage('ชื่อหรือรหัสนี้ซ้ำในระบบ กรุณากดแท็บค้นหารายชื่อแทน');
+                   return false;
+                 }
+               } catch(e) {}
+            }
+
+            return { id: isGuest ? undefined : idVal, name: nameVal, skill: Number(swSkill.value), isGuest }
         }
-
-        return { id: isGuest ? undefined : idVal, name: nameVal, skill: Number(swSkill.value), isGuest }
       }
     }).then(async (r) => {
       if(r.isConfirmed) {
@@ -447,10 +559,10 @@ export default function Home() {
           <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Skill Level</label>
             <select id="amSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
               <option value="1">1 (มือใหม่แกะกล่อง)</option>
-                <option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option>
-                <option value="3">3 (มือกลาง มีพื้นฐาน)</option>
-                <option value="4">4 (มือตึง สายคุมเกมส์)</option>
-                <option value="5">5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
+              <option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option>
+              <option value="3">3 (มือกลาง มีพื้นฐาน)</option>
+              <option value="4">4 (มือตึง สายคุมเกมส์)</option>
+              <option value="5">5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
             </select>
           </div>
         </div>
@@ -484,11 +596,11 @@ export default function Home() {
           <div><label class="text-[10px] font-bold text-slate-500">Display Name</label><input id="editName" value="${p.name}" class="w-full p-2 border rounded text-sm"></div>
           <div><label class="text-[10px] font-bold text-slate-500">Skill</label>
             <select id="editSkill" class="w-full p-2 border rounded text-sm">
-              <option value="1" ${p.skill===1?'selected':''}>1</option>
-              <option value="2" ${p.skill===2?'selected':''}>2</option>
-              <option value="3" ${p.skill===3?'selected':''}>3</option>
-              <option value="4" ${p.skill===4?'selected':''}>4</option>
-              <option value="5" ${p.skill===5?'selected':''}>5</option>
+              <option value="1" ${p.skill===1?'selected':''}>1 (มือใหม่แกะกล่อง)</option>
+              <option value="2" ${p.skill===2?'selected':''}>2 (มือใหม่เริ่มมีทรง)</option>
+              <option value="3" ${p.skill===3?'selected':''}>3 (มือกลาง มีพื้นฐาน)</option>
+              <option value="4" ${p.skill===4?'selected':''}>4 (มือตึง สายคุมเกมส์)</option>
+              <option value="5" ${p.skill===5?'selected':''}>5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
             </select>
           </div>
         </div>
@@ -498,7 +610,6 @@ export default function Home() {
     }).then(async r => { if(r.isConfirmed) { await runApi('/api/update-player', r.value, false); Toast.fire({ icon: 'success', title: 'Changes Saved' }); } })
   }
 
-  // --- 1. Daily Report (แบบเก่า ดูรายวัน) ---
   const showDailyReport = () => {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
     Swal.fire({
@@ -546,7 +657,6 @@ export default function Home() {
     });
   }
 
-  // --- 2. Analytics Report (แบบเลือกช่วงวันที่) ---
   const showAnalytics = () => {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
     
@@ -622,8 +732,15 @@ export default function Home() {
   }
 
   const resetDay = () => {
-    Swal.fire({ title: 'Reset Entire Day?', text: "This will clear all active courts and queues.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes, Reset!' })
-    .then(async r => { if(r.isConfirmed) { await runApi('/api/reset-day', {}); Toast.fire({ icon: 'success', title: 'System Reset Complete' }); } })
+    Swal.fire({ title: 'Reset Entire Day?', text: "This will clear all active courts, queues, and memory.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes, Reset!' })
+    .then(async r => { 
+      if(r.isConfirmed) { 
+        localStorage.removeItem('localMatchHistory');
+        setMatchHistory([]);
+        await runApi('/api/reset-day', {}); 
+        Toast.fire({ icon: 'success', title: 'System Reset Complete' }); 
+      } 
+    })
   }
 
   const auth = async () => {
@@ -689,7 +806,7 @@ export default function Home() {
     return Math.max(...skills) - Math.min(...skills) <= 1; 
   }
 
-  function getAutoNextMatches(players: any[], availableSlots = 3, mode = matchMode): any[] {
+  function getAutoNextMatches(players: any[], availableSlots = 3, mode = matchMode, history = matchHistory): any[] {
     const matches = [];
     let currentPlayers = [...players];
 
@@ -697,7 +814,7 @@ export default function Home() {
       if (currentPlayers.length < 4) break;
 
       if (mode === 'smart') {
-        const match = extractBestMatch(currentPlayers);
+        const match = extractBestMatch(currentPlayers, history); 
         if (!match) break;
         matches.push({ matchNumber: i + 1, teams: match.teams, diff: match.diff });
         currentPlayers = currentPlayers.filter((_, index) => !match.indices.includes(index));
@@ -707,7 +824,7 @@ export default function Home() {
             currentPlayers = currentPlayers.slice(4);
             continue;
         }
-        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(p.skill) })));
+        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(p.skill) })), history);
         matches.push({
           matchNumber: i + 1,
           teams: [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ],
@@ -720,7 +837,16 @@ export default function Home() {
   }
   
   const availableCourts = (state?.courtNames || []).filter(cn => !(state?.playing || []).find(p => p.court === cn));
-  const autoMatches = (globalPreview && (state?.waiting?.length || 0) >= 4) ? getAutoNextMatches(state?.waiting || [], availableCourts.length, matchMode) : [];
+  
+  const manualIds = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
+  const availableWaiting = (state?.waiting || []).filter(p => !manualIds.includes(p.id));
+  
+  const remainingSlots = availableCourts.length - manualPreviews.length;
+  const autoMatches = (globalPreview && availableWaiting.length >= 4 && remainingSlots > 0) 
+    ? getAutoNextMatches(availableWaiting, remainingSlots, matchMode, matchHistory) 
+    : [];
+    
+  const allPreviews = [...manualPreviews, ...autoMatches];
 
   if (fullscreen) {
     return (
@@ -732,31 +858,48 @@ export default function Home() {
             </div>
             <button onClick={()=>setFullscreen(false)} className="bg-slate-800 border border-slate-700 text-slate-400 px-4 sm:px-6 py-2 rounded-lg font-bold hover:bg-slate-700 hover:text-white transition shadow-lg text-sm sm:text-base">EXIT</button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 flex-1 pb-10">
+        
+        {/* ปรับ Grid ใหม่ให้กระชับขึ้นบนมือถือ และลดความสูงการ์ด */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5 flex-1 pb-10">
           {(state?.courtNames || []).map(cn => {
             const m = (state?.playing || []).find(p => p.court === cn);
             if (m) {
               const min = Math.floor((Date.now()-new Date(m.startTime).getTime())/60000);
               const isLate = min >= avgMatchDuration;
               return (
-                <div key={cn} className={`bg-slate-900 border ${isLate ? 'border-red-500 animate-pulse ring-4 ring-red-500/50' : 'border-slate-800'} rounded-3xl flex flex-col min-h-[250px] sm:min-h-[300px] relative overflow-hidden shadow-2xl`}>
-                  <span className="absolute inset-0 flex items-center justify-end pr-8 text-[10rem] sm:text-[12rem] font-black text-white/5 pointer-events-none">{cn.replace(/court/i,'')}</span>
-                  <div className="absolute top-4 left-4 z-20"><div className={`text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-lg sm:text-xl font-black shadow-lg ${isLate?'bg-red-600':'bg-slate-800'}`}>⏱ {min}m</div></div>
-                  <div className="flex-1 flex flex-col justify-end gap-5 sm:gap-6 p-4 sm:p-6 pb-6 sm:pb-8 z-10 mt-16">
-                    <div className="bg-gradient-to-r from-blue-900/40 to-blue-800/10 border border-blue-700/50 rounded-2xl p-4 sm:p-5 flex justify-between items-center backdrop-blur shadow-xl border-l-4 border-l-blue-500">
-                      <div className="text-white text-lg sm:text-xl font-bold truncate w-[45%]">{m.p1Name}</div>
-                      <div className="text-blue-400 font-black text-xl sm:text-2xl">&</div>
-                      <div className="text-white text-lg sm:text-xl font-bold truncate w-[45%] text-right">{m.p2Name}</div>
+                <div key={cn} className={`bg-slate-900 border ${isLate ? 'border-red-500' : 'border-slate-800'} rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all`}>
+                  
+                  {/* ชื่อคอร์ทชัดๆ มุมขวาบน */}
+                  <div className="absolute top-2 right-2 z-20">
+                     <div className="bg-slate-950/80 backdrop-blur border border-slate-700 text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">
+                        {cn}
+                     </div>
+                  </div>
+                  
+                  {/* เวลา มุมซ้ายบน */}
+                  <div className="absolute top-2 left-2 z-20">
+                     <div className={`text-white px-2.5 py-1 rounded-lg text-xs font-black shadow-sm ${isLate?'bg-red-600 animate-pulse':'bg-slate-800 border border-slate-700'}`}>
+                        ⏱ {min}m
+                     </div>
+                  </div>
+
+                  <div className="flex-1 flex flex-col justify-center gap-1.5 p-3 pt-12 z-10">
+                    <div className="bg-blue-900/30 border border-blue-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-blue-500">
+                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%]">{m.p1Name}</div>
+                      <div className="text-blue-400 font-black text-[10px]">&</div>
+                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p2Name}</div>
                     </div>
-                    <div className="flex justify-center -my-6 sm:-my-7 z-20"><span className="bg-slate-950 border border-slate-700 text-slate-400 px-4 sm:px-6 py-1.5 sm:py-2 rounded-full font-black tracking-widest text-xs sm:text-sm shadow-lg">VS</span></div>
-                    <div className="bg-gradient-to-r from-red-900/40 to-red-800/10 border border-red-700/50 rounded-2xl p-4 sm:p-5 flex justify-between items-center backdrop-blur shadow-xl border-l-4 border-l-red-500">
-                      <div className="text-white text-lg sm:text-xl font-bold truncate w-[45%]">{m.p3Name}</div>
-                      <div className="text-red-400 font-black text-xl sm:text-2xl">&</div>
-                      <div className="text-white text-lg sm:text-xl font-bold truncate w-[45%] text-right">{m.p4Name}</div>
+                    <div className="flex justify-center -my-2.5 z-20">
+                      <span className="bg-slate-950 border border-slate-700 text-slate-400 px-2 py-0.5 rounded-full font-black text-[9px] shadow-sm">VS</span>
+                    </div>
+                    <div className="bg-red-900/30 border border-red-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-red-500">
+                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%]">{m.p3Name}</div>
+                      <div className="text-red-400 font-black text-[10px]">&</div>
+                      <div className="text-white text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p4Name}</div>
                     </div>
                   </div>
                   {admin && (
-                    <button onClick={() => finish(m.court)} className="mx-4 sm:mx-6 mb-4 sm:mb-6 mt-[-10px] z-20 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-base sm:text-lg font-black uppercase shadow-lg transition active:scale-95">
+                    <button onClick={() => finish(m.court)} className="mx-3 mb-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-black uppercase transition active:scale-95 shadow-md">
                       End Match
                     </button>
                   )}
@@ -764,38 +907,59 @@ export default function Home() {
               )
             } else {
               const availIndex = availableCourts.indexOf(cn);
-              const prepMatch = autoMatches[availIndex];
+              const prepMatch = allPreviews[availIndex];
               
               if (prepMatch) {
                 return (
-                  <div key={cn} className="bg-slate-900 border-2 border-dashed border-emerald-500/50 rounded-3xl flex flex-col min-h-[250px] sm:min-h-[300px] relative overflow-hidden shadow-2xl opacity-90">
-                    <span className="absolute inset-0 flex items-center justify-end pr-8 text-[10rem] sm:text-[12rem] font-black text-white/5 pointer-events-none">{cn.replace(/court/i,'')}</span>
-                    <div className="absolute top-4 left-4 z-20"><div className="text-emerald-900 bg-emerald-400 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-sm sm:text-base font-black shadow-lg uppercase tracking-widest animate-pulse">UP NEXT</div></div>
-                    <div className="flex-1 flex flex-col justify-end gap-5 sm:gap-6 p-4 sm:p-6 pb-6 sm:pb-8 z-10 mt-16">
-                      <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-4 sm:p-5 flex justify-between items-center backdrop-blur shadow-xl border-l-4 border-l-slate-500">
-                        <div className="text-slate-300 text-lg sm:text-xl font-bold truncate w-[45%]">{prepMatch.teams[0][0].name}</div>
-                        <div className="text-slate-500 font-black text-xl sm:text-2xl">&</div>
-                        <div className="text-slate-300 text-lg sm:text-xl font-bold truncate w-[45%] text-right">{prepMatch.teams[0][1].name}</div>
+                  <div key={cn} className="bg-slate-900 border border-dashed border-emerald-500/50 rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl opacity-95 transition-all">
+                    
+                    <div className="absolute top-2 right-2 z-20">
+                       <div className="bg-slate-950/80 backdrop-blur border border-slate-700 text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">
+                          {cn}
+                       </div>
+                    </div>
+
+                    <div className="absolute top-2 left-2 z-20">
+                       <div className={`px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm uppercase tracking-widest ${prepMatch.isManual ? 'bg-blue-400 text-blue-900' : 'bg-emerald-400 text-emerald-900 animate-pulse'}`}>
+                          {prepMatch.isManual ? 'MANUAL' : 'UP NEXT'}
+                       </div>
+                    </div>
+
+                    <div className="flex-1 flex flex-col justify-center gap-1.5 p-3 pt-12 z-10">
+                      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-slate-500">
+                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[0][0].name}</div>
+                        <div className="text-slate-500 font-black text-[10px]">&</div>
+                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[0][1].name}</div>
                       </div>
-                      <div className="flex justify-center -my-6 sm:-my-7 z-20"><span className="bg-slate-950 border border-slate-700 text-slate-500 px-4 sm:px-6 py-1.5 sm:py-2 rounded-full font-black tracking-widest text-xs sm:text-sm shadow-lg">VS</span></div>
-                      <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-4 sm:p-5 flex justify-between items-center backdrop-blur shadow-xl border-l-4 border-l-slate-500">
-                        <div className="text-slate-300 text-lg sm:text-xl font-bold truncate w-[45%]">{prepMatch.teams[1][0].name}</div>
-                        <div className="text-slate-500 font-black text-xl sm:text-2xl">&</div>
-                        <div className="text-slate-300 text-lg sm:text-xl font-bold truncate w-[45%] text-right">{prepMatch.teams[1][1].name}</div>
+                      <div className="flex justify-center -my-2.5 z-20">
+                        <span className="bg-slate-950 border border-slate-700 text-slate-500 px-2 py-0.5 rounded-full font-black text-[9px] shadow-sm">VS</span>
+                      </div>
+                      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-slate-500">
+                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[1][0].name}</div>
+                        <div className="text-slate-500 font-black text-[10px]">&</div>
+                        <div className="text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[1][1].name}</div>
                       </div>
                     </div>
                     {admin && (
-                      <button onClick={() => confirmSpecificMatch(prepMatch)} className="mx-4 sm:mx-6 mb-4 sm:mb-6 mt-[-10px] z-20 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-base sm:text-lg font-black uppercase shadow-lg transition active:scale-95 flex items-center justify-center gap-2">
-                        <span className="text-xl">✅</span> Confirm Match
-                      </button>
+                      <div className="flex gap-2 mx-3 mb-3 z-20">
+                        <button onClick={() => confirmSpecificMatch(prepMatch)} className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black uppercase transition active:scale-95 flex items-center justify-center gap-1.5 shadow-md">
+                          ✅ Confirm
+                        </button>
+                        {prepMatch.isManual && (
+                          <button onClick={() => setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-black transition active:scale-95 shadow-md">
+                            ✕
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 )
               } else {
                 return (
-                  <div key={cn} className="bg-slate-900 border-2 border-dashed border-slate-800 rounded-3xl flex items-center justify-center p-8 relative overflow-hidden min-h-[250px] sm:min-h-[300px]">
-                    <span className="absolute inset-0 flex items-center justify-center text-[8rem] sm:text-[10rem] font-black text-white/5 pointer-events-none">{cn.replace(/court/i,'')}</span>
-                    <div className="z-10 bg-slate-800/80 px-6 sm:px-8 py-3 sm:py-4 rounded-2xl backdrop-blur-sm"><h3 className="text-2xl sm:text-4xl font-black text-slate-400">{cn}</h3></div>
+                  <div key={cn} className="bg-slate-900 border border-dashed border-slate-800 rounded-2xl flex flex-col items-center justify-center p-4 relative overflow-hidden min-h-[140px] sm:min-h-[180px]">
+                    <div className="z-10 bg-slate-800/80 px-4 py-2 rounded-xl backdrop-blur-sm shadow-sm border border-slate-700">
+                       <h3 className="text-sm sm:text-base font-black text-slate-400 tracking-widest">{cn}</h3>
+                    </div>
                   </div>
                 )
               }
@@ -836,6 +1000,7 @@ export default function Home() {
                 </div>
             </div>
             <div className="flex items-center gap-2">
+                <button onClick={toggleWakeLock} className={`w-8 h-8 rounded-full shadow-inner flex items-center justify-center border dark:border-slate-700 transition ${isAwake ? 'bg-amber-100 border-amber-400 text-amber-600 dark:bg-amber-900/30' : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200'}`} title="Toggle Wake Lock">{isAwake ? '☀️' : '🌙'}</button>
                 <button onClick={toggleTheme} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition" title="Toggle theme">🌓</button>
                 <button onClick={()=>setFullscreen(true)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition" title="Fullscreen mode">🖥️</button>
                 <button onClick={clearBrowserData} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition" title="Clear browser data">🧹</button>
@@ -855,28 +1020,47 @@ export default function Home() {
               </button>
           </div>
 
+          {/* 💡 Your Status แบบ Compact Banner เล็กกะทัดรัด */}
           {myProfile && (
-            <div className={`p-5 rounded-2xl shadow-lg border flex items-center justify-between transition-all duration-500
-              ${amIPlaying ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-700 shadow-blue-500/30'
-                            : myPending ? 'bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/30 dark:to-orange-900/20 text-yellow-800 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800'
-                            : (myWaitIndex !== -1) ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-slate-900 border-green-500 shadow-green-500/40'
-                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'}`}>
-              <div className="w-full">
-                <div className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Your Status: {myProfile.name}</div>
-                {amIPlaying ? ( <div className="text-xl font-black flex items-center gap-2">🏸 Currently Playing!</div>
-                ) : myPending ? ( <div className="font-bold text-sm">Waiting for Admin Approval...</div>
-                ) : myWaitIndex !== -1 ? (
-                   <div className="font-bold flex items-center gap-3 flex-wrap mt-1 w-full">
-                      <div className="flex items-center gap-2">
-                        Queue Position: <span className="text-3xl font-black bg-white/30 px-3 py-1 rounded-xl shadow-inner">{myWaitIndex + 1}</span>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 bg-black/10 px-3 py-1.5 rounded-lg shadow-sm text-sm">
-                        <span>⏱️ Est. Wait: <span className="text-base font-black text-white">~{estWaitMins}</span> mins</span>
-                        <span className="text-[10px] opacity-80 sm:ml-1 font-mono">(Avg {avgMatchDuration}m/match)</span>
-                      </div>
-                      {myWaitIndex < 4 && <span className="text-sm bg-red-600 text-white px-3 py-1.5 rounded-lg shadow-sm">🔥 Standby!</span>}
+            <div className={`p-3 sm:p-4 rounded-xl shadow-md border flex items-center justify-between transition-all duration-500
+              ${amIPlaying ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-700'
+                            : myPending ? 'bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/30 dark:to-orange-900/20 text-yellow-800 dark:text-yellow-400 border-yellow-200'
+                            : (myWaitIndex !== -1) ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-slate-900 border-green-500'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200'}`}>
+              <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                
+                <div className="flex items-center gap-2">
+                   <div className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center text-sm font-black shadow-inner">
+                     {myProfile.name.charAt(0).toUpperCase()}
                    </div>
-                ) : ( <div className="font-bold text-sm">Not in queue. (Click Register below)</div> )}
+                   <div className="flex flex-col">
+                     <span className="text-[10px] font-black uppercase tracking-widest opacity-80 leading-none mb-0.5">Status</span>
+                     <span className="font-bold text-sm leading-tight truncate max-w-[120px]">{myProfile.name}</span>
+                   </div>
+                </div>
+                
+                <div className="flex justify-start sm:justify-end">
+                  {amIPlaying ? ( 
+                     <div className="text-sm font-black flex items-center gap-1.5 bg-black/10 px-3 py-1.5 rounded-lg shadow-inner">🏸 Currently Playing!</div>
+                  ) : myPending ? ( 
+                     <div className="font-bold text-xs bg-black/10 px-3 py-1.5 rounded-lg shadow-inner">⏳ Waiting Approval...</div>
+                  ) : myWaitIndex !== -1 ? (
+                     <div className="flex items-center gap-2 flex-wrap">
+                        {myWaitIndex < 4 && <span className="text-[10px] bg-red-600 text-white font-bold px-2 py-1 rounded shadow-sm animate-pulse">🔥 Standby</span>}
+                        <div className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded-lg shadow-inner">
+                          <span className="text-[10px] uppercase font-bold opacity-80">Queue</span>
+                          <span className="text-lg font-black leading-none">{myWaitIndex + 1}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded-lg shadow-inner">
+                          <span className="text-[10px] uppercase font-bold opacity-80">Wait</span>
+                          <span className="text-sm font-black leading-none">~{estWaitMins}m</span>
+                        </div>
+                     </div>
+                  ) : ( 
+                     <div className="font-bold text-xs bg-black/10 px-3 py-1.5 rounded-lg shadow-inner">Not in queue</div> 
+                  )}
+                </div>
+
               </div>
             </div>
           )}
@@ -920,7 +1104,7 @@ export default function Home() {
                   )
                 } else {
                   const availIndex = availableCourts.indexOf(cn);
-                  const prepMatch = autoMatches[availIndex];
+                  const prepMatch = allPreviews[availIndex];
 
                   if (prepMatch) {
                      return (
@@ -928,7 +1112,9 @@ export default function Home() {
                         <span className="absolute inset-0 flex items-center justify-end pr-6 text-[6rem] font-black text-emerald-900/5 dark:text-emerald-100/5 pointer-events-none">{cn.replace(/court/i,'')}</span>
                         <div className="relative z-10 flex flex-col h-full">
                           <div className="flex justify-between items-center mb-3">
-                              <span className="text-[10px] font-black px-2 py-1 rounded bg-emerald-200 text-emerald-800 dark:bg-emerald-800 dark:text-emerald-200 uppercase tracking-widest animate-pulse">Up Next</span>
+                              <span className={`text-[10px] font-black px-2 py-1 rounded shadow-sm uppercase tracking-widest ${prepMatch.isManual ? 'bg-blue-200 text-blue-800 dark:bg-blue-800 dark:text-blue-200' : 'bg-emerald-200 text-emerald-800 dark:bg-emerald-800 dark:text-emerald-200 animate-pulse'}`}>
+                                {prepMatch.isManual ? 'Manual Match' : 'Up Next'}
+                              </span>
                               <span className="text-xs font-black text-slate-400 uppercase tracking-widest">{cn}</span>
                           </div>
                           <div className="flex flex-col gap-2 opacity-80">
@@ -944,7 +1130,18 @@ export default function Home() {
                               <div className="font-bold text-sm truncate w-[45%] text-right dark:text-slate-200">{prepMatch.teams[1][1].name} <span className="text-[10px] font-normal text-slate-400">Lv {prepMatch.teams[1][1].skill}</span></div>
                             </div>
                           </div>
-                          {admin && <button onClick={()=>confirmSpecificMatch(prepMatch)} className="mt-4 w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg uppercase shadow-md transition transform active:scale-95 flex items-center justify-center gap-2">✅ Confirm Match</button>}
+                          {admin && (
+                             <div className="mt-4 flex gap-2 relative z-20">
+                               <button onClick={()=>confirmSpecificMatch(prepMatch)} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg uppercase shadow-md transition transform active:scale-95 flex items-center justify-center gap-2">
+                                 ✅ Confirm Match
+                               </button>
+                               {prepMatch.isManual && (
+                                 <button onClick={()=>setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 text-xs font-bold rounded-lg shadow-md transition transform active:scale-95">
+                                   ✕
+                                 </button>
+                               )}
+                             </div>
+                          )}
                         </div>
                       </div>
                      )
@@ -1091,7 +1288,34 @@ export default function Home() {
                   <h4 className="text-sm font-black text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Management Tools</h4>
                   <div className="grid grid-cols-2 gap-2">
                     <button onClick={openAddMember} className="col-span-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">➕ Add Member</button>
-                    <button onClick={async()=>{ if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'Select exactly 4 players' }); Toast.fire({icon:'info', title:'Matching...'}); await fetch('/api/manual-match', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ids: selected})}); setSelected([]); refresh(false); Toast.fire({ icon: 'success', title: 'Matched Selected' }); }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Match Selected</button>
+                    
+                    <button onClick={async()=>{ 
+                        if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'Select exactly 4 players' }); 
+                        
+                        const selectedPlayers = state?.waiting?.filter(p => selected.includes(p.id)) || [];
+                        const balanced = balanceTeams(selectedPlayers, matchHistory);
+                        
+                        if (state?.autoMatch) {
+                            Toast.fire({icon:'info', title:'Matching...'}); 
+                            const ids = [balanced.teams[0].id, balanced.teams[1].id, balanced.teams[2].id, balanced.teams[3].id];
+                            recordMatchToHistory(ids);
+                            await fetch('/api/manual-match', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ids})}); 
+                            setSelected([]); 
+                            refresh(false); 
+                            Toast.fire({ icon: 'success', title: 'Matched Selected' }); 
+                        } else {
+                            const matchData = {
+                                isManual: true,
+                                matchNumber: Date.now(),
+                                teams: [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ],
+                                diff: balanced.diff
+                            };
+                            setManualPreviews(prev => [...prev, matchData]);
+                            setSelected([]);
+                            Toast.fire({ icon: 'success', title: 'Added to Pre-Match Court!' });
+                        }
+                    }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Match Selected</button>
+
                     <button onClick={async()=>{ const c = prompt('Courts (comma separated)', (state?.courtNames || []).join(', ')); if(c){ await fetch('/api/config', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({action:'set', key:'Courts', value: c})}); Toast.fire({ icon: 'success', title: 'Courts updated' }); refresh(false); } }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Setup Courts</button>
                     <button onClick={showDailyReport} className="col-span-1 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm transition active:scale-95">📊 Daily Report</button>
                     <button onClick={showAnalytics} className="col-span-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm transition active:scale-95">📈 Analytics</button>
