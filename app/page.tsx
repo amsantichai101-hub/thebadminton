@@ -46,7 +46,11 @@ export default function Home() {
 
   const myWaitIndex = state?.waiting?.findIndex(p => p.id === myProfile?.id) ?? -1;
   const myPending = state?.pending?.find(p => p.id === myProfile?.id);
-  const amIPlaying = state?.playing?.some(c => c.p1Id === myProfile?.id || c.p2Id === myProfile?.id || c.p3Id === myProfile?.id || c.p4Id === myProfile?.id) ?? false;
+  
+  // ตรวจสอบว่าลงคอร์ทจริงๆ หรือยัง พร้อมเช็คเวลาที่เริ่มตี
+  const myActiveCourt = state?.playing?.find(c => c.p1Id === myProfile?.id || c.p2Id === myProfile?.id || c.p3Id === myProfile?.id || c.p4Id === myProfile?.id);
+  const amIPlaying = !!myActiveCourt;
+  const playDurationMs = myActiveCourt ? Date.now() - new Date(myActiveCourt.startTime).getTime() : 0;
   
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
@@ -130,11 +134,12 @@ export default function Home() {
       notifiedStandby.current = true;
     }
 
-    if (amIPlaying && !notifiedPlay.current) {
-      fireNotification('🏸 ถึงคิวคุณแล้ว!', 'เชิญหยิบไม้แล้วลงสนามได้เลย ขอให้สนุกครับ!', [500, 200, 500, 200, 500]);
+    // 💡 แจ้งเตือนเมื่อลงคอร์ทจริงๆ เท่านั้น และเพิ่งลงคอร์ทไม่เกิน 2 นาที (กันการแจ้งเตือนซ้ำตอนรีเฟรชจอ)
+    if (amIPlaying && playDurationMs < 120000 && !notifiedPlay.current) {
+      fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt?.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 500]);
       notifiedPlay.current = true;
     }
-  }, [myWaitIndex, amIPlaying, myProfile]);
+  }, [myWaitIndex, amIPlaying, myProfile, playDurationMs, myActiveCourt]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
@@ -257,7 +262,6 @@ export default function Home() {
     });
   }
 
-  // 💡 คืนชีพ 2 ฟังก์ชันที่หายไป กลับมาแล้วครับ!
   const toggleGlobalPreviewState = async (checked: boolean) => {
     setGlobalPreview(checked); 
     if (admin) {
@@ -283,7 +287,6 @@ export default function Home() {
     });
     Toast.fire({ icon: 'success', title: 'Play Time Saved' });
   }
-  // ----------------------------------------------------
 
   const runApi = async (url: string, body?: any, showLoader = true) => {
     if (showLoader) {
@@ -369,11 +372,13 @@ export default function Home() {
           <input type="hidden" id="hidName">
           <input type="hidden" id="hidSkill">
 
-          <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner">
-            <button type="button" id="tabSearch" class="flex-1 py-2 text-xs font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all">🔍 เคยมาแล้ว (ค้นหา)</button>
-            <button type="button" id="tabNew" class="flex-1 py-2 text-xs font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all">✨ มาครั้งแรก</button>
+          <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner gap-1">
+            <button type="button" id="tabSearch" class="flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all">🔍 เข้าคิว (เคยมีข้อมูล)</button>
+            <button type="button" id="tabNew" class="flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all">✨ เข้าคิว (มาครั้งแรก)</button>
+            <button type="button" id="tabSync" class="flex-1 py-2 text-[11px] font-bold rounded-md text-red-500 hover:text-red-700 transition-all">🔄 กู้คืนโปรไฟล์</button>
           </div>
 
+          <!-- หมวดที่ 1: ค้นหาคนเก่า -->
           <div id="secSearch" class="flex flex-col gap-2 min-h-[180px]">
              <label class="text-[10px] font-bold text-slate-500 block uppercase">ค้นหาด้วยชื่อ หรือ รหัสพนักงาน</label>
              <div class="flex gap-2 relative">
@@ -396,6 +401,7 @@ export default function Home() {
              </div>
           </div>
 
+          <!-- หมวดที่ 2: ลงทะเบียนใหม่ / Guest -->
           <div id="secNew" class="hidden flex-col gap-3 min-h-[180px]">
               <label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg cursor-pointer hover:bg-amber-100 transition shadow-sm">
                 <input type="checkbox" id="swGuest" class="w-4 h-4 text-amber-600"> <span class="flex flex-col">Guest <span class="text-[10px] font-normal text-slate-500">ไม่มี ID พนักงาน ระบบจะสุ่มให้</span></span>
@@ -424,35 +430,55 @@ export default function Home() {
               </div>
           </div>
 
+          <!-- 💡 หมวดที่ 3: กู้คืนโปรไฟล์ (Sync Device) -->
+          <div id="secSync" class="hidden flex-col gap-2 min-h-[180px]">
+             <div class="bg-red-50 border border-red-200 p-3 rounded-lg mb-2">
+                <p class="text-xs text-red-600 font-bold mb-1">⚠️ ใช้กรณีไหน?</p>
+                <p class="text-[10px] text-red-500 leading-tight">ใช้เมื่อคุณ <b>"มีชื่ออยู่ในคิวแล้ว"</b> แต่เผลอเคลียร์แคช หรือหน้าจอเปลี่ยนมือถือ ทำให้ระบบไม่จำหน้าโปรไฟล์คุณ (ไม่ต้องกดเข้าคิวใหม่ให้ซ้ำซ้อน)</p>
+             </div>
+             
+             <div class="flex gap-2 relative">
+                <input id="syncSearchInput" class="w-full p-3 border border-red-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none placeholder-slate-400" placeholder="🔍 ค้นหาชื่อเพื่อดึงโปรไฟล์กลับมา..." autocomplete="off">
+             </div>
+             
+             <div id="syncTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-1"></div>
+          </div>
+
         </div>
       `,
       didOpen: () => {
         const currentMode = document.getElementById('currentMode') as HTMLInputElement;
         const tabSearch = document.getElementById('tabSearch') as HTMLButtonElement;
         const tabNew = document.getElementById('tabNew') as HTMLButtonElement;
+        const tabSync = document.getElementById('tabSync') as HTMLButtonElement;
+        
         const secSearch = document.getElementById('secSearch') as HTMLDivElement;
         const secNew = document.getElementById('secNew') as HTMLDivElement;
+        const secSync = document.getElementById('secSync') as HTMLDivElement;
 
-        tabSearch.onclick = () => {
-          currentMode.value = 'search';
-          tabSearch.className = 'flex-1 py-2 text-xs font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all';
-          tabNew.className = 'flex-1 py-2 text-xs font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
-          secSearch.classList.remove('hidden');
-          secSearch.classList.add('flex');
-          secNew.classList.add('hidden');
-          secNew.classList.remove('flex');
+        // สลับโหมด UI
+        const switchTab = (mode: string) => {
+          currentMode.value = mode;
+          
+          tabSearch.className = mode === 'search' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
+          tabNew.className = mode === 'new' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
+          tabSync.className = mode === 'sync' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-red-500 text-white transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-red-500 hover:text-red-700 transition-all bg-transparent shadow-none';
+
+          secSearch.classList.toggle('hidden', mode !== 'search');
+          secSearch.classList.toggle('flex', mode === 'search');
+          
+          secNew.classList.toggle('hidden', mode !== 'new');
+          secNew.classList.toggle('flex', mode === 'new');
+
+          secSync.classList.toggle('hidden', mode !== 'sync');
+          secSync.classList.toggle('flex', mode === 'sync');
         };
 
-        tabNew.onclick = () => {
-          currentMode.value = 'new';
-          tabNew.className = 'flex-1 py-2 text-xs font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all';
-          tabSearch.className = 'flex-1 py-2 text-xs font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
-          secNew.classList.remove('hidden');
-          secNew.classList.add('flex');
-          secSearch.classList.add('hidden');
-          secSearch.classList.remove('flex');
-        };
+        tabSearch.onclick = () => switchTab('search');
+        tabNew.onclick = () => switchTab('new');
+        tabSync.onclick = () => switchTab('sync');
 
+        // Logic หมวดค้นหา (Check In)
         const swSearch = document.getElementById('swSearch') as HTMLInputElement;
         const swTableContainer = document.getElementById('swTableContainer') as HTMLDivElement;
         const swClearBtn = document.getElementById('swClearBtn') as HTMLButtonElement;
@@ -477,7 +503,6 @@ export default function Home() {
 
         const unlockFields = () => {
            hidId.value = ''; hidName.value = ''; hidSkill.value = '';
-           
            searchSelectedPreview.classList.add('hidden');
            swSearch.classList.remove('hidden');
            swSearch.value = '';
@@ -492,10 +517,7 @@ export default function Home() {
         swSearch.addEventListener('input', () => {
           clearTimeout(timeout);
           swTableContainer.innerHTML = '';
-          
-          if(swSearch.value.length < 2) { 
-            swTableContainer.classList.add('hidden'); return;
-          }
+          if(swSearch.value.length < 2) { swTableContainer.classList.add('hidden'); return; }
           
           timeout = setTimeout(async () => {
             try {
@@ -556,12 +578,78 @@ export default function Home() {
              swID.classList.remove('bg-slate-100', 'cursor-not-allowed', 'opacity-50');
            }
         });
+
+        // Logic หมวดกู้คืนโปรไฟล์ (Sync Mode)
+        const syncSearchInput = document.getElementById('syncSearchInput') as HTMLInputElement;
+        const syncTableContainer = document.getElementById('syncTableContainer') as HTMLDivElement;
+        
+        let syncTimeout: any;
+        syncSearchInput.addEventListener('input', () => {
+          clearTimeout(syncTimeout);
+          syncTableContainer.innerHTML = '';
+          if(syncSearchInput.value.length < 2) { syncTableContainer.classList.add('hidden'); return; }
+          
+          syncTimeout = setTimeout(async () => {
+            try {
+              const res = await fetch(`/api/player?q=${syncSearchInput.value}`);
+              const data = await res.json();
+              
+              let playerList = [];
+              if (Array.isArray(data)) playerList = data;
+              else if (data.list && Array.isArray(data.list)) playerList = data.list;
+              else if (data.data && Array.isArray(data.data)) playerList = data.data;
+              else if (data.found && data.id) playerList = [data];
+
+              syncTableContainer.classList.remove('hidden');
+
+              if(playerList.length > 0) {
+                const table = document.createElement('table');
+                table.className = 'w-full text-left text-xs';
+                table.innerHTML = '<thead class="bg-red-100 sticky top-0 text-red-800"><tr><th class="p-2">Name</th><th class="p-2 text-center">Action</th></tr></thead>';
+                const tbody = document.createElement('tbody');
+                
+                playerList.forEach((p: any) => {
+                  const tr = document.createElement('tr');
+                  tr.className = 'border-b border-slate-100 hover:bg-red-50 transition-colors';
+                  
+                  const tdName = document.createElement('td'); tdName.className = 'p-2 font-bold text-slate-700'; tdName.textContent = p.name;
+                  const tdAction = document.createElement('td'); tdAction.className = 'p-2 text-center';
+                  
+                  const btn = document.createElement('button');
+                  btn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform';
+                  btn.textContent = 'Sync Device';
+                  btn.onclick = (e) => {
+                    e.preventDefault();
+                    // บันทึกข้าม API ตรงเข้า LocalStorage ได้เลย
+                    const profileData = { id: p.id, name: p.name };
+                    localStorage.setItem('myProfile', JSON.stringify(profileData));
+                    setMyProfile(profileData);
+                    Swal.close();
+                    Toast.fire({ icon: 'success', title: 'กู้คืนโปรไฟล์สำเร็จ!' });
+                  };
+                  
+                  tdAction.appendChild(btn);
+                  tr.append(tdName, tdAction);
+                  tbody.appendChild(tr);
+                });
+                table.appendChild(tbody);
+                syncTableContainer.appendChild(table);
+              } else {
+                syncTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูล</div>';
+              }
+            } catch (e) {}
+          }, 300);
+        });
+
       },
       showCancelButton: true, confirmButtonText: 'Check In', confirmButtonColor: '#2563eb',
       preConfirm: async () => {
         const mode = (document.getElementById('currentMode') as HTMLInputElement).value;
 
-        if (mode === 'search') {
+        if (mode === 'sync') {
+            Swal.showValidationMessage('กรุณากดปุ่ม Sync Device ที่รายชื่อของคุณ');
+            return false;
+        } else if (mode === 'search') {
             const id = (document.getElementById('hidId') as HTMLInputElement).value;
             const name = (document.getElementById('hidName') as HTMLInputElement).value;
             const skill = (document.getElementById('hidSkill') as HTMLInputElement).value;
