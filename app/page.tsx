@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Swal from 'sweetalert2'
-import type { AppState, Player } from '@/lib/types'
-import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
+import type { AppState } from '@/lib/types'
+import { balanceTeams, extractBestMatch, MatchHistory, Player } from '@/utils/matchmaking'
 
 const Toast = Swal.mixin({
   toast: true,
