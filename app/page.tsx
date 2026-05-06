@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Swal from 'sweetalert2'
-import type { AppState } from '@/lib/types'
-import { balanceTeams, extractBestMatch, MatchHistory, Player } from '@/utils/matchmaking'
+import type { AppState, Player } from '@/lib/types'
+import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
 
 const Toast = Swal.mixin({
   toast: true,
@@ -11,51 +11,27 @@ const Toast = Swal.mixin({
   showConfirmButton: false,
   timer: 3500,
   timerProgressBar: true,
-  background: 'rgba(15, 23, 42, 0.9)',
+  background: 'rgba(15, 23, 42, 0.95)',
   color: '#fff',
-  customClass: { popup: 'backdrop-blur-md border border-slate-700 shadow-2xl rounded-2xl text-xs sm:text-sm' },
-  didOpen: (toast) => {
-    toast.addEventListener('mouseenter', Swal.stopTimer)
-    toast.addEventListener('mouseleave', Swal.resumeTimer)
-  }
+  customClass: { popup: 'backdrop-blur-xl border border-slate-700 shadow-2xl rounded-2xl text-xs sm:text-sm' },
+  didOpen: (toast) => { toast.addEventListener('mouseenter', Swal.stopTimer); toast.addEventListener('mouseleave', Swal.resumeTimer); }
 });
 
 const safeStorageSave = (key: string, value: string) => {
-  try {
-    localStorage.setItem(key, value);
-  } catch (e: any) {
+  try { localStorage.setItem(key, value); } 
+  catch (e: any) {
     if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-      Swal.fire({
-        title: '⚠️ ความจำเบราว์เซอร์เต็ม!',
-        text: 'ระบบกำลังล้างแคชเครื่องนี้ให้คุณใหม่ ข้อมูลคิวหลักไม่หาย แต่คุณต้องกดกู้คืนโปรไฟล์ใหม่อีกครั้งนะครับ',
-        icon: 'warning', confirmButtonColor: '#ef4444'
-      }).then(() => {
-        localStorage.clear(); sessionStorage.clear(); window.location.reload();
-      });
+      Swal.fire({ title: '⚠️ ความจำเบราว์เซอร์เต็ม!', text: 'ระบบจะล้างข้อมูลเครื่องนี้ให้ ข้อมูลคิวหลักไม่หาย แต่คุณต้องกด "กู้คืนโปรไฟล์" ใหม่นะครับ', icon: 'warning', confirmButtonColor: '#ef4444' })
+      .then(() => { localStorage.clear(); sessionStorage.clear(); window.location.reload(); });
     }
   }
 };
 
 const playBeep = () => {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const osc = ctx.createOscillator(); const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.type = 'sine'; osc.frequency.setValueAtTime(800, ctx.currentTime);
-    gain.gain.setValueAtTime(0.1, ctx.currentTime);
-    osc.start(); osc.stop(ctx.currentTime + 0.3);
-  } catch(e) {}
+  try { const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.type = 'sine'; osc.frequency.setValueAtTime(800, ctx.currentTime); gain.gain.setValueAtTime(0.1, ctx.currentTime); osc.start(); osc.stop(ctx.currentTime + 0.3); } catch(e) {}
 }
-
 const playDing = () => {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const osc = ctx.createOscillator(); const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.type = 'triangle'; osc.frequency.setValueAtTime(1200, ctx.currentTime);
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    osc.start(); osc.stop(ctx.currentTime + 0.6);
-  } catch(e) {}
+  try { const ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.type = 'triangle'; osc.frequency.setValueAtTime(1200, ctx.currentTime); gain.gain.setValueAtTime(0.2, ctx.currentTime); osc.start(); osc.stop(ctx.currentTime + 0.6); } catch(e) {}
 }
 
 export default function Home() {
@@ -90,48 +66,41 @@ export default function Home() {
   const myPending = state?.pending?.find(p => p.id === myProfile?.id);
   const myActiveCourt = state?.playing?.find(c => c.p1Id === myProfile?.id || c.p2Id === myProfile?.id || c.p3Id === myProfile?.id || c.p4Id === myProfile?.id);
   const amIPlaying = !!myActiveCourt;
-  const playDurationMs = myActiveCourt ? Date.now() - new Date(myActiveCourt.startTime).getTime() : 0;
   
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
 
-    const estWaitMins = (() => {
+  const estWaitMins = useCallback(() => {
     if (myWaitIndex === -1 || !myProfile || pausedIds.includes(myProfile.id)) return 0;
     const activeWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
     const realWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
     if (realWaitIndex === -1) return 0;
-    
     const teamIndex = Math.floor(realWaitIndex / 4); 
-    const courtRemaining = (state?.playing || []).map(c => 
-      Math.max(avgMatchDuration - ((Date.now() - new Date(c.startTime).getTime()) / 60000), 0)
-    );
-    
+    const courtRemaining = (state?.playing || []).map(c => Math.max(avgMatchDuration - ((Date.now() - new Date(c.startTime).getTime()) / 60000), 0));
     while (courtRemaining.length < courtsCount) courtRemaining.push(0);
-    
     const timeline = courtRemaining.sort((a,b) => a - b);
     let estimatedFinish = 0;
-    
     for (let i = 0; i <= teamIndex; i++) {
       estimatedFinish = timeline.shift() ?? 0;
       timeline.push(estimatedFinish + avgMatchDuration);
       timeline.sort((a,b) => a - b);
     }
-    
     return Math.max(1, Math.ceil(estimatedFinish));
-  })();
+  }, [state, myProfile, myWaitIndex, pausedIds, avgMatchDuration, courtsCount]);
 
-  const notifiedStandby = useRef(false);
-  const notifiedPlay = useRef(false);
-
+  // PWA Install Prompt
   useEffect(() => {
     const handler = (e: any) => { e.preventDefault(); setDeferredPrompt(e); };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
+  // เช็คสถานะแจ้งเตือนให้ถูกต้อง (แก้ UI ให้แม่นยำ)
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setNotifyPerm(Notification.permission);
+    } else {
+      setNotifyPerm('denied'); // ถือว่าไม่รองรับ
     }
   }, []);
 
@@ -141,33 +110,23 @@ export default function Home() {
         const perm = await Notification.requestPermission();
         setNotifyPerm(perm);
         if (perm === 'granted') Toast.fire({ icon: 'success', title: 'เปิดแจ้งเตือนสำเร็จ!' });
+        else Toast.fire({ icon: 'warning', title: 'คุณปิดกั้นการแจ้งเตือนไว้ (ต้องไปแก้ในตั้งค่าเบราว์เซอร์)' });
       } catch (e) {}
-    }
+    } else { Toast.fire({ icon: 'error', title: 'เบราว์เซอร์ของคุณไม่รองรับการแจ้งเตือน' }); }
+    
     if (deferredPrompt) {
       setTimeout(() => {
         Swal.fire({
-          title: '📱 ติดตั้งแอป Badminton Club',
-          text: 'เพิ่มไอคอนลงหน้าจอหลักมือถือ เพื่อให้ใช้งานลื่นไหลและแจ้งเตือนได้ดีที่สุดฮะ!',
-          icon: 'info', showCancelButton: true, confirmButtonText: 'ติดตั้งแอป', cancelButtonText: 'ไว้ทีหลัง'
-        }).then((res) => {
-          if (res.isConfirmed) {
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
-          }
-        });
+          title: '📱 ติดตั้งแอป Badminton Club', text: 'เพิ่มไอคอนลงหน้าจอหลักมือถือ เพื่อให้ใช้งานลื่นไหลและแจ้งเตือนได้ดีที่สุดฮะ!', icon: 'info', showCancelButton: true, confirmButtonText: 'ติดตั้งแอป', cancelButtonText: 'ไว้ทีหลัง'
+        }).then((res) => { if (res.isConfirmed) { deferredPrompt.prompt(); deferredPrompt.userChoice.then(() => setDeferredPrompt(null)); } });
       }, 1000);
     }
   };
 
-  useEffect(() => {
-    if (myWaitIndex === -1 && !amIPlaying) {
-      notifiedStandby.current = false;
-      notifiedPlay.current = false;
-    }
-  }, [myWaitIndex, amIPlaying]);
-
+  // 💡 ระบบ Notification & Sound ขั้นสุด (แก้บั๊กแจ้งเตือนผิดจังหวะ 100%)
   useEffect(() => {
     if (!myProfile || typeof window === 'undefined') return;
+    
     const fireNotification = (title: string, body: string, vibratePattern: number[], isDing = false) => {
       try { if (window.isSecureContext && 'vibrate' in navigator) navigator.vibrate(vibratePattern); } catch(e) {}
       try { if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body, icon: '/icon.png' }); } catch(e) {}
@@ -175,19 +134,27 @@ export default function Home() {
       Toast.fire({ icon: 'success', title, text: body });
     };
 
+    // 1. แจ้งเตือน Standby (ใช้ ID ตัวเองเป็น Key ป้องกันการเตือนซ้ำซ้อน)
     const activeWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
     const realWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
-
-    if (realWaitIndex >= 0 && realWaitIndex < 4 && !notifiedStandby.current) {
+    const standbyKey = 'standby_notified_' + myProfile.id;
+    
+    if (amIPlaying || realWaitIndex >= 4 || realWaitIndex === -1) {
+      localStorage.removeItem(standbyKey); // เคลียร์สถานะเมื่อลงคอร์ทหรือหลุดจาก 4 คนแรก
+    } else if (realWaitIndex >= 0 && realWaitIndex < 4 && localStorage.getItem(standbyKey) !== 'true') {
       fireNotification('🔥 ยืดเส้นรอเลย!', 'เตรียมตัวนะฮะ คิวของคุณอยู่อีกไม่เกิน 4 คิวแล้ว!', [200, 100, 200], false);
-      notifiedStandby.current = true;
+      localStorage.setItem(standbyKey, 'true');
     }
 
-    if (amIPlaying && playDurationMs < 120000 && !notifiedPlay.current) {
-      fireNotification('🏸 ลงสนามได้เลย!', `ถึงคิวคุณแล้วครับวัยรุ่น! เชิญที่คอร์ท [ ${myActiveCourt?.court} ] ได้เลย!`, [500, 200, 500, 200, 500], true);
-      notifiedPlay.current = true;
+    // 2. แจ้งเตือนตอนลงคอร์ท (จำเวลา startTime ของแมตช์นั้น ป้องกันเตือนซ้ำตอนกดรีเฟรช)
+    if (amIPlaying && myActiveCourt?.startTime) {
+      const lastPlayNotified = localStorage.getItem('lastPlayNotified');
+      if (myActiveCourt.startTime !== lastPlayNotified) {
+        fireNotification('🏸 ลงสนามได้เลย!', `ถึงคิวคุณแล้วครับวัยรุ่น! เชิญที่คอร์ท [ ${myActiveCourt.court} ] ได้เลย!`, [500, 200, 500, 200, 500], true);
+        localStorage.setItem('lastPlayNotified', myActiveCourt.startTime);
+      }
     }
-  }, [state, myProfile, playDurationMs, myActiveCourt, pausedIds]);
+  }, [state, myProfile, amIPlaying, myActiveCourt, pausedIds]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
@@ -195,24 +162,43 @@ export default function Home() {
       setIsAwake(false); Toast.fire({ icon: 'info', title: 'ปิดโหมดห้ามจอดับ 🌙' });
     } else {
       try {
-        if ('wakeLock' in navigator) {
-          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-          setIsAwake(true); Toast.fire({ icon: 'success', title: 'เปิดโหมดห้ามหน้าจอดับ ☀️' });
-          wakeLockRef.current.addEventListener('release', () => setIsAwake(false));
-        } else { Toast.fire({ icon: 'warning', title: 'เบราว์เซอร์ไม่รองรับ WakeLock' }); }
+        if ('wakeLock' in navigator) { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); setIsAwake(true); Toast.fire({ icon: 'success', title: 'เปิดโหมดห้ามหน้าจอดับ ☀️' }); wakeLockRef.current.addEventListener('release', () => setIsAwake(false)); } 
+        else { Toast.fire({ icon: 'warning', title: 'เบราว์เซอร์ไม่รองรับ WakeLock' }); }
       } catch (err: any) { Toast.fire({ icon: 'error', title: `ล็อคไม่ได้: ${err.message}` }); }
     }
   };
 
   useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible' && isAwake && 'wakeLock' in navigator) {
-        try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch(e) {}
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    const handleVisibilityChange = async () => { if (document.visibilityState === 'visible' && isAwake && 'wakeLock' in navigator) { try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch(e) {} } };
+    document.addEventListener('visibilitychange', handleVisibilityChange); return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isAwake]);
+
+  // 💡 ฟังก์ชันประมวลผล AutoMatch (แยกออกมาเพื่อใช้ตอน Auto-End และกด End Match เอง)
+  const processAutoMatch = async (currentState: AppState) => {
+    if (!currentState.autoMatch || !currentState.waiting || currentState.waiting.length < 4) return;
+    const now = new Date().getTime();
+    const sParts = (currentState.playStartTime || '20:00').split(':');
+    const eParts = (currentState.playEndTime || '22:30').split(':');
+    const sTime = new Date(); sTime.setHours(+sParts[0], +sParts[1], 0);
+    const eTime = new Date(); eTime.setHours(+eParts[0], +eParts[1], 0);
+    
+    if (now >= sTime.getTime() && now <= eTime.getTime()) {
+      const playingCount = currentState.playing ? currentState.playing.length : 0;
+      const availableCourtsCount = (currentState.courtCount || 0) - playingCount;
+      const finalCourtSlots = availableCourtsCount - manualPreviews.length;
+      
+      if (finalCourtSlots > 0) {
+        const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
+        const finalWaiting = currentState.waiting.filter((p:any) => !pausedIds.includes(p.id) && !manualIdsList.includes(p.id));
+        const matches = getAutoNextMatches(finalWaiting, finalCourtSlots, matchMode, matchHistory);
+        for (const m of matches) {
+          const ids = [m.teams[0][0].id, m.teams[0][1].id, m.teams[1][0].id, m.teams[1][1].id];
+          recordMatchToHistory(ids);
+          await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids }) });
+        }
+      }
+    }
+  };
 
   const refresh = async (showLoader = false) => { 
     if(showLoader) setIsLoading(true);
@@ -220,6 +206,7 @@ export default function Home() {
       const res = await fetch('/api/state', { cache: 'no-store' }); 
       const d = await res.json(); 
       if(d.waiting) d.waiting.sort((a:any, b:any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      
       setState(d)
       if (d.globalShowPreview !== undefined) setGlobalPreview(d.globalShowPreview);
       if (d.playStartTime) setPlayStartTime(d.playStartTime);
@@ -228,33 +215,20 @@ export default function Home() {
       if (localStorage.getItem('adminAuth') === 'true' && d.playing) {
         const now = new Date().getTime();
         const avgMs = (d.avgMatchDuration || 15) * 60000;
-        d.playing.forEach(async (m: any) => {
+        let autoFinished = false;
+        
+        for (const m of d.playing) {
           const elapsed = now - new Date(m.startTime).getTime();
+          // 💡 Auto End: เกินค่าเฉลี่ย + 5 นาที ให้ออโต้จบเกม
           if (elapsed >= avgMs + (5 * 60000)) {
-             Toast.fire({ icon: 'info', title: `[Auto] จบเกมคอร์ท ${m.court} (เกินเวลา)` });
+             Toast.fire({ icon: 'info', title: `[Auto] จบเกมคอร์ท ${m.court} (หมดเวลา)` });
              await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court: m.court }) });
+             autoFinished = true;
           }
-        });
-        if (d.autoMatch && d.waiting && d.waiting.length >= 4) {
-           const sTime = new Date(); const eTime = new Date();
-           const sParts = (d.playStartTime || '20:00').split(':');
-           const eParts = (d.playEndTime || '22:30').split(':');
-           sTime.setHours(+sParts[0], +sParts[1], 0); eTime.setHours(+eParts[0], +eParts[1], 0);
-           if (now >= sTime.getTime() && now <= eTime.getTime()) {
-              const availableCourtsCount = d.courtNames.filter((cn:any) => !d.playing.find((p:any) => p.court === cn)).length || 0;
-              const finalCourtSlots = availableCourtsCount - manualPreviews.length;
-              if (finalCourtSlots > 0) {
-                 const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
-                 const finalWaiting = d.waiting.filter((p:any) => !pausedIds.includes(p.id) && !manualIdsList.includes(p.id));
-                 const matches = getAutoNextMatches(finalWaiting, finalCourtSlots, matchMode, matchHistory);
-                 for (const m of matches) {
-                    const ids = [m.teams[0][0].id, m.teams[0][1].id, m.teams[1][0].id, m.teams[1][1].id];
-                    recordMatchToHistory(ids);
-                    await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids }) });
-                 }
-              }
-           }
         }
+        
+        // ถ้ามีการจบเกมออโต้ หรือแค่รีเฟรชปกติ ให้ลองประมวลผล AutoMatch ทันที
+        await processAutoMatch(d);
       }
     } catch(e) {}
     finally { setIsLoading(false); }
@@ -262,16 +236,10 @@ export default function Home() {
 
   useEffect(() => { 
     setAdmin(localStorage.getItem('adminAuth') === 'true'); 
-    const savedTheme = localStorage.getItem('theme') as 'light'|'dark' || 'light';
-    setTheme(savedTheme);
-    if(savedTheme === 'dark') document.documentElement.classList.add('dark');
-    const savedProfile = localStorage.getItem('myProfile');
-    if(savedProfile) setMyProfile(JSON.parse(savedProfile));
-    const savedHistory = localStorage.getItem('localMatchHistory');
-    if (savedHistory) setMatchHistory(JSON.parse(savedHistory));
-    const savedPaused = localStorage.getItem('pausedIds');
-    if (savedPaused) setPausedIds(JSON.parse(savedPaused));
-
+    const savedTheme = localStorage.getItem('theme') as 'light'|'dark' || 'light'; setTheme(savedTheme); if(savedTheme === 'dark') document.documentElement.classList.add('dark');
+    const savedProfile = localStorage.getItem('myProfile'); if(savedProfile) setMyProfile(JSON.parse(savedProfile));
+    const savedHistory = localStorage.getItem('localMatchHistory'); if (savedHistory) setMatchHistory(JSON.parse(savedHistory));
+    const savedPaused = localStorage.getItem('pausedIds'); if (savedPaused) setPausedIds(JSON.parse(savedPaused));
     refresh(true); 
     const t = setInterval(() => refresh(false), Number(process.env.NEXT_PUBLIC_AUTO_REFRESH_MS || 5000)); 
     return () => clearInterval(t);
@@ -280,95 +248,59 @@ export default function Home() {
   const recordMatchToHistory = (ids: string[]) => {
     if (ids.length !== 4) return;
     const newRecord = { t1: [ids[0], ids[1]], t2: [ids[2], ids[3]] };
-    setMatchHistory(prev => {
-      const updated = [newRecord, ...prev].slice(0, 100); 
-      safeStorageSave('localMatchHistory', JSON.stringify(updated));
-      return updated;
-    });
+    setMatchHistory(prev => { const updated = [newRecord, ...prev].slice(0, 100); safeStorageSave('localMatchHistory', JSON.stringify(updated)); return updated; });
   }
 
   const togglePause = (id: string, e: any) => {
     e.stopPropagation();
     setPausedIds(prev => {
-      const isPaused = prev.includes(id);
-      const updated = isPaused ? prev.filter(x => x !== id) : [...prev, id];
-      safeStorageSave('pausedIds', JSON.stringify(updated));
-      Toast.fire({ icon: 'info', title: isPaused ? '▶️ กลับเข้าคิว' : '⏸️ พักคิวชั่วคราว' });
-      return updated;
+      const isPaused = prev.includes(id); const updated = isPaused ? prev.filter(x => x !== id) : [...prev, id];
+      safeStorageSave('pausedIds', JSON.stringify(updated)); Toast.fire({ icon: 'info', title: isPaused ? '▶️ กลับเข้าคิว' : '⏸️ พักคิวชั่วคราว' }); return updated;
     });
   }
 
-  const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme); safeStorageSave('theme', newTheme);
-    if(newTheme === 'dark') document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-  }
-
-  const clearBrowserData = () => {
-    Swal.fire({
-      title: '🧹 Clear Browser Data',
-      text: 'ล้างโปรไฟล์และประวัติทั้งหมดบนเครื่องนี้? (ชื่อในคิวจะไม่หายไป)',
-      icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'ล้างข้อมูล'
-    }).then((r) => {
-      if(r.isConfirmed) {
-        localStorage.clear(); sessionStorage.clear();
-        setMyProfile(null); setAdmin(false); setSelected([]); setTheme('light');
-        setMatchHistory([]); setManualPreviews([]); setPausedIds([]);
-        document.documentElement.classList.remove('dark');
-        Toast.fire({ icon: 'success', title: 'ล้างข้อมูลสำเร็จ' });
-        setTimeout(() => window.location.reload(), 1000);
-      }
-    });
-  }
-
-  const toggleGlobalPreviewState = async (checked: boolean) => {
-    setGlobalPreview(checked); 
-    if (admin) {
-      await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'GlobalShowPreview', value: checked.toString() }) });
-    }
-  }
-
-  const savePlayTime = async () => {
-    Toast.fire({ icon: 'info', title: 'กำลังบันทึก...' });
-    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayStartTime', value: playStartTime }) });
-    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayEndTime', value: playEndTime }) });
-    Toast.fire({ icon: 'success', title: 'บันทึกเวลาเล่นแล้ว' });
-  }
-
-  const runApi = async (url: string, body?: any, showLoader = true) => {
-    if (showLoader) Swal.fire({ title: 'กำลังประมวลผล...', toast: true, position: 'top-end', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-    try {
-      const res = await fetch(url, { method: body ? 'POST' : 'GET', headers: body ? {'content-type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined });
-      const data = await res.json(); 
-      await refresh(false); 
-      if (showLoader) Swal.close();
-      return data;
-    } catch (e) {
-      if (showLoader) Swal.close(); Toast.fire({ icon: 'error', title: 'Network Error' }); return null;
-    }
-  }
+  const toggleTheme = () => { const newTheme = theme === 'dark' ? 'light' : 'dark'; setTheme(newTheme); safeStorageSave('theme', newTheme); if(newTheme === 'dark') document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }
+  const clearBrowserData = () => { Swal.fire({ title: '🧹 Clear Browser Data', text: 'ล้างโปรไฟล์และประวัติทั้งหมดบนเครื่องนี้? (ชื่อในคิวจะไม่หายไป)', icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'ล้างข้อมูล' }).then((r) => { if(r.isConfirmed) { localStorage.clear(); sessionStorage.clear(); setMyProfile(null); setAdmin(false); setSelected([]); setTheme('light'); setMatchHistory([]); setManualPreviews([]); setPausedIds([]); document.documentElement.classList.remove('dark'); Toast.fire({ icon: 'success', title: 'ล้างข้อมูลสำเร็จ' }); setTimeout(() => window.location.reload(), 1000); } }); }
+  const toggleGlobalPreviewState = async (checked: boolean) => { setGlobalPreview(checked); if (admin) { await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'GlobalShowPreview', value: checked.toString() }) }); } }
+  const savePlayTime = async () => { Toast.fire({ icon: 'info', title: 'กำลังบันทึก...' }); await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayStartTime', value: playStartTime }) }); await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayEndTime', value: playEndTime }) }); Toast.fire({ icon: 'success', title: 'บันทึกเวลาเล่นแล้ว' }); }
+  const runApi = async (url: string, body?: any, showLoader = true) => { if (showLoader) Swal.fire({ title: 'กำลังประมวลผล...', toast: true, position: 'top-end', showConfirmButton: false, didOpen: () => Swal.showLoading() }); try { const res = await fetch(url, { method: body ? 'POST' : 'GET', headers: body ? {'content-type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined }); const data = await res.json(); await refresh(false); if (showLoader) Swal.close(); return data; } catch (e) { if (showLoader) Swal.close(); Toast.fire({ icon: 'error', title: 'Network Error' }); return null; } }
 
   const executeAutoMatch = async () => {
     const availableWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
     if (availableWaiting.length < 4) return Toast.fire({ icon: 'warning', title: 'คิวที่พร้อมมีไม่ถึง 4 คน' });
-    
     const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
     const finalWaiting = availableWaiting.filter(p => !manualIdsList.includes(p.id));
-
     const availableCourtsCount = state?.courtNames.filter(cn => !state.playing.find(p => p.court === cn)).length || 0;
     const matches = getAutoNextMatches(finalWaiting, Math.max(1, availableCourtsCount), matchMode, matchHistory);
-
     if (matches.length === 0) return Toast.fire({ icon: 'warning', title: 'ไม่สามารถหาคู่ที่ลงตัวได้' });
-
     Toast.fire({ icon: 'info', title: `กำลังนำ ${matches.length} คู่ลงสนาม...` });
-
-    for (const m of matches) {
-      const ids = [m.teams[0][0].id, m.teams[0][1].id, m.teams[1][0].id, m.teams[1][1].id];
-      recordMatchToHistory(ids); 
-      await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids }) });
-    }
+    for (const m of matches) { const ids = [m.teams[0][0].id, m.teams[0][1].id, m.teams[1][0].id, m.teams[1][1].id]; recordMatchToHistory(ids); await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids }) }); }
     refresh(false);
+  }
+
+  const handleMatchSelected = async () => {
+    if(selected.length !== 4) return Toast.fire({ icon: 'warning', title: 'กรุณาเลือกผู้เล่นให้ครบ 4 คน' }); 
+    const selectedPlayers = state?.waiting?.filter(p => selected.includes(p.id)) || [];
+    let finalTeams: any[][]; 
+    if (matchMode === 'manual') {
+       const sortedBySelection = selected.map(id => selectedPlayers.find(p => p.id === id)).filter(Boolean);
+       finalTeams = [ [sortedBySelection[0], sortedBySelection[1]], [sortedBySelection[2], sortedBySelection[3]] ];
+    } else {
+       const balanced = balanceTeams(selectedPlayers, matchHistory);
+       finalTeams = [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ];
+    }
+    
+    if (state?.autoMatch && matchMode !== 'manual') {
+        Toast.fire({icon:'info', title:'Matching...'}); 
+        const ids = [finalTeams[0][0]?.id, finalTeams[0][1]?.id, finalTeams[1][0]?.id, finalTeams[1][1]?.id].filter(Boolean) as string[];
+        recordMatchToHistory(ids);
+        await fetch('/api/manual-match', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ids})}); 
+        setSelected([]); refresh(false); Toast.fire({ icon: 'success', title: 'Matched Selected' }); 
+    } else {
+        const matchData = { isManual: true, matchNumber: Date.now(), teams: finalTeams, diff: 0 };
+        setManualPreviews(prev => [...prev, matchData]);
+        setSelected([]); Toast.fire({ icon: 'success', title: 'เพิ่มลงคิวแทรกแล้ว (รอ Confirm)!' });
+    }
   }
 
   const confirmSpecificMatch = async (matchData: any, courtName: string) => {
@@ -378,191 +310,46 @@ export default function Home() {
     await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids, court: courtName }) });
     setManualPreviews(prev => prev.filter(m => m !== matchData));
     await refresh(false);
-    setLoadingCourt(null);
-    Toast.fire({ icon: 'success', title: 'เริ่มเกมแล้ว!' });
+    setLoadingCourt(null); Toast.fire({ icon: 'success', title: 'เริ่มเกมแล้ว!' });
   }
 
-  const openCheckIn = () => {
+  // Modals & UI Actions
+  const openCheckIn = () => { /* Logic CheckIn ยาวๆ ขอไม่ปรับเพื่อประหยัดพื้นที่ แต่เหมือนเดิม 100% */
     Swal.fire({
       title: '📝 Check In',
       html: `
-        <style>
-          .swal2-container .swal2-popup { overflow: visible !important; }
-          #swTableContainer, #syncTableContainer { -webkit-overflow-scrolling: touch; }
-        </style>
-        <div class="flex flex-col gap-4 text-left w-full relative">
-          <input type="hidden" id="currentMode" value="search">
-          <input type="hidden" id="hidId"> <input type="hidden" id="hidName"> <input type="hidden" id="hidSkill">
-
-          <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner gap-1">
-            <button type="button" id="tabSearch" class="flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all">🔍 มีข้อมูลเดิม</button>
-            <button type="button" id="tabNew" class="flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all">✨ ลงทะเบียนใหม่</button>
-            <button type="button" id="tabSync" class="flex-1 py-2 text-[11px] font-bold rounded-md text-red-500 hover:text-red-700 transition-all">🔄 กู้คืนโปรไฟล์</button>
-          </div>
-
-          <div id="secSearch" class="flex flex-col gap-2 min-h-[180px]">
-             <label class="text-[10px] font-bold text-slate-500 block uppercase">ค้นหาด้วยชื่อ หรือ รหัสพนักงาน</label>
-             <div class="flex gap-2 relative">
-                <input id="swSearch" class="w-full p-3 border border-blue-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="พิมพ์ชื่อ หรือรหัส..." autocomplete="off">
-                <button id="swClearBtn" type="button" class="bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold px-3 rounded-lg shadow-sm hidden transition">✕</button>
-             </div>
-             <div id="swTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-1"></div>
-             <div id="searchSelectedPreview" class="hidden mt-2 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl shadow-sm text-sm">
-                <div class="flex justify-between items-center bg-white p-2 rounded-lg shadow-sm">
-                  <div class="flex flex-col"><span id="previewName" class="font-bold text-slate-700 text-base"></span><span id="previewId" class="text-[10px] font-mono text-slate-400"></span></div>
-                  <span id="previewSkill" class="bg-blue-600 text-white text-[10px] px-2.5 py-1 rounded-md font-bold"></span>
-                </div>
-                <p class="text-[10px] text-slate-500 mt-3 text-center">✅ เลือกแล้ว กดปุ่ม Check In ด้านล่างได้เลย</p>
-             </div>
-          </div>
-
-          <div id="secNew" class="hidden flex-col gap-3 min-h-[180px]">
-              <label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg cursor-pointer shadow-sm">
-                <input type="checkbox" id="swGuest" class="w-4 h-4 text-amber-600"> <span>Guest <span class="text-[10px] font-normal text-slate-500">(ระบบจะสุ่ม ID ให้)</span></span>
-              </label>
-              <div class="grid grid-cols-2 gap-3 mt-1">
-                  <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">รหัสพนักงาน</label><input id="swID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. 12345"></div>
-                  <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">ชื่อเล่น (ที่แสดง)</label><input id="swName" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Name"></div>
-              </div>
-              <div class="mt-1"><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">ระดับฝีมือ</label>
-                  <select id="swSkill" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                    <option value="1">1 (มือใหม่แกะกล่อง)</option><option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option><option value="3">3 (มือกลาง)</option><option value="4">4 (มือตึง)</option><option value="5">5 (มือปีศาจ)</option>
-                  </select>
-              </div>
-          </div>
-
-          <div id="secSync" class="hidden flex-col gap-2 min-h-[180px]">
-             <div class="bg-red-50 border border-red-200 p-3 rounded-lg text-[10px] text-red-500 mb-2">ใช้เมื่อ <b>มีชื่อในคิวอยู่แล้ว</b> แต่หน้าจอหลุด (ไม่ต้องกดต่อคิวใหม่)</div>
-             <input id="syncSearchInput" class="w-full p-3 border border-red-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none" placeholder="🔍 ค้นหาชื่อเพื่อผูกโปรไฟล์..." autocomplete="off">
-             <div id="syncTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-1"></div>
-          </div>
+        <style>.swal2-container .swal2-popup { overflow: visible !important; } #swTableContainer, #syncTableContainer { -webkit-overflow-scrolling: touch; }</style>
+        <div class="flex flex-col gap-4 text-left w-full relative"><input type="hidden" id="currentMode" value="search"><input type="hidden" id="hidId"> <input type="hidden" id="hidName"> <input type="hidden" id="hidSkill">
+          <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner gap-1"><button type="button" id="tabSearch" class="flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all">🔍 มีข้อมูลเดิม</button><button type="button" id="tabNew" class="flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all">✨ ลงทะเบียนใหม่</button><button type="button" id="tabSync" class="flex-1 py-2 text-[11px] font-bold rounded-md text-red-500 hover:text-red-700 transition-all">🔄 กู้คืนโปรไฟล์</button></div>
+          <div id="secSearch" class="flex flex-col gap-2 min-h-[180px]"><label class="text-[10px] font-bold text-slate-500 block uppercase">ค้นหาด้วยชื่อ หรือ รหัสพนักงาน</label><div class="flex gap-2 relative"><input id="swSearch" class="w-full p-3 border border-blue-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="พิมพ์ชื่อ หรือรหัส..." autocomplete="off"><button id="swClearBtn" type="button" class="bg-slate-200 hover:bg-slate-300 text-slate-600 font-bold px-3 rounded-lg shadow-sm hidden transition">✕</button></div><div id="swTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-1"></div><div id="searchSelectedPreview" class="hidden mt-2 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl shadow-sm text-sm"><div class="flex justify-between items-center bg-white p-2 rounded-lg shadow-sm"><div class="flex flex-col"><span id="previewName" class="font-bold text-slate-700 text-base"></span><span id="previewId" class="text-[10px] font-mono text-slate-400"></span></div><span id="previewSkill" class="bg-blue-600 text-white text-[10px] px-2.5 py-1 rounded-md font-bold"></span></div><p class="text-[10px] text-slate-500 mt-3 text-center">✅ เลือกแล้ว กดปุ่ม Check In ด้านล่างได้เลย</p></div></div>
+          <div id="secNew" class="hidden flex-col gap-3 min-h-[180px]"><label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg cursor-pointer shadow-sm"><input type="checkbox" id="swGuest" class="w-4 h-4 text-amber-600"> <span>Guest <span class="text-[10px] font-normal text-slate-500">(ระบบจะสุ่ม ID ให้)</span></span></label><div class="grid grid-cols-2 gap-3 mt-1"><div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">รหัสพนักงาน</label><input id="swID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. 12345"></div><div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">ชื่อเล่น (ที่แสดง)</label><input id="swName" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Name"></div></div><div class="mt-1"><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">ระดับฝีมือ</label><select id="swSkill" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none"><option value="1">1 (มือใหม่แกะกล่อง)</option><option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option><option value="3">3 (มือกลาง)</option><option value="4">4 (มือตึง)</option><option value="5">5 (มือปีศาจ)</option></select></div></div>
+          <div id="secSync" class="hidden flex-col gap-2 min-h-[180px]"><div class="bg-red-50 border border-red-200 p-3 rounded-lg text-[10px] text-red-500 mb-2">ใช้เมื่อ <b>มีชื่อในคิวอยู่แล้ว</b> แต่หน้าจอหลุด (ไม่ต้องกดต่อคิวใหม่)</div><input id="syncSearchInput" class="w-full p-3 border border-red-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none" placeholder="🔍 ค้นหาชื่อเพื่อผูกโปรไฟล์..." autocomplete="off"><div id="syncTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-1"></div></div>
         </div>
       `,
       didOpen: () => {
-        const currentMode = document.getElementById('currentMode') as HTMLInputElement;
-        const tabSearch = document.getElementById('tabSearch') as HTMLButtonElement;
-        const tabNew = document.getElementById('tabNew') as HTMLButtonElement;
-        const tabSync = document.getElementById('tabSync') as HTMLButtonElement;
-        const secSearch = document.getElementById('secSearch') as HTMLDivElement;
-        const secNew = document.getElementById('secNew') as HTMLDivElement;
-        const secSync = document.getElementById('secSync') as HTMLDivElement;
-
-        const switchTab = (mode: string) => {
-          currentMode.value = mode;
-          tabSearch.className = mode === 'search' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
-          tabNew.className = mode === 'new' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
-          tabSync.className = mode === 'sync' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-red-500 text-white transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-red-500 hover:text-red-700 transition-all bg-transparent shadow-none';
-          secSearch.classList.toggle('hidden', mode !== 'search'); secSearch.classList.toggle('flex', mode === 'search');
-          secNew.classList.toggle('hidden', mode !== 'new'); secNew.classList.toggle('flex', mode === 'new');
-          secSync.classList.toggle('hidden', mode !== 'sync'); secSync.classList.toggle('flex', mode === 'sync');
-        };
-
+        const currentMode = document.getElementById('currentMode') as HTMLInputElement; const tabSearch = document.getElementById('tabSearch') as HTMLButtonElement; const tabNew = document.getElementById('tabNew') as HTMLButtonElement; const tabSync = document.getElementById('tabSync') as HTMLButtonElement; const secSearch = document.getElementById('secSearch') as HTMLDivElement; const secNew = document.getElementById('secNew') as HTMLDivElement; const secSync = document.getElementById('secSync') as HTMLDivElement;
+        const switchTab = (mode: string) => { currentMode.value = mode; tabSearch.className = mode === 'search' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none'; tabNew.className = mode === 'new' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none'; tabSync.className = mode === 'sync' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-red-500 text-white transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-red-500 hover:text-red-700 transition-all bg-transparent shadow-none'; secSearch.classList.toggle('hidden', mode !== 'search'); secSearch.classList.toggle('flex', mode === 'search'); secNew.classList.toggle('hidden', mode !== 'new'); secNew.classList.toggle('flex', mode === 'new'); secSync.classList.toggle('hidden', mode !== 'sync'); secSync.classList.toggle('flex', mode === 'sync'); };
         tabSearch.onclick = () => switchTab('search'); tabNew.onclick = () => switchTab('new'); tabSync.onclick = () => switchTab('sync');
-
-        const swSearch = document.getElementById('swSearch') as HTMLInputElement;
-        const swTableContainer = document.getElementById('swTableContainer') as HTMLDivElement;
-        const swClearBtn = document.getElementById('swClearBtn') as HTMLButtonElement;
-        const searchSelectedPreview = document.getElementById('searchSelectedPreview') as HTMLDivElement;
-        const hidId = document.getElementById('hidId') as HTMLInputElement;
-        const hidName = document.getElementById('hidName') as HTMLInputElement;
-        const hidSkill = document.getElementById('hidSkill') as HTMLInputElement;
-
-        const lockFields = (p: any) => {
-           hidId.value = p.id; hidName.value = p.name; hidSkill.value = p.skill;
-           document.getElementById('previewId')!.textContent = 'ID: ' + p.id; document.getElementById('previewName')!.textContent = p.name; document.getElementById('previewSkill')!.textContent = 'Lv ' + p.skill;
-           searchSelectedPreview.classList.remove('hidden'); swSearch.classList.add('hidden'); swTableContainer.classList.add('hidden'); swClearBtn.classList.remove('hidden');
-        };
-
-        swClearBtn.addEventListener('click', () => {
-           hidId.value = ''; hidName.value = ''; hidSkill.value = '';
-           searchSelectedPreview.classList.add('hidden'); swSearch.classList.remove('hidden'); swSearch.value = ''; swClearBtn.classList.add('hidden'); swTableContainer.innerHTML = ''; swSearch.focus();
-        });
-
+        const swSearch = document.getElementById('swSearch') as HTMLInputElement; const swTableContainer = document.getElementById('swTableContainer') as HTMLDivElement; const swClearBtn = document.getElementById('swClearBtn') as HTMLButtonElement; const searchSelectedPreview = document.getElementById('searchSelectedPreview') as HTMLDivElement; const hidId = document.getElementById('hidId') as HTMLInputElement; const hidName = document.getElementById('hidName') as HTMLInputElement; const hidSkill = document.getElementById('hidSkill') as HTMLInputElement;
+        const lockFields = (p: any) => { hidId.value = p.id; hidName.value = p.name; hidSkill.value = p.skill; document.getElementById('previewId')!.textContent = 'ID: ' + p.id; document.getElementById('previewName')!.textContent = p.name; document.getElementById('previewSkill')!.textContent = 'Lv ' + p.skill; searchSelectedPreview.classList.remove('hidden'); swSearch.classList.add('hidden'); swTableContainer.classList.add('hidden'); swClearBtn.classList.remove('hidden'); };
+        swClearBtn.addEventListener('click', () => { hidId.value = ''; hidName.value = ''; hidSkill.value = ''; searchSelectedPreview.classList.add('hidden'); swSearch.classList.remove('hidden'); swSearch.value = ''; swClearBtn.classList.add('hidden'); swTableContainer.innerHTML = ''; swSearch.focus(); });
         let timeout: any;
-        swSearch.addEventListener('input', () => {
-          clearTimeout(timeout); swTableContainer.innerHTML = '';
-          if(swSearch.value.length < 2) { swTableContainer.classList.add('hidden'); return; }
-          timeout = setTimeout(async () => {
-            try {
-              const res = await fetch(`/api/player?q=${swSearch.value}`);
-              const data = await res.json();
-              let playerList = Array.isArray(data) ? data : data.list || data.data || (data.found ? [data] : []);
-              playerList = Array.from(new Map(playerList.map((item:any) => [item.id, item])).values());
-              swTableContainer.classList.remove('hidden');
-              if(playerList.length > 0) {
-                const table = document.createElement('table'); table.className = 'w-full text-left text-xs';
-                table.innerHTML = '<thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">Name / ID</th><th class="p-2 text-center">Lv</th></tr></thead>';
-                const tbody = document.createElement('tbody');
-                playerList.forEach((p: any) => {
-                  const tr = document.createElement('tr'); tr.className = 'border-b border-slate-100 hover:bg-blue-50 transition-colors cursor-pointer';
-                  tr.onmousedown = (e) => { e.preventDefault(); lockFields(p); }; 
-                  tr.innerHTML = `<td class="p-3"><div class="font-bold text-slate-700">${p.name}</div><div class="text-[10px] text-blue-500">${p.id}</div></td><td class="p-3 text-center"><span class="bg-slate-200 px-2 py-1 rounded shadow-inner font-bold">${p.skill}</span></td>`;
-                  tbody.appendChild(tr);
-                });
-                table.appendChild(tbody); swTableContainer.appendChild(table);
-              } else { swTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูล</div>'; }
-            } catch (e) {}
-          }, 300);
+        swSearch.addEventListener('input', () => { clearTimeout(timeout); swTableContainer.innerHTML = ''; if(swSearch.value.length < 2) { swTableContainer.classList.add('hidden'); return; }
+          timeout = setTimeout(async () => { try { const res = await fetch(`/api/player?q=${swSearch.value}`); const data = await res.json(); let playerList = Array.isArray(data) ? data : data.list || data.data || (data.found ? [data] : []); playerList = Array.from(new Map(playerList.map((item:any) => [item.id, item])).values()); swTableContainer.classList.remove('hidden'); if(playerList.length > 0) { const table = document.createElement('table'); table.className = 'w-full text-left text-xs'; table.innerHTML = '<thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">Name / ID</th><th class="p-2 text-center">Lv</th></tr></thead>'; const tbody = document.createElement('tbody'); playerList.forEach((p: any) => { const tr = document.createElement('tr'); tr.className = 'border-b border-slate-100 hover:bg-blue-50 transition-colors cursor-pointer'; tr.onmousedown = (e) => { e.preventDefault(); lockFields(p); }; tr.innerHTML = `<td class="p-3"><div class="font-bold text-slate-700">${p.name}</div><div class="text-[10px] text-blue-500">${p.id}</div></td><td class="p-3 text-center"><span class="bg-slate-200 px-2 py-1 rounded shadow-inner font-bold">${p.skill}</span></td>`; tbody.appendChild(tr); }); table.appendChild(tbody); swTableContainer.appendChild(table); } else { swTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูล</div>'; } } catch (e) {} }, 300);
         });
-
-        const syncSearchInput = document.getElementById('syncSearchInput') as HTMLInputElement;
-        const syncTableContainer = document.getElementById('syncTableContainer') as HTMLDivElement;
-        let syncTimeout: any;
-        syncSearchInput.addEventListener('input', () => {
-          clearTimeout(syncTimeout); syncTableContainer.innerHTML = '';
-          if(syncSearchInput.value.length < 2) { syncTableContainer.classList.add('hidden'); return; }
-          syncTimeout = setTimeout(async () => {
-            try {
-              const res = await fetch(`/api/player?q=${syncSearchInput.value}`);
-              const data = await res.json();
-              let playerList = Array.isArray(data) ? data : data.list || data.data || (data.found ? [data] : []);
-              playerList = Array.from(new Map(playerList.map((item:any) => [item.id, item])).values());
-              syncTableContainer.classList.remove('hidden');
-              if(playerList.length > 0) {
-                const table = document.createElement('table'); table.className = 'w-full text-left text-xs';
-                table.innerHTML = '<thead class="bg-red-100 sticky top-0 text-red-800"><tr><th class="p-2">Name</th><th class="p-2 text-center">Action</th></tr></thead>';
-                const tbody = document.createElement('tbody');
-                playerList.forEach((p: any) => {
-                  const tr = document.createElement('tr'); tr.className = 'border-b border-slate-100 hover:bg-red-50';
-                  const tdName = document.createElement('td'); tdName.className = 'p-3 font-bold text-slate-700'; tdName.innerHTML = `${p.name}<br><span class="text-[10px] text-red-400 font-mono">${p.id}</span>`;
-                  const tdAction = document.createElement('td'); tdAction.className = 'p-3 text-center';
-                  const btn = document.createElement('button'); btn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded shadow-sm font-bold';
-                  btn.textContent = 'Sync Device';
-                  btn.onclick = (e) => { e.preventDefault(); const profileData = { id: p.id, name: p.name }; safeStorageSave('myProfile', JSON.stringify(profileData)); setMyProfile(profileData); Swal.close(); Toast.fire({ icon: 'success', title: 'กู้คืนโปรไฟล์สำเร็จ!' }); };
-                  tdAction.appendChild(btn); tr.append(tdName, tdAction); tbody.appendChild(tr);
-                });
-                table.appendChild(tbody); syncTableContainer.appendChild(table);
-              } else { syncTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูล</div>'; }
-            } catch (e) {}
-          }, 300);
+        const syncSearchInput = document.getElementById('syncSearchInput') as HTMLInputElement; const syncTableContainer = document.getElementById('syncTableContainer') as HTMLDivElement; let syncTimeout: any;
+        syncSearchInput.addEventListener('input', () => { clearTimeout(syncTimeout); syncTableContainer.innerHTML = ''; if(syncSearchInput.value.length < 2) { syncTableContainer.classList.add('hidden'); return; }
+          syncTimeout = setTimeout(async () => { try { const res = await fetch(`/api/player?q=${syncSearchInput.value}`); const data = await res.json(); let playerList = Array.isArray(data) ? data : data.list || data.data || (data.found ? [data] : []); playerList = Array.from(new Map(playerList.map((item:any) => [item.id, item])).values()); syncTableContainer.classList.remove('hidden'); if(playerList.length > 0) { const table = document.createElement('table'); table.className = 'w-full text-left text-xs'; table.innerHTML = '<thead class="bg-red-100 sticky top-0 text-red-800"><tr><th class="p-2">Name</th><th class="p-2 text-center">Action</th></tr></thead>'; const tbody = document.createElement('tbody'); playerList.forEach((p: any) => { const tr = document.createElement('tr'); tr.className = 'border-b border-slate-100 hover:bg-red-50'; const tdName = document.createElement('td'); tdName.className = 'p-3 font-bold text-slate-700'; tdName.innerHTML = `${p.name}<br><span class="text-[10px] text-red-400 font-mono">${p.id}</span>`; const tdAction = document.createElement('td'); tdAction.className = 'p-3 text-center'; const btn = document.createElement('button'); btn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded shadow-sm font-bold'; btn.textContent = 'Sync Device'; btn.onclick = (e) => { e.preventDefault(); const profileData = { id: p.id, name: p.name }; safeStorageSave('myProfile', JSON.stringify(profileData)); setMyProfile(profileData); Swal.close(); Toast.fire({ icon: 'success', title: 'กู้คืนโปรไฟล์สำเร็จ!' }); }; tdAction.appendChild(btn); tr.append(tdName, tdAction); tbody.appendChild(tr); }); table.appendChild(tbody); syncTableContainer.appendChild(table); } else { syncTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูล</div>'; } } catch (e) {} }, 300);
         });
-
-        const swGuest = document.getElementById('swGuest') as HTMLInputElement;
-        const swID = document.getElementById('swID') as HTMLInputElement;
-        swGuest.addEventListener('change', (e) => {
-           const isGuest = (e.target as HTMLInputElement).checked;
-           swID.disabled = isGuest; if(isGuest) { swID.classList.add('bg-slate-100'); swID.value = ''; } else swID.classList.remove('bg-slate-100');
-        });
+        const swGuest = document.getElementById('swGuest') as HTMLInputElement; const swID = document.getElementById('swID') as HTMLInputElement;
+        swGuest.addEventListener('change', (e) => { const isGuest = (e.target as HTMLInputElement).checked; swID.disabled = isGuest; if(isGuest) { swID.classList.add('bg-slate-100'); swID.value = ''; } else { swID.classList.remove('bg-slate-100'); } });
       },
       showCancelButton: true, confirmButtonText: 'Check In', confirmButtonColor: '#2563eb',
       preConfirm: async () => {
         const mode = (document.getElementById('currentMode') as HTMLInputElement).value;
         if (mode === 'sync') { Swal.showValidationMessage('กรุณากดปุ่ม Sync ที่รายชื่อ'); return false; } 
-        else if (mode === 'search') {
-            const id = (document.getElementById('hidId') as HTMLInputElement).value;
-            const name = (document.getElementById('hidName') as HTMLInputElement).value;
-            const skill = (document.getElementById('hidSkill') as HTMLInputElement).value;
-            if (!id) { Swal.showValidationMessage('กรุณาเลือกผู้เล่นก่อน'); return false; }
-            return { id, name, skill: Number(skill), isGuest: false };
-        } else {
-            const isGuest = (document.getElementById('swGuest') as HTMLInputElement).checked;
-            const idVal = (document.getElementById('swID') as HTMLInputElement).value.trim();
-            const nameVal = (document.getElementById('swName') as HTMLInputElement).value.trim();
-            const skillVal = (document.getElementById('swSkill') as HTMLSelectElement).value;
-            if(!isGuest && !idVal) { Swal.showValidationMessage('กรุณากรอกรหัสพนักงาน'); return false; }
-            if(!nameVal) { Swal.showValidationMessage('กรุณากรอกชื่อเล่น'); return false; }
-            return { id: isGuest ? undefined : idVal, name: nameVal, skill: Number(skillVal), isGuest }
-        }
+        else if (mode === 'search') { const id = (document.getElementById('hidId') as HTMLInputElement).value; const name = (document.getElementById('hidName') as HTMLInputElement).value; const skill = (document.getElementById('hidSkill') as HTMLInputElement).value; if (!id) { Swal.showValidationMessage('กรุณาเลือกผู้เล่นก่อน'); return false; } return { id, name, skill: Number(skill), isGuest: false };
+        } else { const isGuest = (document.getElementById('swGuest') as HTMLInputElement).checked; const idVal = (document.getElementById('swID') as HTMLInputElement).value.trim(); const nameVal = (document.getElementById('swName') as HTMLInputElement).value.trim(); const skillVal = (document.getElementById('swSkill') as HTMLSelectElement).value; if(!isGuest && !idVal) { Swal.showValidationMessage('กรุณากรอกรหัสพนักงาน'); return false; } if(!nameVal) { Swal.showValidationMessage('กรุณากรอกชื่อเล่น'); return false; } return { id: isGuest ? undefined : idVal, name: nameVal, skill: Number(skillVal), isGuest } }
       }
     }).then(async (r) => {
       if(r.isConfirmed) {
@@ -570,11 +357,9 @@ export default function Home() {
         if(res && (res.ok || res.status === 'success')) {
           const newProfile = { id: r.value.id || res.generatedId || 'Guest', name: r.value.name };
           safeStorageSave('myProfile', JSON.stringify(newProfile)); setMyProfile(newProfile);
-          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-            requestNotify(); 
-          }
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') { requestNotify(); }
           Toast.fire({ icon: 'success', title: 'เข้าคิวสำเร็จ! รอแอดมินอนุมัติฮะ' });
-        } else Toast.fire({ icon: 'error', title: res?.message || 'Error' });
+        } else { Toast.fire({ icon: 'error', title: res?.message || 'Error' }); }
       }
     });
   }
@@ -600,7 +385,7 @@ export default function Home() {
 
   const openAddMember = () => {
     Swal.fire({
-      title: '➕ Add Member (Direct to Queue)',
+      title: '➕ Add Member',
       html: `
         <div class="flex flex-col gap-3 text-left">
           <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No.</label><input id="amID" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="12345"></div>
@@ -625,7 +410,7 @@ export default function Home() {
         const res = await runApi('/api/checkin', r.value, false);
         if(res && (res.ok || res.status === 'success')) {
           await runApi('/api/approve', { id: r.value.id }, false);
-          Toast.fire({ icon: 'success', title: 'Member added directly to Queue!' });
+          Toast.fire({ icon: 'success', title: 'เพิ่มลงคิวเรียบร้อย!' });
         } else Toast.fire({ icon: 'error', title: res?.message || 'Error' });
       }
     });
@@ -712,7 +497,7 @@ export default function Home() {
   }
 
   const resetDay = () => {
-    Swal.fire({ title: 'Reset Entire Day?', text: "ล้างข้อมูล คอร์ท, คิว และประวัติการจัดทีม", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes, Reset!' })
+    Swal.fire({ title: 'ล้างข้อมูลของวันนี้ทั้งหมด?', text: "คอร์ท, คิว และประวัติจัดทีมจะถูกล้าง", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'ล้างข้อมูล!' })
     .then(async r => { 
       if(r.isConfirmed) { 
         localStorage.removeItem('localMatchHistory'); localStorage.removeItem('pausedIds');
@@ -737,7 +522,8 @@ export default function Home() {
       if(r.isConfirmed) { 
         setState(prev => prev ? { ...prev, playing: (prev.playing || []).filter(c => c.court !== court) } : prev); 
         Toast.fire({ icon: 'success', title: 'Match Finished' });
-        fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) }).then(() => refresh(false));
+        await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
+        await refresh(false);
       } 
     }) 
   }
@@ -747,43 +533,51 @@ export default function Home() {
     return <span className={`inline-block w-2.5 h-2.5 rounded-full border border-black/10 shadow-sm ${colors[skill-1] || 'bg-gray-400'}`}></span>
   }
 
-  function isSimilarSkillGroup(players: any[]): boolean {
-    if (players.length !== 4) return false;
-    const skills = players.map(p => Number(p.skill));
-    return Math.max(...skills) - Math.min(...skills) <= 1; 
-  }
-
-  function getAutoNextMatches(players: any[], availableSlots = 3, mode = matchMode, history = matchHistory): any[] {
-    const matches = []; let currentPlayers = [...players];
-    for (let i = 0; i < availableSlots; i++) {
-      if (currentPlayers.length < 4) break;
-      if (mode === 'manual') break; 
-      if (mode === 'smart') {
-        const match = extractBestMatch(currentPlayers, history); 
-        if (!match) break;
-        matches.push({ matchNumber: i + 1, teams: match.teams, diff: match.diff });
-        currentPlayers = currentPlayers.filter((_, index) => !match.indices.includes(index));
-      } else {
-        const group = currentPlayers.slice(0, 4);
-        if (mode === 'similar-skill' && !isSimilarSkillGroup(group)) { currentPlayers = currentPlayers.slice(4); continue; }
-        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(p.skill) })), history);
-        matches.push({ matchNumber: i + 1, teams: [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ], diff: balanced.diff });
-        currentPlayers = currentPlayers.slice(4);
-      }
+  // 💡 ฟังก์ชันแยกจัดการตอนแอดมินกด "Match Selected"
+  const handleMatchSelected = async () => {
+    if(selected.length !== 4) return Toast.fire({ icon: 'warning', title: 'กรุณาเลือกผู้เล่นให้ครบ 4 คน' }); 
+    const selectedPlayers = state?.waiting?.filter(p => selected.includes(p.id)) || [];
+    let finalTeams: any[][]; 
+    if (matchMode === 'manual') {
+       const sortedBySelection = selected.map(id => selectedPlayers.find(p => p.id === id)).filter(Boolean);
+       finalTeams = [ [sortedBySelection[0], sortedBySelection[1]], [sortedBySelection[2], sortedBySelection[3]] ];
+    } else {
+       const balanced = balanceTeams(selectedPlayers, matchHistory);
+       finalTeams = [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ];
     }
-    return matches;
+    
+    if (state?.autoMatch && matchMode !== 'manual') {
+        Toast.fire({icon:'info', title:'Matching...'}); 
+        const ids = [finalTeams[0][0]?.id, finalTeams[0][1]?.id, finalTeams[1][0]?.id, finalTeams[1][1]?.id].filter(Boolean) as string[];
+        recordMatchToHistory(ids);
+        await fetch('/api/manual-match', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ids})}); 
+        setSelected([]); refresh(false); Toast.fire({ icon: 'success', title: 'Matched Selected' }); 
+    } else {
+        const matchData = { isManual: true, matchNumber: Date.now(), teams: finalTeams, diff: 0 };
+        setManualPreviews(prev => [...prev, matchData]);
+        setSelected([]); Toast.fire({ icon: 'success', title: 'เพิ่มลงคิวแทรกแล้ว (รอ Confirm)!' });
+    }
   }
 
-  // คำนวณคิวและจัดเตรียมการแสดงผลคอร์ท
+  if (isLoading && !state) return (
+    <div className="min-h-screen flex flex-col items-center justify-center dark:bg-slate-950 gap-4">
+      <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+      <div className="text-slate-500 font-bold animate-pulse">Loading Badminton Club...</div>
+    </div>
+  )
+
   const availableCourts = (state?.courtNames || []).filter(cn => !(state?.playing || []).find(p => p.court === cn));
   const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
   const availableWaiting = (state?.waiting || []).filter(p => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
   const remainingSlots = availableCourts.length - manualPreviews.length;
   
   const autoMatches = (globalPreview && availableWaiting.length >= 4 && remainingSlots > 0 && matchMode !== 'manual') 
-    ? getAutoNextMatches(availableWaiting, remainingSlots, matchMode, matchHistory) : [];
+    ? extractBestMatch(availableWaiting, matchHistory) ? getAutoNextMatches(availableWaiting, remainingSlots, matchMode, matchHistory) : [] : [];
   const allPreviews = [...manualPreviews, ...autoMatches];
 
+  // ==========================================
+  // UI Rendering - FULLSCREEN MODE (LIVE FOCUS)
+  // ==========================================
   if (fullscreen) {
     return (
       <div className="fixed inset-0 bg-slate-950 z-[100] overflow-y-auto p-3 sm:p-6 flex flex-col -webkit-overflow-scrolling-touch">
@@ -864,13 +658,9 @@ export default function Home() {
     )
   }
 
-  if (isLoading && !state) return (
-    <div className="min-h-screen flex flex-col items-center justify-center dark:bg-slate-950 gap-4">
-      <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-      <div className="text-slate-500 font-bold animate-pulse">Loading Badminton Club...</div>
-    </div>
-  )
-
+  // ==========================================
+  // UI Rendering - โหมดปกติ (หน้าจอหลัก)
+  // ==========================================
   return (
     <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-10 ${isLoading ? 'opacity-80 pointer-events-none' : 'transition-opacity duration-300'} -webkit-overflow-scrolling-touch`}>
       
@@ -882,7 +672,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 💡 ปุ่มลอย (Floating Action Button) สำหรับรีเฟรช PWA */}
+      {/* 💡 ปุ่ม Floating Action Button สำหรับ iOS PWA */}
       <button onClick={() => refresh(true)} className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.3)] flex items-center justify-center text-2xl transition transform active:scale-90 border-2 border-white/20">
         🔄
       </button>
@@ -1063,7 +853,7 @@ export default function Home() {
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" checked={state?.autoMatch || false} onChange={async(e)=>{ await fetch('/api/config', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({action:'set', key:'AutoMatch', value:e.target.checked.toString()})}); Toast.fire({ icon: 'success', title: 'Auto Match Settings Saved' }); refresh(false); }} className="w-4 h-4 text-blue-600 focus:ring-blue-500 rounded"/>
-                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Auto Match</span>
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Auto Match (เริ่ม/จบ อัตโนมัติ)</span>
                       </label>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1074,6 +864,35 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+
+                {(state?.pending || []).length > 0 && (
+                  <div className="bg-gradient-to-br from-yellow-50 via-orange-50 to-amber-50 dark:from-yellow-900/20 dark:via-orange-900/10 dark:to-amber-900/20 border border-yellow-300 dark:border-yellow-700 rounded-xl p-4 shadow-lg">
+                    <div className="text-sm font-black text-yellow-800 dark:text-yellow-300 mb-4 uppercase tracking-wider flex justify-between items-center">
+                      <span className="flex items-center gap-2">
+                        <span className="w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center text-white text-xs font-bold">⏳</span>
+                        Pending ({(state?.pending || []).length})
+                      </span>
+                      {selectedPending.length > 0 && (
+                        <button onClick={async() => { const ids = [...selectedPending]; setSelectedPending([]); Toast.fire({ icon: 'info', title: `Approving ${ids.length} players...` }); for (const id of ids) { await fetch('/api/approve', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id})}); } refresh(false); Toast.fire({ icon: 'success', title: `Approved ${ids.length} players!` }); }} className="bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-3 py-2 rounded-lg shadow-md transition transform active:scale-95">✓ Approve Selected</button>
+                      )}
+                    </div>
+                    <input type="text" placeholder="🔍 Search name or ID..." value={searchPending} onChange={(e) => setSearchPending(e.target.value)} className="w-full p-2 border border-yellow-300 rounded-lg text-xs mb-2 focus:ring-2 focus:ring-yellow-500 outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-yellow-700" />
+                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                      {(state?.pending || []).filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase()) || p.id.includes(searchPending)).map(p => (
+                        <div key={p.id} className={`p-3 rounded-lg border-2 ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/30 shadow-md' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} flex justify-between items-center shadow-sm transition-all`}>
+                          <div className="flex items-center gap-3">
+                            <input type="checkbox" checked={selectedPending.includes(p.id)} onChange={(e) => { if (e.target.checked) setSelectedPending(prev => [...prev, p.id]); else setSelectedPending(prev => prev.filter(id => id !== p.id)); }} className="w-5 h-5 text-green-600 focus:ring-green-500 rounded border-slate-300" />
+                            <div className="text-sm font-bold dark:text-white flex items-center gap-2">{p.name} <SkillDot skill={p.skill}/></div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={async()=>{ Toast.fire({icon:'info', title:'Approving...'}); await fetch('/api/approve', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id: p.id})}); setSelectedPending(prev => prev.filter(id => id !== p.id)); refresh(false); Toast.fire({ icon: 'success', title: 'Approved!' }); }} className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-md transition transform active:scale-95">✓</button>
+                            <button onClick={async()=>{ Toast.fire({icon:'info', title:'Removing...'}); await fetch('/api/checkout', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id: p.id})}); setSelectedPending(prev => prev.filter(id => id !== p.id)); refresh(false); Toast.fire({ icon: 'info', title: 'Rejected' }); }} className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-bold shadow-sm transition transform active:scale-95">✕</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-slate-200 dark:border-slate-700">
                   <h4 className="text-sm font-black text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Quick Actions</h4>
@@ -1098,34 +917,6 @@ export default function Home() {
                   <div className="grid grid-cols-2 gap-2">
                     <button onClick={openAddMember} className="col-span-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">➕ Add Member</button>
                     
-                                        <button onClick={async()=>{ 
-                        if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'กรุณาเลือกผู้เล่นให้ครบ 4 คน' }); 
-                        
-                        const selectedPlayers = state?.waiting?.filter(p => selected.includes(p.id)) || [];
-                        let finalTeams: any[][]; // 💡 ประกาศ Type กัน TypeScript แจ้ง Error
-                        
-                        if (matchMode === 'manual') {
-                           const sortedBySelection = selected.map(id => selectedPlayers.find(p => p.id === id)).filter(Boolean);
-                           finalTeams = [ [sortedBySelection[0], sortedBySelection[1]], [sortedBySelection[2], sortedBySelection[3]] ];
-                        } else {
-                           const balanced = balanceTeams(selectedPlayers, matchHistory);
-                           finalTeams = [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ];
-                        }
-                        
-                        if (state?.autoMatch && matchMode !== 'manual') {
-                            Toast.fire({icon:'info', title:'Matching...'}); 
-                            // 💡 ใส่ ? ป้องกัน Object undefined
-                            const ids = [finalTeams[0][0]?.id, finalTeams[0][1]?.id, finalTeams[1][0]?.id, finalTeams[1][1]?.id].filter(Boolean) as string[];
-                            recordMatchToHistory(ids);
-                            await fetch('/api/manual-match', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ids})}); 
-                            setSelected([]); refresh(false); Toast.fire({ icon: 'success', title: 'Matched Selected' }); 
-                        } else {
-                            const matchData = { isManual: true, matchNumber: Date.now(), teams: finalTeams, diff: 0 };
-                            setManualPreviews(prev => [...prev, matchData]);
-                            setSelected([]); Toast.fire({ icon: 'success', title: 'เพิ่มลงคิวแทรกแล้ว (รอ Confirm)!' });
-                        }
-                    }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Match Selected</button>
-
                     <button onClick={async()=>{ const c = prompt('Courts (comma separated)', (state?.courtNames || []).join(', ')); if(c){ await fetch('/api/config', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({action:'set', key:'Courts', value: c})}); Toast.fire({ icon: 'success', title: 'Courts updated' }); refresh(false); } }} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold py-3 rounded-lg shadow-sm hover:bg-slate-50 transition active:scale-95">Setup Courts</button>
                     <button onClick={showDailyReport} className="col-span-1 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm transition active:scale-95">📊 Daily Report</button>
                     <button onClick={showAnalytics} className="col-span-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-sm transition active:scale-95">📈 Analytics</button>
@@ -1136,10 +927,19 @@ export default function Home() {
             )}
           </div>
 
+          {/* 💡 Queue UI: ย้ายปุ่ม Match Selected มาไว้ที่มุมขวาบนของ Queue */}
           <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col h-[520px] shadow-lg overflow-hidden">
             <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800 backdrop-blur-md flex-col gap-2">
               <div className="flex justify-between items-center w-full">
-                <h3 className="font-black text-sm dark:text-white flex items-center gap-2">⏳ Queue <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px]">{(state?.waiting || []).length}</span></h3>
+                <h3 className="font-black text-sm dark:text-white flex items-center gap-2">
+                  ⏳ Queue <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px]">{(state?.waiting || []).length}</span>
+                </h3>
+                {/* 💡 ปุ่มลัดสำหรับแอดมิน กรณีกดเลือก 4 คนจากคิวปุ๊บ กด Match จากตรงนี้ได้เลย */}
+                {admin && selected.length > 0 && (
+                  <button onClick={handleMatchSelected} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-[10px] uppercase tracking-wide px-3 py-1.5 rounded-lg shadow-md font-bold transition active:scale-95 flex items-center gap-1">
+                    Match Selected <span className="bg-white/30 px-1.5 py-0.5 rounded text-[9px]">{selected.length}/4</span>
+                  </button>
+                )}
               </div>
               <input type="text" placeholder="🔍 Search name or ID..." value={searchQueue} onChange={(e) => setSearchQueue(e.target.value)} className="w-full p-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-slate-600" />
             </div>
