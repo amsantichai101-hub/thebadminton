@@ -243,11 +243,11 @@ export default function Home() {
           <div>
               <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Level (1-5)</label>
               <select id="swSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors">
-                <option value="1">1 (Beginner)</option>
-                <option value="2" selected>2 (Novice)</option>
-                <option value="3">3 (Intermediate)</option>
-                <option value="4">4 (Advanced)</option>
-                <option value="5">5 (Professional)</option>
+                <option value="1">1 (มือใหม่แกะกล่อง)</option>
+                <option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option>
+                <option value="3">3 (มือกลาง มีพื้นฐาน)</option>
+                <option value="4">4 (มือตึง สายคุมเกมส์)</option>
+                <option value="5">5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
               </select>
           </div>
         </div>
@@ -446,11 +446,11 @@ export default function Home() {
           <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label><input id="amName" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Name"></div>
           <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Skill Level</label>
             <select id="amSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-              <option value="1">1 (Beginner)</option>
-              <option value="2" selected>2 (Amateur)</option>
-              <option value="3">3 (Intermediate)</option>
-              <option value="4">4 (Advanced)</option>
-              <option value="5">5 (Pro)</option>
+              <option value="1">1 (มือใหม่แกะกล่อง)</option>
+                <option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option>
+                <option value="3">3 (มือกลาง มีพื้นฐาน)</option>
+                <option value="4">4 (มือตึง สายคุมเกมส์)</option>
+                <option value="5">5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
             </select>
           </div>
         </div>
