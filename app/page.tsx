@@ -1098,10 +1098,12 @@ export default function Home() {
                   <div className="grid grid-cols-2 gap-2">
                     <button onClick={openAddMember} className="col-span-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-xs font-bold uppercase tracking-wide py-3 rounded-lg shadow-md transition transform active:scale-95">➕ Add Member</button>
                     
-                    <button onClick={async()=>{ 
+                                        <button onClick={async()=>{ 
                         if(selected.length!==4) return Toast.fire({ icon: 'warning', title: 'กรุณาเลือกผู้เล่นให้ครบ 4 คน' }); 
+                        
                         const selectedPlayers = state?.waiting?.filter(p => selected.includes(p.id)) || [];
-                        let finalTeams;
+                        let finalTeams: any[][]; // 💡 ประกาศ Type กัน TypeScript แจ้ง Error
+                        
                         if (matchMode === 'manual') {
                            const sortedBySelection = selected.map(id => selectedPlayers.find(p => p.id === id)).filter(Boolean);
                            finalTeams = [ [sortedBySelection[0], sortedBySelection[1]], [sortedBySelection[2], sortedBySelection[3]] ];
@@ -1112,7 +1114,8 @@ export default function Home() {
                         
                         if (state?.autoMatch && matchMode !== 'manual') {
                             Toast.fire({icon:'info', title:'Matching...'}); 
-                            const ids = [finalTeams[0][0].id, finalTeams[0][1].id, finalTeams[1][0].id, finalTeams[1][1].id];
+                            // 💡 ใส่ ? ป้องกัน Object undefined
+                            const ids = [finalTeams[0][0]?.id, finalTeams[0][1]?.id, finalTeams[1][0]?.id, finalTeams[1][1]?.id].filter(Boolean) as string[];
                             recordMatchToHistory(ids);
                             await fetch('/api/manual-match', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ids})}); 
                             setSelected([]); refresh(false); Toast.fire({ icon: 'success', title: 'Matched Selected' }); 
