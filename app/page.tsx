@@ -41,6 +41,100 @@ export default function Home() {
 
   const wakeLockRef = useRef<any>(null);
   const [isAwake, setIsAwake] = useState(false);
+  
+  const [notifyPerm, setNotifyPerm] = useState<string>('default');
+
+  const myWaitIndex = state?.waiting?.findIndex(p => p.id === myProfile?.id) ?? -1;
+  const myPending = state?.pending?.find(p => p.id === myProfile?.id);
+  const amIPlaying = state?.playing?.some(c => c.p1Id === myProfile?.id || c.p2Id === myProfile?.id || c.p3Id === myProfile?.id || c.p4Id === myProfile?.id) ?? false;
+  
+  const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
+  const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
+
+  const estWaitMins = (() => {
+    if (myWaitIndex === -1) return 0;
+    const teamIndex = Math.floor(myWaitIndex / 4); 
+    const groupsToCollect = teamIndex + 1;
+
+    const courtRemaining = (state?.playing || []).map(c => {
+      const elapsed = (Date.now() - new Date(c.startTime).getTime()) / 60000;
+      return Math.max(avgMatchDuration - elapsed, 0);
+    });
+
+    while (courtRemaining.length < courtsCount) courtRemaining.push(0);
+
+    const timeline = courtRemaining.sort((a,b) => a - b);
+    let estimatedFinish = 0;
+
+    for (let i = 0; i < groupsToCollect; i++) {
+      const nextAvailable = timeline.shift() ?? 0;
+      const finishTime = nextAvailable + avgMatchDuration;
+      timeline.push(finishTime);
+      timeline.sort((a,b) => a - b);
+      if (i === groupsToCollect - 1) estimatedFinish = finishTime;
+    }
+    return Math.max(1, Math.ceil(estimatedFinish));
+  })();
+
+  const notifiedStandby = useRef(false);
+  const notifiedPlay = useRef(false);
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotifyPerm(Notification.permission);
+    }
+  }, []);
+
+  const requestNotify = async () => {
+    if ('Notification' in window) {
+      const perm = await Notification.requestPermission();
+      setNotifyPerm(perm);
+      if (perm === 'granted') {
+        Toast.fire({ icon: 'success', title: 'เปิดระบบแจ้งเตือนสำเร็จ!' });
+      } else {
+        Toast.fire({ icon: 'warning', title: 'คุณปฏิเสธการแจ้งเตือน' });
+      }
+    } else {
+      Toast.fire({ icon: 'error', title: 'เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน' });
+    }
+  };
+
+  useEffect(() => {
+    if (myWaitIndex === -1 && !amIPlaying) {
+      notifiedStandby.current = false;
+      notifiedPlay.current = false;
+    }
+  }, [myWaitIndex, amIPlaying]);
+
+  useEffect(() => {
+    if (!myProfile) return;
+
+    const fireNotification = (title: string, body: string, vibratePattern: number[]) => {
+      if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body, icon: '/favicon.ico' });
+      }
+      Swal.fire({
+        title: title,
+        text: body,
+        icon: 'success',
+        position: 'top',
+        toast: true,
+        showConfirmButton: false,
+        timer: 6000
+      });
+    };
+
+    if (myWaitIndex >= 0 && myWaitIndex < 4 && !notifiedStandby.current) {
+      fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [200, 100, 200]);
+      notifiedStandby.current = true;
+    }
+
+    if (amIPlaying && !notifiedPlay.current) {
+      fireNotification('🏸 ถึงคิวคุณแล้ว!', 'เชิญหยิบไม้แล้วลงสนามได้เลย ขอให้สนุกครับ!', [500, 200, 500, 200, 500]);
+      notifiedPlay.current = true;
+    }
+  }, [myWaitIndex, amIPlaying, myProfile]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
@@ -163,6 +257,7 @@ export default function Home() {
     });
   }
 
+  // 💡 คืนชีพ 2 ฟังก์ชันที่หายไป กลับมาแล้วครับ!
   const toggleGlobalPreviewState = async (checked: boolean) => {
     setGlobalPreview(checked); 
     if (admin) {
@@ -188,6 +283,7 @@ export default function Home() {
     });
     Toast.fire({ icon: 'success', title: 'Play Time Saved' });
   }
+  // ----------------------------------------------------
 
   const runApi = async (url: string, body?: any, showLoader = true) => {
     if (showLoader) {
@@ -518,6 +614,12 @@ export default function Home() {
         if(res && (res.ok || res.status === 'success')) {
           const newProfile = { id: r.value.id || res.generatedId || 'Guest', name: r.value.name };
           localStorage.setItem('myProfile', JSON.stringify(newProfile)); setMyProfile(newProfile);
+          
+          if ('Notification' in window && Notification.permission === 'default') {
+            const perm = await Notification.requestPermission();
+            setNotifyPerm(perm);
+          }
+
           Toast.fire({ icon: 'success', title: 'Checked in! Wait for approval.' });
         } else { Toast.fire({ icon: 'error', title: res?.message || 'Error checking in' }); }
       }
@@ -768,38 +870,6 @@ export default function Home() {
     return <span className={`inline-block w-2.5 h-2.5 rounded-full border border-black/10 shadow-sm ${colors[skill-1] || 'bg-gray-400'}`}></span>
   }
 
-  const myWaitIndex = state?.waiting?.findIndex(p => p.id === myProfile?.id) ?? -1;
-  const myPending = state?.pending?.find(p => p.id === myProfile?.id);
-  const amIPlaying = state?.playing?.some(c => c.p1Id === myProfile?.id || c.p2Id === myProfile?.id || c.p3Id === myProfile?.id || c.p4Id === myProfile?.id) ?? false;
-  
-  const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
-  const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
-
-  const estWaitMins = (() => {
-    if (myWaitIndex === -1) return 0;
-    const teamIndex = Math.floor(myWaitIndex / 4); 
-    const groupsToCollect = teamIndex + 1;
-
-    const courtRemaining = (state?.playing || []).map(c => {
-      const elapsed = (Date.now() - new Date(c.startTime).getTime()) / 60000;
-      return Math.max(avgMatchDuration - elapsed, 0);
-    });
-
-    while (courtRemaining.length < courtsCount) courtRemaining.push(0);
-
-    const timeline = courtRemaining.sort((a,b) => a - b);
-    let estimatedFinish = 0;
-
-    for (let i = 0; i < groupsToCollect; i++) {
-      const nextAvailable = timeline.shift() ?? 0;
-      const finishTime = nextAvailable + avgMatchDuration;
-      timeline.push(finishTime);
-      timeline.sort((a,b) => a - b);
-      if (i === groupsToCollect - 1) estimatedFinish = finishTime;
-    }
-    return Math.max(1, Math.ceil(estimatedFinish));
-  })();
-
   function isSimilarSkillGroup(players: any[]): boolean {
     if (players.length !== 4) return false;
     const skills = players.map(p => Number(p.skill));
@@ -859,7 +929,6 @@ export default function Home() {
             <button onClick={()=>setFullscreen(false)} className="bg-slate-800 border border-slate-700 text-slate-400 px-4 sm:px-6 py-2 rounded-lg font-bold hover:bg-slate-700 hover:text-white transition shadow-lg text-sm sm:text-base">EXIT</button>
         </div>
         
-        {/* ปรับ Grid ใหม่ให้กระชับขึ้นบนมือถือ และลดความสูงการ์ด */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5 flex-1 pb-10">
           {(state?.courtNames || []).map(cn => {
             const m = (state?.playing || []).find(p => p.court === cn);
@@ -869,14 +938,12 @@ export default function Home() {
               return (
                 <div key={cn} className={`bg-slate-900 border ${isLate ? 'border-red-500' : 'border-slate-800'} rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all`}>
                   
-                  {/* ชื่อคอร์ทชัดๆ มุมขวาบน */}
                   <div className="absolute top-2 right-2 z-20">
                      <div className="bg-slate-950/80 backdrop-blur border border-slate-700 text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">
                         {cn}
                      </div>
                   </div>
                   
-                  {/* เวลา มุมซ้ายบน */}
                   <div className="absolute top-2 left-2 z-20">
                      <div className={`text-white px-2.5 py-1 rounded-lg text-xs font-black shadow-sm ${isLate?'bg-red-600 animate-pulse':'bg-slate-800 border border-slate-700'}`}>
                         ⏱ {min}m
@@ -1000,6 +1067,7 @@ export default function Home() {
                 </div>
             </div>
             <div className="flex items-center gap-2">
+                <button onClick={requestNotify} className={`w-8 h-8 rounded-full shadow-inner flex items-center justify-center border dark:border-slate-700 transition ${notifyPerm === 'granted' ? 'bg-blue-100 border-blue-400 text-blue-600 dark:bg-blue-900/30' : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200'}`} title="Toggle Notifications">{notifyPerm === 'granted' ? '🔔' : '🔕'}</button>
                 <button onClick={toggleWakeLock} className={`w-8 h-8 rounded-full shadow-inner flex items-center justify-center border dark:border-slate-700 transition ${isAwake ? 'bg-amber-100 border-amber-400 text-amber-600 dark:bg-amber-900/30' : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200'}`} title="Toggle Wake Lock">{isAwake ? '☀️' : '🌙'}</button>
                 <button onClick={toggleTheme} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition" title="Toggle theme">🌓</button>
                 <button onClick={()=>setFullscreen(true)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border dark:border-slate-700 hover:bg-slate-200 transition" title="Fullscreen mode">🖥️</button>
@@ -1020,7 +1088,6 @@ export default function Home() {
               </button>
           </div>
 
-          {/* 💡 Your Status แบบ Compact Banner เล็กกะทัดรัด */}
           {myProfile && (
             <div className={`p-3 sm:p-4 rounded-xl shadow-md border flex items-center justify-between transition-all duration-500
               ${amIPlaying ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-700'
