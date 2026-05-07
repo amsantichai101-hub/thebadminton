@@ -107,9 +107,6 @@ export default function Home() {
     return Math.max(1, Math.ceil(estimatedFinish));
   })();
 
-  const notifiedStandby = useRef(false);
-  const notifiedPlay = useRef(false);
-
   // 🌟 Color Badge by Skill Level
   const getSkillColor = (skill: number | undefined) => {
     switch(skill) {
@@ -141,7 +138,11 @@ export default function Home() {
   }, []);
 
   const playAlertSound = () => {
-    try { const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg'); audio.play().catch(() => {}); } catch(e) {}
+    try { 
+      // เปลี่ยนเสียงเตือนให้ยาวและชัดเจนขึ้น
+      const audio = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock_2.ogg'); 
+      audio.play().catch(() => {}); 
+    } catch(e) {}
   };
 
   const addNotification = (title: string, body: string) => {
@@ -168,21 +169,54 @@ export default function Home() {
     }
   };
 
-  // 🌟 Robust Notification Logic (ป้องกันการแจ้งเตือนซ้ำ และใช้ Capsule UI)
+  // 🌟 บังคับขอสิทธิ์แจ้งเตือนเมื่อเข้าแอปครั้งแรก
+  useEffect(() => {
+    const hasPrompted = localStorage.getItem('appNotiPrompted');
+    if (!hasPrompted && 'Notification' in window && Notification.permission !== 'granted') {
+      Swal.fire({
+        title: '🔔 เปิดการแจ้งเตือน',
+        html: `
+          <div class="text-sm text-slate-600 text-left space-y-2">
+            <p>เพื่อไม่ให้คุณพลาดคิวลงสนาม!</p>
+            <p class="text-blue-600 font-bold">1. กรุณากด "เปิดการแจ้งเตือน" (Allow)</p>
+            <p class="text-green-600 font-bold">2. แนะนำให้กด Share > "Add to Home Screen"</p>
+          </div>
+        `,
+        confirmButtonText: 'เปิดการแจ้งเตือนทันที!', 
+        confirmButtonColor: '#2563eb',
+        showCancelButton: true, 
+        cancelButtonText: 'ไว้ทีหลัง'
+      }).then((r) => {
+        if(r.isConfirmed) requestNotify();
+        localStorage.setItem('appNotiPrompted', 'true');
+      });
+    }
+  }, []);
+
+  // 🌟 Robust Notification Logic (แจ้งตามจริง สั่นยาวๆ ขึ้นเว็บและอุปกรณ์)
   useEffect(() => {
     if (!myProfile) return;
 
     const fireNotification = async (title: string, body: string, vibratePattern: number[]) => {
       playAlertSound(); 
       addNotification(title, body);
-      if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
       
-      // Native Push Notification ทำงานเบื้องหลัง
+      // สั่นเครื่องให้ยาวๆ ถ้ามือถือรองรับ
+      if ('vibrate' in navigator) {
+        navigator.vibrate(vibratePattern);
+      }
+      
+      // Native Push Notification (ส่งไปที่มือถือทำงานเบื้องหลัง)
       if ('Notification' in window && Notification.permission === 'granted') {
         try {
           if ('serviceWorker' in navigator) {
             const reg = await navigator.serviceWorker.ready;
-            reg.showNotification(title, { body, icon: '/icon.png', vibrate: vibratePattern, badge: '/icon.png' } as any);
+            reg.showNotification(title, { 
+              body, 
+              icon: '/icon.png', 
+              vibrate: vibratePattern, 
+              badge: '/icon.png' 
+            } as any);
           } else {
             const n = new Notification(title, { body, icon: '/icon.png' }); 
             setTimeout(() => n.close(), 6000); 
@@ -190,29 +224,19 @@ export default function Home() {
         } catch(e) {}
       }
       
-      // Custom UI Capsule Notification (ไม่ใช้ Toast แล้ว)
+      // Custom UI Capsule Notification บนเว็บ
       setCapsuleAlert({ title, body, visible: true });
       setTimeout(() => setCapsuleAlert(prev => ({...prev, visible: false})), 6000);
     };
 
-    // Logic วอร์มรอ (คิวที่ 1-4)
+    // Logic วอร์มรอ (คิวที่ 1-4) แจ้งตามจริง (ไม่ต้องเช็ค Notified เพื่อให้เตือนได้ซ้ำ)
     if (myWaitIndex >= 0 && myWaitIndex < 4) {
-      if (!notifiedStandby.current) {
-        fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [200, 100, 200]);
-        notifiedStandby.current = true;
-      }
-    } else {
-      notifiedStandby.current = false; // รีเซ็ตเมื่อหลุดจาก 4 คิวแรก
+      fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [500, 200, 500]);
     }
 
-    // Logic ถึงคิวลงสนาม
-    if (amIPlaying) {
-      if (playDurationMs < 120000 && !notifiedPlay.current) {
-        fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt?.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 500]);
-        notifiedPlay.current = true;
-      }
-    } else {
-      notifiedPlay.current = false; // รีเซ็ตเมื่อไม่ได้ลงสนามแล้ว
+    // Logic ถึงคิวลงสนาม (เล่นอยู่) แจ้งตามจริงไม่เกิน 2 นาทีแรก
+    if (amIPlaying && playDurationMs < 120000) {
+      fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt?.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 1000, 200, 1000]);
     }
   }, [state, myProfile, amIPlaying, myActiveCourt, pausedIds, myWaitIndex, playDurationMs]);
 
@@ -1504,7 +1528,7 @@ export default function Home() {
              </div>
              
              {admin && selected.length > 0 && queueSubTab === 'waiting' && (
-                <button onClick={handleMatchSelected} className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
+                <button onClick={handleMatchSelected} className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
                   <Users className="w-4 h-4"/> จัดทีมลงสนาม ({selected.length}/4)
                 </button>
              )}
@@ -1512,7 +1536,6 @@ export default function Home() {
 
           <div className="space-y-2 pb-10 pt-2">
             {queueSubTab === 'waiting' ? (
-              /* Waiting List Render */
               (state?.waiting || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><Users className="w-10 h-10 opacity-30"/> ไม่มีคิวรอ</div> 
               : (state?.waiting || []).filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase())).map((p, i) => {
                 const isSel = selected.includes(p.id); const isMe = p.id === myProfile?.id; const isPaused = p.name.includes('(พัก)'); const selIndex = selected.indexOf(p.id); const teamBadge = selIndex !== -1 ? (selIndex < 2 ? <span className="bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team A</span> : <span className="bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team B</span>) : null;
@@ -1539,7 +1562,6 @@ export default function Home() {
                 )
               })
             ) : (
-              /* Pending Approval Render */
               (state?.pending || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><UserCheck className="w-10 h-10 opacity-30"/> ไม่มีรายการรออนุมัติ</div> 
               : (state?.pending || []).filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase())).map((p, i) => (
                   <div key={p.id} className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm flex items-center justify-between transition-all animate-in slide-in-from-right-4 mb-2">
