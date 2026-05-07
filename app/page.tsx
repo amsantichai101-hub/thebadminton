@@ -31,6 +31,7 @@ export default function Home() {
   const [theme, setTheme] = useState<'light'|'dark'>('light')
   const [isLoading, setIsLoading] = useState(true) 
   const [loadingCourts, setLoadingCourts] = useState<string[]>([]) 
+  const [pausedIds, setPausedIds] = useState<string[]>([]);
   
   const [myProfile, setMyProfile] = useState<{id: string, name: string} | null>(null)
   const [searchPending, setSearchPending] = useState('')
@@ -74,13 +75,12 @@ export default function Home() {
   
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
-  const [pausedIds, setPausedIds] = useState<string[]>([]);
  
   const estWaitMins = (() => {
     if (myWaitIndex === -1 || !myProfile || pausedIds.includes(myProfile.id)) return 0;
     
-    const activeWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
-    const realWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
+    const realActiveWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
+    const realWaitIndex = realActiveWaiting.findIndex(p => p.id === myProfile?.id);
     
     if (realWaitIndex === -1) return 0;
 
@@ -106,6 +106,9 @@ export default function Home() {
     }
     return Math.max(1, Math.ceil(estimatedFinish));
   })();
+
+  const notifiedStandby = useRef(false);
+  const notifiedPlay = useRef(false);
 
   // 🌟 Color Badge by Skill Level
   const getSkillColor = (skill: number | undefined) => {
@@ -138,11 +141,7 @@ export default function Home() {
   }, []);
 
   const playAlertSound = () => {
-    try { 
-      // เปลี่ยนเสียงเตือนให้ยาวและชัดเจนขึ้น
-      const audio = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock_2.ogg'); 
-      audio.play().catch(() => {}); 
-    } catch(e) {}
+    try { const audio = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock_2.ogg'); audio.play().catch(() => {}); } catch(e) {}
   };
 
   const addNotification = (title: string, body: string) => {
@@ -193,52 +192,75 @@ export default function Home() {
     }
   }, []);
 
-  // 🌟 Robust Notification Logic (แจ้งตามจริง สั่นยาวๆ ขึ้นเว็บและอุปกรณ์)
+  // 🌟 Reset Notification flags based on state
+  useEffect(() => {
+    if (myWaitIndex === -1 || myWaitIndex >= 4) {
+      notifiedStandby.current = false;
+    }
+    if (!amIPlaying) {
+      notifiedPlay.current = false;
+    }
+  }, [myWaitIndex, amIPlaying]);
+
+  // 🌟 ระบบแจ้งเตือน (Native Push + Web Capsule)
   useEffect(() => {
     if (!myProfile) return;
 
     const fireNotification = async (title: string, body: string, vibratePattern: number[]) => {
+      // 1. เสียงเตือน
       playAlertSound(); 
+      
+      // 2. เก็บประวัติแจ้งเตือน
       addNotification(title, body);
       
-      // สั่นเครื่องให้ยาวๆ ถ้ามือถือรองรับ
-      if ('vibrate' in navigator) {
-        navigator.vibrate(vibratePattern);
-      }
+      // 3. ระบบสั่น (ถ้าอุปกรณ์รองรับ)
+      try {
+        if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
+      } catch (e) {}
       
-      // Native Push Notification (ส่งไปที่มือถือทำงานเบื้องหลัง)
+      // 4. Native Push Notification (ระบบดั้งเดิมที่เสถียรที่สุด)
       if ('Notification' in window && Notification.permission === 'granted') {
         try {
-          if ('serviceWorker' in navigator) {
-            const reg = await navigator.serviceWorker.ready;
-            reg.showNotification(title, { 
-              body, 
-              icon: '/icon.png', 
-              vibrate: vibratePattern, 
-              badge: '/icon.png' 
-            } as any);
-          } else {
-            const n = new Notification(title, { body, icon: '/icon.png' }); 
-            setTimeout(() => n.close(), 6000); 
-          }
-        } catch(e) {}
+          // ยิงตรงเข้า Notification API ของอุปกรณ์
+          const n = new Notification(title, { 
+            body: body, 
+            icon: '/icon.png',
+            badge: '/icon.png'
+          });
+          // ปิดอัตโนมัติกันค้างบนหน้าจอ
+          setTimeout(() => n.close(), 8000); 
+        } catch(e) {
+          // Fallback เผื่อ PWA บนมือถือบางรุ่นที่บังคับใช้ Service Worker
+          try {
+            if ('serviceWorker' in navigator) {
+              const reg = await navigator.serviceWorker.ready;
+              reg.showNotification(title, { body, icon: '/icon.png', vibrate: vibratePattern, badge: '/icon.png' } as any);
+            }
+          } catch(swErr) {}
+        }
       }
       
-      // Custom UI Capsule Notification บนเว็บ
+      // 5. Custom UI Capsule Notification (หน้าเว็บ)
       setCapsuleAlert({ title, body, visible: true });
       setTimeout(() => setCapsuleAlert(prev => ({...prev, visible: false})), 6000);
     };
 
-    // Logic วอร์มรอ (คิวที่ 1-4) แจ้งตามจริง (ไม่ต้องเช็ค Notified เพื่อให้เตือนได้ซ้ำ)
+    // Logic วอร์มรอ (คิวที่ 1-4) แจ้งเตือนแค่ครั้งเดียวเมื่อเข้ามาอยู่ใน 4 คิวแรก
     if (myWaitIndex >= 0 && myWaitIndex < 4) {
-      fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [500, 200, 500]);
+      if (!notifiedStandby.current) {
+        fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [500, 200, 500]);
+        notifiedStandby.current = true;
+      }
     }
 
-    // Logic ถึงคิวลงสนาม (เล่นอยู่) แจ้งตามจริงไม่เกิน 2 นาทีแรก
-    if (amIPlaying && playDurationMs < 120000) {
-      fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt?.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 1000, 200, 1000]);
+    // Logic ถึงคิวลงสนาม (เล่นอยู่) แจ้งเตือนแค่ครั้งเดียวเมื่อได้ลงคอร์ท
+    if (amIPlaying && myActiveCourt) {
+      if (!notifiedPlay.current) {
+        fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 1000, 200, 1000]);
+        notifiedPlay.current = true;
+      }
     }
-  }, [state, myProfile, amIPlaying, myActiveCourt, pausedIds, myWaitIndex, playDurationMs]);
+  }, [state, myProfile, amIPlaying, myActiveCourt, myWaitIndex]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
