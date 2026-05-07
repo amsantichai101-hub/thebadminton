@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import Swal from 'sweetalert2'
-import type { AppState } from '@/lib/types'
+import type { AppState, Player } from '@/lib/types'
 import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
 import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone } from 'lucide-react'
 
@@ -36,13 +36,10 @@ export default function Home() {
   const [searchPending, setSearchPending] = useState('')
   const [searchQueue, setSearchQueue] = useState('')
   const [selectedPending, setSelectedPending] = useState<string[]>([])
-  
   const [matchMode, setMatchMode] = useState<'smart'|'balanced'|'random'|'skill-gap'|'similar-skill'|'manual'>('smart');
-
   const [globalPreview, setGlobalPreview] = useState(true);
   const [playStartTime, setPlayStartTime] = useState('20:00');
   const [playEndTime, setPlayEndTime] = useState('22:30');
-
   const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
   const [manualPreviews, setManualPreviews] = useState<any[]>([]);
 
@@ -59,8 +56,8 @@ export default function Home() {
 
   const wakeLockRef = useRef<any>(null);
   const [isAwake, setIsAwake] = useState(false);
-  
   const [notifyPerm, setNotifyPerm] = useState<string>('default');
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   const activeWaiting = (state?.waiting || []).filter(p => !p.name.includes('(พัก)'));
   const myWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
@@ -74,27 +71,20 @@ export default function Home() {
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
 
-  const estWaitMins = (() => {
-    if (myWaitIndex === -1) return 0;
-    const teamIndex = Math.floor(myWaitIndex / 4); 
-    const groupsToCollect = teamIndex + 1;
-
-    const courtRemaining = (state?.playing || []).map(c => {
-      const elapsed = (Date.now() - new Date(c.startTime).getTime()) / 60000;
-      return Math.max(avgMatchDuration - elapsed, 0);
-    });
-
+  const estWaitMins = useCallback(() => {
+    if (myWaitIndex === -1 || !myProfile || pausedIds.includes(myProfile.id)) return 0;
+    const activeWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
+    const realWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
+    if (realWaitIndex === -1) return 0;
+    const teamIndex = Math.floor(realWaitIndex / 4); 
+    const courtRemaining = (state?.playing || []).map(c => Math.max(avgMatchDuration - ((Date.now() - new Date(c.startTime).getTime()) / 60000), 0));
     while (courtRemaining.length < courtsCount) courtRemaining.push(0);
-
     const timeline = courtRemaining.sort((a,b) => a - b);
     let estimatedFinish = 0;
-
-    for (let i = 0; i < groupsToCollect; i++) {
-      const nextAvailable = timeline.shift() ?? 0;
-      const finishTime = nextAvailable + avgMatchDuration;
-      timeline.push(finishTime);
+    for (let i = 0; i <= teamIndex; i++) {
+      estimatedFinish = timeline.shift() ?? 0;
+      timeline.push(estimatedFinish + avgMatchDuration);
       timeline.sort((a,b) => a - b);
-      if (i === groupsToCollect - 1) estimatedFinish = finishTime;
     }
     return Math.max(1, Math.ceil(estimatedFinish));
   })();
@@ -212,7 +202,7 @@ export default function Home() {
       fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt?.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 500]);
       notifiedPlay.current = true;
     }
-  }, [myWaitIndex, amIPlaying, myProfile, playDurationMs, myActiveCourt]);
+  }, [state, myProfile, amIPlaying, myActiveCourt, pausedIds]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
@@ -1156,15 +1146,10 @@ export default function Home() {
   }
   
   const availableCourts = (state?.courtNames || []).filter(cn => !(state?.playing || []).find(p => p.court === cn));
-  
-  const manualIds = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
-  const availableWaiting = (state?.waiting || []).filter(p => !manualIds.includes(p.id));
-  
+  const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
+  const availableWaiting = (state?.waiting || []).filter(p => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
   const remainingSlots = availableCourts.length - manualPreviews.length;
-  const autoMatches = (globalPreview && availableWaiting.length >= 4 && remainingSlots > 0) 
-    ? getAutoNextMatches(availableWaiting, remainingSlots, matchMode, matchHistory) 
-    : [];
-    
+  const autoMatches = (globalPreview && availableWaiting.length >= 4 && remainingSlots > 0 && matchMode !== 'manual') ? (extractBestMatch(availableWaiting, matchHistory) ? getAutoNextMatches(availableWaiting, remainingSlots, matchMode, matchHistory) : []) : [];
   const allPreviews = [...manualPreviews, ...autoMatches];
 
   // ==========================================
@@ -1188,9 +1173,9 @@ export default function Home() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5 flex-1 pb-10">
           {(state?.courtNames || []).map(cn => {
             const m = (state?.playing || []).find(p => p.court === cn);
+            if (loadingCourt === cn) return <div key={cn} className="bg-slate-900 border border-slate-800 rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl animate-pulse flex items-center justify-center p-4"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div><span className="text-blue-500 font-bold text-xs">จัดเตรียมสนาม...</span></div>
             if (m) {
-              const min = Math.floor((Date.now()-new Date(m.startTime).getTime())/60000);
-              const isLate = min >= avgMatchDuration;
+              const min = Math.floor((Date.now()-new Date(m.startTime).getTime())/60000); const isLate = min >= avgMatchDuration;
               return (
                 <div key={cn} className={`bg-white dark:bg-slate-900 border ${isLate ? 'border-red-400 ring-2 ring-red-400/30' : 'border-slate-200 dark:border-slate-800'} rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all`}>
                   
@@ -1229,9 +1214,7 @@ export default function Home() {
                 </div>
               )
             } else {
-              const availIndex = availableCourts.indexOf(cn);
-              const prepMatch = allPreviews[availIndex];
-              
+              const availIndex = availableCourts.indexOf(cn); const prepMatch = allPreviews[availIndex];
               if (prepMatch) {
                 return (
                   <div key={cn} className="bg-emerald-50 dark:bg-slate-900 border border-dashed border-emerald-400 dark:border-emerald-500/50 rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all">
