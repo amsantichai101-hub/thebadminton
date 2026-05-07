@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Swal from 'sweetalert2'
-import type { AppState, Player } from '@/lib/types'
+import type { AppState, WaitingPlayer as Player } from '@/lib/types'
 import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
-import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone } from 'lucide-react'
+import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck } from 'lucide-react'
 
 const Toast = Swal.mixin({
   toast: true,
@@ -43,12 +43,16 @@ export default function Home() {
   const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
   const [manualPreviews, setManualPreviews] = useState<any[]>([]);
 
-  // 🌟 Tab, Nav & History State
+  // 🌟 Tab, Nav, Sub-tab & History State
   const [activeTab, setActiveTab] = useState<'home' | 'queue' | 'notifications' | 'profile'>('home');
+  const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'pending'>('waiting'); // 🌟 สำหรับสลับหน้าคิวรอ / รออนุมัติ
   const [showNav, setShowNav] = useState(true);
   const lastScrollY = useRef(0);
   const [notifyHistory, setNotifyHistory] = useState<{id: number, title: string, body: string, time: string, isRead: boolean}[]>([]);
   const [myPlayHistory, setMyPlayHistory] = useState<any[]>([]);
+
+  // 🌟 Custom Capsule Alert State (แทนการใช้ Toast)
+  const [capsuleAlert, setCapsuleAlert] = useState<{title: string, body: string, visible: boolean}>({title: '', body: '', visible: false});
 
   // 🌟 Modal State for Court Manager
   const [isCourtManagerOpen, setIsCourtManagerOpen] = useState(false);
@@ -129,7 +133,7 @@ export default function Home() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // 🌟 Register Service Worker
+  // 🌟 Register Service Worker for Background Notification
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW Reg Failed', err));
@@ -164,16 +168,7 @@ export default function Home() {
     }
   };
 
-  // 🌟 Reset Notification flags based on state
-  useEffect(() => {
-    if (myWaitIndex === -1 || myWaitIndex >= 4) {
-      notifiedStandby.current = false;
-    }
-    if (!amIPlaying) {
-      notifiedPlay.current = false;
-    }
-  }, [myWaitIndex, amIPlaying]);
-
+  // 🌟 Robust Notification Logic (ป้องกันการแจ้งเตือนซ้ำ และใช้ Capsule UI)
   useEffect(() => {
     if (!myProfile) return;
 
@@ -182,7 +177,7 @@ export default function Home() {
       addNotification(title, body);
       if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
       
-      // Native Push Notification (แก้ Error TypeScript ตรงนี้ด้วย as any)
+      // Native Push Notification ทำงานเบื้องหลัง
       if ('Notification' in window && Notification.permission === 'granted') {
         try {
           if ('serviceWorker' in navigator) {
@@ -195,28 +190,31 @@ export default function Home() {
         } catch(e) {}
       }
       
-      // UI Capsule Toast
-      Swal.fire({
-        title: title,
-        text: body,
-        position: 'top',
-        toast: true,
-        showConfirmButton: false,
-        timer: 6000,
-        customClass: { popup: '!bg-slate-900/90 !backdrop-blur-md !text-white !rounded-2xl !mt-4' }
-      });
+      // Custom UI Capsule Notification (ไม่ใช้ Toast แล้ว)
+      setCapsuleAlert({ title, body, visible: true });
+      setTimeout(() => setCapsuleAlert(prev => ({...prev, visible: false})), 6000);
     };
 
-    if (myWaitIndex >= 0 && myWaitIndex < 4 && !notifiedStandby.current) {
-      fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [200, 100, 200]);
-      notifiedStandby.current = true;
+    // Logic วอร์มรอ (คิวที่ 1-4)
+    if (myWaitIndex >= 0 && myWaitIndex < 4) {
+      if (!notifiedStandby.current) {
+        fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [200, 100, 200]);
+        notifiedStandby.current = true;
+      }
+    } else {
+      notifiedStandby.current = false; // รีเซ็ตเมื่อหลุดจาก 4 คิวแรก
     }
 
-    if (amIPlaying && playDurationMs < 120000 && !notifiedPlay.current) {
-      fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt?.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 500]);
-      notifiedPlay.current = true;
+    // Logic ถึงคิวลงสนาม
+    if (amIPlaying) {
+      if (playDurationMs < 120000 && !notifiedPlay.current) {
+        fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt?.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 500]);
+        notifiedPlay.current = true;
+      }
+    } else {
+      notifiedPlay.current = false; // รีเซ็ตเมื่อไม่ได้ลงสนามแล้ว
     }
-  }, [state, myProfile, amIPlaying, myActiveCourt, pausedIds]);
+  }, [state, myProfile, amIPlaying, myActiveCourt, pausedIds, myWaitIndex, playDurationMs]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
@@ -422,7 +420,7 @@ export default function Home() {
     }
   }
 
-  // 🌟 Court Manager Action Handlers (แก้ปัญหา is not defined)
+  // 🌟 Court Manager Action Handlers
   const openCourtManager = () => {
     setIsCourtManagerOpen(true);
   }
@@ -438,6 +436,71 @@ export default function Home() {
     const currentCourts = (state?.courtNames || []).filter(c => c !== courtToRemove);
     await fetch('/api/config', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({action:'set', key:'Courts', value:currentCourts.join(',')}) });
     refresh(false); Toast.fire({ title: '🗑️ ลบคอร์ทแล้ว' });
+  }
+
+  // 🌟 Logic การตรวจสอบคนใหม่แบบลึก
+  const handleApproveProcess = async (p: any) => {
+    Swal.fire({title: 'กำลังตรวจสอบข้อมูล...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading()});
+    
+    let isNewPlayer = !p.playCount || p.playCount === 0 || String(p.id).startsWith('G') || !p.timestamp;
+    
+    try {
+      if (!String(p.id).startsWith('G')) {
+        const res = await fetch(`/api/player?q=${p.id}`);
+        const data = await res.json();
+        let playerList: any[] = [];
+        if (Array.isArray(data)) playerList = data;
+        else if (data.list && Array.isArray(data.list)) playerList = data.list;
+        else if (data.data && Array.isArray(data.data)) playerList = data.data;
+        else if (data.found && data.id) playerList = [data];
+
+        isNewPlayer = playerList.length === 0;
+      }
+    } catch (e) { console.error(e); }
+
+    Swal.close();
+
+    if (isNewPlayer) {
+      Swal.fire({
+        title: 'ตรวจสอบโปรไฟล์สมาชิกใหม่',
+        html: `
+          <div class="flex flex-col gap-3 text-left mt-2">
+            <div><label class="text-[10px] font-bold text-slate-500">Employee ID / Guest ID</label><input id="apId" value="${p.id}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
+            <div><label class="text-[10px] font-bold text-slate-500">Display Name</label><input id="apName" value="${p.name}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
+            <div><label class="text-[10px] font-bold text-slate-500">Skill Level</label>
+              <select id="apSkill" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="1" ${p.skill===1?'selected':''}>1 (มือใหม่)</option>
+                <option value="2" ${p.skill===2?'selected':''}>2 (เริ่มมีทรง)</option>
+                <option value="3" ${p.skill===3?'selected':''}>3 (พื้นฐาน)</option>
+                <option value="4" ${p.skill===4?'selected':''}>4 (สายคุม)</option>
+                <option value="5" ${p.skill===5?'selected':''}>5 (ปีศาจ)</option>
+              </select>
+            </div>
+          </div>
+        `,
+        showCancelButton: true, confirmButtonText: 'บันทึกและอนุมัติ', confirmButtonColor: '#2563eb',
+        preConfirm: () => ({ oldId: p.id, newId: (document.getElementById('apId') as HTMLInputElement).value, name: (document.getElementById('apName') as HTMLInputElement).value, skill: Number((document.getElementById('apSkill') as HTMLSelectElement).value) })
+      }).then(async r => {
+        if(r.isConfirmed) {
+          await fetch('/api/update-player', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(r.value) });
+          await runApi('/api/approve', { id: r.value.newId }, true);
+          Toast.fire({ title: '✅ อนุมัติและเพิ่มเข้าคิวแล้ว' });
+        }
+      });
+    } else {
+      await runApi('/api/approve', { id: p.id }, true);
+      Toast.fire({ title: '✅ อนุมัติลงคิวเรียบร้อย' });
+    }
+  }
+
+  const handleRejectPlayer = async (id: string) => {
+    Swal.fire({ title: 'ปฏิเสธคำขอ?', text: "คำขอนี้จะถูกลบ", icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444' })
+    .then(async r => {
+      if(r.isConfirmed) {
+        await fetch('/api/reject', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ id }) });
+        refresh(false); Toast.fire({ title: '🗑️ ปฏิเสธคำขอแล้ว' });
+      }
+    });
   }
 
   const togglePause = async (p: any) => {
@@ -1295,7 +1358,7 @@ export default function Home() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
       <div className="flex flex-col items-center gap-4">
         <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-        <div className="text-slate-500 font-bold animate-pulse text-sm tracking-widest">LOADING BADMINTON CLUB...</div>
+        <div className="text-slate-500 font-bold animate-pulse text-sm tracking-widest uppercase">LOADING BADMINTON CLUB...</div>
       </div>
     </div>
   )
@@ -1306,7 +1369,17 @@ export default function Home() {
   return (
     <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-24 transition-all duration-300 ${state?.announcement ? 'pt-24' : 'pt-16'}`}>
       
-      {/* 🌟 Global Announcement Bar */}
+      {/* 🌟 Custom In-App Capsule Notification (ลอยด้านบน ไม่บัง UI) */}
+      <div className={`fixed top-14 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 pointer-events-none ${capsuleAlert.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-10 scale-95'}`}>
+        <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 w-max max-w-[90vw]">
+          <div className="bg-blue-500/20 text-blue-400 p-2 rounded-full"><Bell className="w-5 h-5 animate-pulse" /></div>
+          <div className="flex flex-col">
+             <span className="text-white text-sm font-black tracking-wide leading-tight">{capsuleAlert.title}</span>
+             <span className="text-slate-300 text-xs font-medium leading-tight">{capsuleAlert.body}</span>
+          </div>
+        </div>
+      </div>
+
       {state?.announcement && (
         <div className="fixed top-0 w-full bg-blue-600 text-white text-xs py-2.5 px-4 shadow-md flex items-center z-[60]">
             <AlertCircle className="w-4 h-4 mr-2 text-white" />
@@ -1343,7 +1416,7 @@ export default function Home() {
           ) : (
             <div className={`mb-6 p-4 rounded-2xl shadow-sm border flex items-center justify-between transition-all ${amIPlaying ? 'bg-blue-600 text-white border-blue-700' : myPending ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-yellow-900/30 dark:border-yellow-700/50 dark:text-yellow-200' : (myWaitIndex !== -1) ? 'bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-700/50 dark:text-emerald-200' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-white border-slate-200 dark:border-slate-700'}`}>
               <div className="flex items-center gap-3">
-                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-black shadow-inner ${getSkillColor(myQueueData?.skill)}`}>{myProfile.name.charAt(0)}</div>
+                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-black shadow-lg ${getSkillColor(myQueueData?.skill)}`}>{myProfile.name.charAt(0)}</div>
                  <div><div className="font-black text-base leading-tight">{myProfile.name}</div><div className="text-[10px] font-bold opacity-70 uppercase tracking-wide mt-0.5">Status</div></div>
               </div>
               <div className="text-right">
@@ -1406,65 +1479,86 @@ export default function Home() {
                   </div>
                 )
               } else {
-                return <div key={cn} className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col items-center justify-center min-h-[160px]"><span className="text-xs font-bold text-slate-400">{cn}</span><span className="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-full mt-1 font-bold">ว่าง</span></div>
+                return <div key={cn} className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col items-center justify-center min-h-[160px]"><span className="text-xs font-bold text-slate-400">{cn}</span><span className="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-full mt-1 font-bold shadow-inner">ว่าง</span></div>
               }
             })}
           </div>
         </div>
 
-        {/* ===================== TAB 2: QUEUE ===================== */}
+        {/* ===================== TAB 2: QUEUE & APPROVAL ===================== */}
         <div className={activeTab === 'queue' ? 'block animate-in fade-in slide-in-from-bottom-4 duration-300' : 'hidden'}>
-          {/* 🌟 Sticky Header */}
           <div className={`sticky ${showNav && !state?.announcement ? 'top-[56px]' : state?.announcement && showNav ? 'top-[92px]' : state?.announcement && !showNav ? 'top-[36px]' : 'top-0'} bg-slate-100/95 dark:bg-slate-950/95 backdrop-blur-md pt-3 pb-2 z-40 transition-all duration-300 border-b border-slate-200/50 dark:border-slate-800/50`}>
-             <div className="flex justify-between items-center mb-2 px-1">
-                <h2 className="font-black text-lg text-slate-800 dark:text-white flex items-center gap-2">คิวรอเล่น <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-[10px] shadow-sm">{(state?.waiting || []).length}</span></h2>
+             
+             {/* 🌟 Tab สลับ คิวรอ / รออนุมัติ */}
+             <div className="flex p-1 bg-slate-200/50 dark:bg-slate-800/50 rounded-xl mb-3 gap-1 shadow-inner max-w-sm mx-auto">
+                <button onClick={()=>setQueueSubTab('waiting')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${queueSubTab==='waiting' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Users className="w-4 h-4"/> คิวรอเล่น ({(state?.waiting||[]).length})</button>
+                <button onClick={()=>setQueueSubTab('pending')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all relative flex items-center justify-center gap-1.5 ${queueSubTab==='pending' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <UserPlus className="w-4 h-4"/> รออนุมัติ 
+                  {(state?.pending||[]).length > 0 && <span className="bg-red-500 text-white text-[8px] px-1.5 py-0.5 rounded-full ml-1 animate-pulse shadow-sm">{(state?.pending||[]).length}</span>}
+                </button>
              </div>
+
              <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input type="text" placeholder="ค้นหาชื่อ..." value={searchQueue} onChange={(e) => setSearchQueue(e.target.value)} className="w-full pl-9 pr-3 py-3 border border-slate-300 dark:border-slate-700 rounded-xl text-sm shadow-sm outline-none bg-white dark:bg-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500 transition-all"/>
+                <input type="text" placeholder="ค้นหาชื่อ..." value={queueSubTab === 'waiting' ? searchQueue : searchPending} onChange={(e) => queueSubTab === 'waiting' ? setSearchQueue(e.target.value) : setSearchPending(e.target.value)} className="w-full pl-9 pr-3 py-3 border border-slate-300 dark:border-slate-700 rounded-xl text-sm shadow-sm outline-none bg-white dark:bg-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500 transition-all"/>
              </div>
              
-             {admin && selected.length > 0 && (
-                <button onClick={handleMatchSelected} className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
+             {admin && selected.length > 0 && queueSubTab === 'waiting' && (
+                <button onClick={handleMatchSelected} className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
                   <Users className="w-4 h-4"/> จัดทีมลงสนาม ({selected.length}/4)
                 </button>
              )}
           </div>
 
           <div className="space-y-2 pb-10 pt-2">
-            {(state?.waiting || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><Users className="w-10 h-10 opacity-30"/> ไม่มีคิวรอ</div> 
-            : (state?.waiting || []).filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase())).map((p, i) => {
-              const isSel = selected.includes(p.id);
-              const isMe = p.id === myProfile?.id;
-              const isPaused = p.name.includes('(พัก)');
-              const selIndex = selected.indexOf(p.id);
-              const teamBadge = selIndex !== -1 ? (selIndex < 2 ? <span className="bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team A</span> : <span className="bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team B</span>) : null;
-
-              return (
-                <div key={p.id} onClick={() => toggleSelect(p.id)} className={`cursor-pointer p-3.5 rounded-2xl border ${isSel ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md ring-1 ring-blue-400/50' : isPaused ? 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 opacity-60' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm'} flex items-center justify-between transition-all hover:shadow-md`}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-black text-slate-400 w-5 text-center">{i+1}.</span>
-                    <div>
-                      <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
-                        <span className={isPaused ? 'line-through' : ''}>{p.name}</span>
-                        {teamBadge}
-                        {p.playCount !== undefined && p.playCount > 0 && <span className="bg-slate-200 dark:bg-slate-700 text-[9px] px-1.5 py-0.5 rounded-md text-slate-600 dark:text-slate-300 font-mono shadow-inner">{p.playCount}P</span>}
-                        {isMe && <span className="text-[9px] bg-amber-400 text-white font-bold px-1.5 py-0.5 rounded shadow-sm">YOU</span>}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={`inline-block w-2.5 h-2.5 rounded-full shadow-sm ${getSkillColor(p.skill)}`}></span>
-                        <span className="text-[10px] text-slate-400 font-mono opacity-80">Lv {p.skill}</span>
+            {queueSubTab === 'waiting' ? (
+              /* Waiting List Render */
+              (state?.waiting || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><Users className="w-10 h-10 opacity-30"/> ไม่มีคิวรอ</div> 
+              : (state?.waiting || []).filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase())).map((p, i) => {
+                const isSel = selected.includes(p.id); const isMe = p.id === myProfile?.id; const isPaused = p.name.includes('(พัก)'); const selIndex = selected.indexOf(p.id); const teamBadge = selIndex !== -1 ? (selIndex < 2 ? <span className="bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team A</span> : <span className="bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team B</span>) : null;
+                return (
+                  <div key={p.id} onClick={() => toggleSelect(p.id)} className={`cursor-pointer p-3.5 rounded-2xl border ${isSel ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md ring-1 ring-blue-400/50' : isPaused ? 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 opacity-60' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm'} flex items-center justify-between transition-all hover:shadow-md`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md ${getSkillColor(p.skill)}`}>{p.name.charAt(0)}</div>
+                      <div>
+                        <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
+                          <span className={isPaused ? 'line-through' : ''}>{p.name}</span>
+                          {teamBadge}
+                          {p.playCount > 0 && <span className="bg-slate-200 dark:bg-slate-700 text-[9px] px-1.5 py-0.5 rounded-md text-slate-600 dark:text-slate-300 font-mono shadow-inner">{p.playCount}P</span>}
+                          {isMe && <span className="text-[9px] bg-amber-400 text-white font-bold px-1.5 py-0.5 rounded shadow-sm">YOU</span>}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5"><span className="text-[10px] text-slate-400 font-mono font-bold">คิวที่ {i+1} • Lv {p.skill}</span></div>
                       </div>
                     </div>
+                    <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
+                      {(isMe || admin) && <button onClick={()=>togglePause(p)} className="w-8 h-8 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-amber-100 dark:border-amber-800">{isPaused ? <Play className="w-4 h-4"/> : <Pause className="w-4 h-4"/>}</button>}
+                      {admin && <button onClick={()=>openAdminEdit(p)} className="w-8 h-8 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-blue-100 dark:border-blue-800"><Edit3 className="w-4 h-4"/></button>}
+                      {admin && <button onClick={async()=>{ await fetch('/api/checkout',{method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id:p.id})}); refresh(false); }} className="w-8 h-8 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-red-100 dark:border-red-800"><X className="w-4 h-4"/></button>}
+                    </div>
                   </div>
-                  <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
-                    {(isMe || admin) && <button onClick={()=>togglePause(p)} className="w-8 h-8 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-amber-100 dark:border-amber-800">{isPaused ? <Play className="w-4 h-4"/> : <Pause className="w-4 h-4"/>}</button>}
-                    {admin && <button onClick={()=>openAdminEdit(p)} className="w-8 h-8 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-blue-100 dark:border-blue-800"><Edit3 className="w-4 h-4"/></button>}
-                    {admin && <button onClick={async()=>{ await fetch('/api/checkout',{method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id:p.id})}); refresh(false); }} className="w-8 h-8 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-red-100 dark:border-red-800"><X className="w-4 h-4"/></button>}
+                )
+              })
+            ) : (
+              /* Pending Approval Render */
+              (state?.pending || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><UserCheck className="w-10 h-10 opacity-30"/> ไม่มีรายการรออนุมัติ</div> 
+              : (state?.pending || []).filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase())).map((p, i) => (
+                  <div key={p.id} className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm flex items-center justify-between transition-all animate-in slide-in-from-right-4 mb-2">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md ${getSkillColor(p.skill)}`}>{p.name.charAt(0)}</div>
+                      <div>
+                        <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">{p.name} {(!p.playCount || p.playCount === 0 || String(p.id).startsWith('G')) && <span className="bg-amber-100 text-amber-600 text-[8px] px-1 rounded uppercase font-bold shadow-sm">New</span>}</div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 font-bold">Lv {p.skill} • ID: {p.id}</div>
+                      </div>
+                    </div>
+                    {admin && (
+                      <div className="flex gap-2">
+                         <button onClick={()=>handleApproveProcess(p)} className="bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-md active:scale-95 transition flex items-center gap-1"><Check className="w-3.5 h-3.5"/> Approve</button>
+                         <button onClick={()=>handleRejectPlayer(p.id)} className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-xl text-xs font-bold active:scale-95 transition shadow-sm border border-red-100"><X className="w-3.5 h-3.5"/></button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )
-            })}
+              ))
+            )}
           </div>
         </div>
 
@@ -1477,13 +1571,13 @@ export default function Home() {
                  <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-inner ${notifyPerm === 'granted' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}><Bell className="w-6 h-6"/></div>
                  <div>
                     <h4 className="font-black text-sm text-slate-800 dark:text-white">การแจ้งเตือนแอป</h4>
-                    <p className="text-[10px] text-slate-500 font-bold">แจ้งให้ทราบเมื่อถึงคิวลงสนาม</p>
+                    <p className="text-[10px] text-slate-500 font-bold">แจ้งเมื่อถึงคิวลงสนาม</p>
                  </div>
               </div>
               {notifyPerm !== 'granted' ? (
-                 <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md transition active:scale-95">เปิดการแจ้งเตือน</button>
+                 <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"><Bell className="w-4 h-4"/> เปิดการแจ้งเตือน</button>
               ) : (
-                 <span className="w-full sm:w-auto text-center text-xs font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-400 px-4 py-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50">เปิดแล้ว</span>
+                 <span className="w-full sm:w-auto text-center text-xs font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-400 px-4 py-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50 shadow-inner">เปิดใช้งานแล้ว</span>
               )}
            </div>
 
@@ -1501,7 +1595,7 @@ export default function Home() {
                   <div className="w-1.5 bg-blue-500 absolute left-0 top-0 bottom-0"></div>
                   <div className="flex-1 pl-2">
                     <div className="flex justify-between items-start mb-1"><h4 className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-1.5"><Bell className="w-3.5 h-3.5 text-blue-500"/> {n.title}</h4><span className="text-[10px] font-bold text-slate-400">{n.time}</span></div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">{n.body}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{n.body}</p>
                   </div>
                 </div>
               ))}
@@ -1547,9 +1641,9 @@ export default function Home() {
                    : (
                      <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
                        {myPlayHistory.filter(h => h.action.includes('Start') || h.action.includes('Finish')).reverse().map((h, i) => (
-                         <div key={i} className="flex gap-3 text-sm items-start">
+                         <div key={i} className="flex gap-3 text-sm items-start animate-in slide-in-from-top-1">
                            <div className="text-[10px] font-bold text-slate-400 mt-1.5 w-10 text-right">{h.time}</div>
-                           <div className="flex-1 bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700">
+                           <div className="flex-1 bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700 shadow-inner">
                              <div className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1"><MapPin className="w-3 h-3 text-blue-500"/> {h.court || 'Court'}</div>
                              <div className="text-[10px] text-slate-500 mt-0.5">{h.action}</div>
                            </div>
@@ -1578,7 +1672,7 @@ export default function Home() {
                         <input type="time" value={playStartTime} onChange={e=>setPlayStartTime(e.target.value)} className="bg-slate-800 text-white text-xs p-1.5 rounded-lg border border-slate-600 w-24 outline-none focus:ring-1 focus:ring-blue-500"/>
                         <span className="text-slate-500">-</span>
                         <input type="time" value={playEndTime} onChange={e=>setPlayEndTime(e.target.value)} className="bg-slate-800 text-white text-xs p-1.5 rounded-lg border border-slate-600 w-24 outline-none focus:ring-1 focus:ring-blue-500"/>
-                        <button onClick={savePlayTime} className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg shadow-sm font-bold active:scale-95 transition">Save</button>
+                        <button onClick={savePlayTime} className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded-lg shadow-sm font-bold active:scale-95 transition">Save</button>
                       </div>
                    </div>
 
@@ -1647,7 +1741,7 @@ export default function Home() {
             </button>
             <button onClick={()=>handleTabClick('queue')} className={`flex flex-col items-center gap-1 transition-all relative ${activeTab==='queue'?'text-blue-600 scale-110':'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}>
                <Users className={activeTab==='queue'?'w-6 h-6':'w-5 h-5'} strokeWidth={activeTab==='queue'?2.5:2} /><span className="text-[9px] font-black uppercase tracking-wider">Queue</span>
-               {(state?.waiting||[]).length>0 && <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm">{(state?.waiting||[]).length}</span>}
+               {(state?.pending||[]).length > 0 && <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm animate-pulse">{(state?.pending||[]).length}</span>}
             </button>
             <button onClick={()=>handleTabClick('notifications')} className={`flex flex-col items-center gap-1 transition-all relative ${activeTab==='notifications'?'text-blue-600 scale-110':'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}>
                <Bell className={activeTab==='notifications'?'w-6 h-6':'w-5 h-5'} strokeWidth={activeTab==='notifications'?2.5:2} /><span className="text-[9px] font-black uppercase tracking-wider">Alerts</span>
