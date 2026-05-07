@@ -70,21 +70,35 @@ export default function Home() {
   
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
-
-  const estWaitMins = useCallback(() => {
+  const [pausedIds, setPausedIds] = useState<string[]>([]);
+ 
+  const estWaitMins = (() => {
     if (myWaitIndex === -1 || !myProfile || pausedIds.includes(myProfile.id)) return 0;
+    
     const activeWaiting = (state?.waiting || []).filter(p => !pausedIds.includes(p.id));
     const realWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
+    
     if (realWaitIndex === -1) return 0;
+
     const teamIndex = Math.floor(realWaitIndex / 4); 
-    const courtRemaining = (state?.playing || []).map(c => Math.max(avgMatchDuration - ((Date.now() - new Date(c.startTime).getTime()) / 60000), 0));
+    const groupsToCollect = teamIndex + 1;
+
+    const courtRemaining = (state?.playing || []).map(c => {
+      const elapsed = (Date.now() - new Date(c.startTime).getTime()) / 60000;
+      return Math.max(avgMatchDuration - elapsed, 0);
+    });
+
     while (courtRemaining.length < courtsCount) courtRemaining.push(0);
+
     const timeline = courtRemaining.sort((a,b) => a - b);
     let estimatedFinish = 0;
-    for (let i = 0; i <= teamIndex; i++) {
-      estimatedFinish = timeline.shift() ?? 0;
-      timeline.push(estimatedFinish + avgMatchDuration);
+
+    for (let i = 0; i < groupsToCollect; i++) {
+      const nextAvailable = timeline.shift() ?? 0;
+      const finishTime = nextAvailable + avgMatchDuration;
+      timeline.push(finishTime);
       timeline.sort((a,b) => a - b);
+      if (i === groupsToCollect - 1) estimatedFinish = finishTime;
     }
     return Math.max(1, Math.ceil(estimatedFinish));
   })();
@@ -1172,9 +1186,9 @@ export default function Home() {
         
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5 flex-1 pb-10">
           {(state?.courtNames || []).map(cn => {
-            const m = (state?.playing || []).find(p => p.court === cn);
-            if (loadingCourt === cn) return <div key={cn} className="bg-slate-900 border border-slate-800 rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl animate-pulse flex items-center justify-center p-4"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div><span className="text-blue-500 font-bold text-xs">จัดเตรียมสนาม...</span></div>
-            if (m) {
+          const m = (state?.playing || []).find(p => p.court === cn);
+          if (loadingCourts.includes(cn)) return <div key={cn} className="bg-slate-900 border border-slate-700 rounded-2xl flex flex-col items-center justify-center min-h-[140px] sm:min-h-[180px] animate-pulse"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div><span className="text-xs font-bold text-slate-400 tracking-widest uppercase">กำลังเตรียมคอร์ท...</span></div>;
+          if (m) {
               const min = Math.floor((Date.now()-new Date(m.startTime).getTime())/60000); const isLate = min >= avgMatchDuration;
               return (
                 <div key={cn} className={`bg-white dark:bg-slate-900 border ${isLate ? 'border-red-400 ring-2 ring-red-400/30' : 'border-slate-200 dark:border-slate-800'} rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all`}>
