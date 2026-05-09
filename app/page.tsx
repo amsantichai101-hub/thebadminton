@@ -6,6 +6,9 @@ import type { AppState, WaitingPlayer as Player } from '@/lib/types'
 import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
 import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck } from 'lucide-react'
 
+// 🌟 เวอร์ชันของแอป (เมื่อมีการอัปเดต/เปลี่ยนเลขนี้ ระบบจะเคลียร์ข้อมูลเก่าทุกอย่างทิ้ง 100%)
+const APP_VERSION = "1.2.0";
+
 const Toast = Swal.mixin({
   toast: true,
   position: 'top',
@@ -31,7 +34,6 @@ export default function Home() {
   const [theme, setTheme] = useState<'light'|'dark'>('light')
   const [isLoading, setIsLoading] = useState(true) 
   const [loadingCourts, setLoadingCourts] = useState<string[]>([]) 
-  const [pausedIds, setPausedIds] = useState<string[]>([]);
   
   const [myProfile, setMyProfile] = useState<{id: string, name: string} | null>(null)
   const [searchPending, setSearchPending] = useState('')
@@ -46,13 +48,13 @@ export default function Home() {
 
   // 🌟 Tab, Nav, Sub-tab & History State
   const [activeTab, setActiveTab] = useState<'home' | 'queue' | 'notifications' | 'profile'>('home');
-  const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'pending'>('waiting'); // 🌟 สำหรับสลับหน้าคิวรอ / รออนุมัติ
+  const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'pending'>('waiting'); 
   const [showNav, setShowNav] = useState(true);
   const lastScrollY = useRef(0);
   const [notifyHistory, setNotifyHistory] = useState<{id: number, title: string, body: string, time: string, isRead: boolean}[]>([]);
   const [myPlayHistory, setMyPlayHistory] = useState<any[]>([]);
 
-  // 🌟 Custom Capsule Alert State (แทนการใช้ Toast)
+  // 🌟 Custom Capsule Alert State 
   const [capsuleAlert, setCapsuleAlert] = useState<{title: string, body: string, visible: boolean}>({title: '', body: '', visible: false});
 
   // 🌟 Modal State for Court Manager
@@ -75,6 +77,7 @@ export default function Home() {
   
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
+  const [pausedIds, setPausedIds] = useState<string[]>([]);
  
   const estWaitMins = (() => {
     if (myWaitIndex === -1 || !myProfile || pausedIds.includes(myProfile.id)) return 0;
@@ -121,6 +124,17 @@ export default function Home() {
       default: return 'bg-slate-300 text-slate-700 border-slate-400';
     }
   }
+
+  // 🌟 Auto-Clear Cache 100% on New Deploy
+  useEffect(() => {
+    const localVer = localStorage.getItem('appVersion');
+    if (localVer !== APP_VERSION) {
+      localStorage.clear();
+      sessionStorage.clear();
+      localStorage.setItem('appVersion', APP_VERSION);
+      window.location.reload();
+    }
+  }, []);
 
   // 🌟 Hide/Show Header on Scroll
   useEffect(() => {
@@ -192,73 +206,37 @@ export default function Home() {
     }
   }, []);
 
-  // 🌟 Reset Notification flags based on state
-  useEffect(() => {
-    if (myWaitIndex === -1 || myWaitIndex >= 4) {
-      notifiedStandby.current = false;
-    }
-    if (!amIPlaying) {
-      notifiedPlay.current = false;
-    }
-  }, [myWaitIndex, amIPlaying]);
-
-  // 🌟 ระบบแจ้งเตือน (Native Push + Web Capsule)
+  // 🌟 Robust Notification Logic (In-App Only - ปล่อยหน้าที่ Push ไว้ที่ Backend)
   useEffect(() => {
     if (!myProfile) return;
 
-    const fireNotification = async (title: string, body: string, vibratePattern: number[]) => {
-      // 1. เสียงเตือน
+    const fireInAppNotification = (title: string, body: string) => {
       playAlertSound(); 
-      
-      // 2. เก็บประวัติแจ้งเตือน
       addNotification(title, body);
       
-      // 3. ระบบสั่น (ถ้าอุปกรณ์รองรับ)
-      try {
-        if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
-      } catch (e) {}
-      
-      // 4. Native Push Notification (ระบบดั้งเดิมที่เสถียรที่สุด)
-      if ('Notification' in window && Notification.permission === 'granted') {
-        try {
-          // ยิงตรงเข้า Notification API ของอุปกรณ์
-          const n = new Notification(title, { 
-            body: body, 
-            icon: '/icon.png',
-            badge: '/icon.png'
-          });
-          // ปิดอัตโนมัติกันค้างบนหน้าจอ
-          setTimeout(() => n.close(), 8000); 
-        } catch(e) {
-          // Fallback เผื่อ PWA บนมือถือบางรุ่นที่บังคับใช้ Service Worker
-          try {
-            if ('serviceWorker' in navigator) {
-              const reg = await navigator.serviceWorker.ready;
-              reg.showNotification(title, { body, icon: '/icon.png', vibrate: vibratePattern, badge: '/icon.png' } as any);
-            }
-          } catch(swErr) {}
-        }
-      }
-      
-      // 5. Custom UI Capsule Notification (หน้าเว็บ)
+      // Custom UI Capsule Notification
       setCapsuleAlert({ title, body, visible: true });
       setTimeout(() => setCapsuleAlert(prev => ({...prev, visible: false})), 6000);
     };
 
-    // Logic วอร์มรอ (คิวที่ 1-4) แจ้งเตือนแค่ครั้งเดียวเมื่อเข้ามาอยู่ใน 4 คิวแรก
+    // 1. Logic วอร์มรอ (คิวที่ 1-4)
     if (myWaitIndex >= 0 && myWaitIndex < 4) {
       if (!notifiedStandby.current) {
-        fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [500, 200, 500]);
+        fireInAppNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)');
         notifiedStandby.current = true;
       }
+    } else {
+      notifiedStandby.current = false;
     }
 
-    // Logic ถึงคิวลงสนาม (เล่นอยู่) แจ้งเตือนแค่ครั้งเดียวเมื่อได้ลงคอร์ท
+    // 2. Logic ถึงคิวลงสนาม (เล่นอยู่)
     if (amIPlaying && myActiveCourt) {
       if (!notifiedPlay.current) {
-        fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 1000, 200, 1000]);
+        fireInAppNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt.court} ได้เลย ขอให้สนุกครับ!`);
         notifiedPlay.current = true;
       }
+    } else {
+      notifiedPlay.current = false;
     }
   }, [state, myProfile, amIPlaying, myActiveCourt, myWaitIndex]);
 
@@ -301,7 +279,7 @@ export default function Home() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isAwake]);
 
-  // 🌟 API Fetching
+  // 🌟 API Fetching & Real Profile Data
   const refresh = async (showLoader = false, forceClearCache = false) => { 
     if(showLoader) setIsLoading(true);
     try {
@@ -314,30 +292,29 @@ export default function Home() {
       if (d.globalShowPreview !== undefined) setGlobalPreview(d.globalShowPreview);
       if (d.playStartTime) setPlayStartTime(d.playStartTime);
       if (d.playEndTime) setPlayEndTime(d.playEndTime);
+
+      // Fetch Real Profile History automatically on background refresh
+      const pStr = localStorage.getItem('myProfile');
+      if (pStr) {
+         const p = JSON.parse(pStr);
+         const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
+         const repRes = await fetch(`/api/report?date=${today}`);
+         if (repRes.ok) {
+           const rData = await repRes.json();
+           const myLogs = (rData.tableData || []).filter((row: any) => row.name.includes(p.name));
+           setMyPlayHistory(myLogs);
+         }
+      }
+
     } catch(e) {}
     finally { setIsLoading(false); }
   }
-
-  // 🌟 Fetch Profile History
-  const fetchProfileHistory = async () => {
-    if (!myProfile) return;
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
-    try {
-      const res = await fetch(`/api/report?date=${today}`);
-      if (res.ok) {
-        const data = await res.json();
-        const myLogs = (data.tableData || []).filter((row: any) => row.name.includes(myProfile.name));
-        setMyPlayHistory(myLogs);
-      }
-    } catch (e) {}
-  };
 
   const handleTabClick = (tab: any) => {
     if (tab === 'home' && activeTab === 'home') {
       refresh(true, true); 
       Toast.fire({ title: '🔄 อัปเดตข้อมูลล่าสุดแล้ว' });
     }
-    if (tab === 'profile') fetchProfileHistory();
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -351,7 +328,6 @@ export default function Home() {
     const savedProfile = localStorage.getItem('myProfile');
     if(savedProfile) {
       setMyProfile(JSON.parse(savedProfile));
-      if (activeTab === 'profile') fetchProfileHistory();
     }
 
     const savedHistory = localStorage.getItem('localMatchHistory');
@@ -361,6 +337,11 @@ export default function Home() {
     const t = setInterval(() => refresh(false), Number(process.env.NEXT_PUBLIC_AUTO_REFRESH_MS || 5000)); 
     return () => clearInterval(t);
   }, [])
+
+  // 🌟 Calculate Real Stats
+  const myStartLogs = myPlayHistory.filter(h => h.action.toLowerCase().includes('start') || h.action.includes('ลงสนาม'));
+  const realPlayCount = myStartLogs.length;
+  const realPlayTime = realPlayCount * avgMatchDuration; 
 
   // ⚡ AUTO END MATCH (7 นาที)
   useEffect(() => {
@@ -537,6 +518,18 @@ export default function Home() {
       await runApi('/api/approve', { id: p.id }, true);
       Toast.fire({ title: '✅ อนุมัติลงคิวเรียบร้อย' });
     }
+  }
+
+  const handleBulkApprove = async () => {
+    if(selectedPending.length === 0) return;
+    Swal.fire({title: 'กำลังอนุมัติ...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading()});
+    for(const id of selectedPending) {
+       await fetch('/api/approve', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ id }) });
+    }
+    setSelectedPending([]);
+    refresh(false);
+    Swal.close();
+    Toast.fire({ title: '✅ อนุมัติผู้เล่นทั้งหมดแล้ว' });
   }
 
   const handleRejectPlayer = async (id: string) => {
@@ -1550,8 +1543,14 @@ export default function Home() {
              </div>
              
              {admin && selected.length > 0 && queueSubTab === 'waiting' && (
-                <button onClick={handleMatchSelected} className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
+                <button onClick={handleMatchSelected} className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
                   <Users className="w-4 h-4"/> จัดทีมลงสนาม ({selected.length}/4)
+                </button>
+             )}
+
+             {admin && selectedPending.length > 0 && queueSubTab === 'pending' && (
+                <button onClick={handleBulkApprove} className="w-full mt-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
+                  <CheckCircle2 className="w-4 h-4"/> อนุมัติที่เลือก ({selectedPending.length} รายการ)
                 </button>
              )}
           </div>
@@ -1561,6 +1560,11 @@ export default function Home() {
               (state?.waiting || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><Users className="w-10 h-10 opacity-30"/> ไม่มีคิวรอ</div> 
               : (state?.waiting || []).filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase())).map((p, i) => {
                 const isSel = selected.includes(p.id); const isMe = p.id === myProfile?.id; const isPaused = p.name.includes('(พัก)'); const selIndex = selected.indexOf(p.id); const teamBadge = selIndex !== -1 ? (selIndex < 2 ? <span className="bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team A</span> : <span className="bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team B</span>) : null;
+                
+                const isManualPrev = manualPreviews.flatMap(m => m.teams.flat().map((ap: any) => ap.id)).includes(p.id);
+                const isAutoPrev = autoMatches.flatMap(m => m.teams.flat().map((ap: any) => ap.id)).includes(p.id);
+                const inPreviewStatus = isManualPrev ? 'MANUAL' : isAutoPrev ? 'UP NEXT' : null;
+
                 return (
                   <div key={p.id} onClick={() => toggleSelect(p.id)} className={`cursor-pointer p-3.5 rounded-2xl border ${isSel ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md ring-1 ring-blue-400/50' : isPaused ? 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 opacity-60' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm'} flex items-center justify-between transition-all hover:shadow-md`}>
                     <div className="flex items-center gap-3">
@@ -1572,7 +1576,10 @@ export default function Home() {
                           {p.playCount > 0 && <span className="bg-slate-200 dark:bg-slate-700 text-[9px] px-1.5 py-0.5 rounded-md text-slate-600 dark:text-slate-300 font-mono shadow-inner">{p.playCount}P</span>}
                           {isMe && <span className="text-[9px] bg-amber-400 text-white font-bold px-1.5 py-0.5 rounded shadow-sm">YOU</span>}
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5"><span className="text-[10px] text-slate-400 font-mono font-bold">คิวที่ {i+1} • Lv {p.skill}</span></div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono font-bold">คิวที่ {i+1} • Lv {p.skill}</span>
+                          {inPreviewStatus && <span className={`text-[9px] px-1.5 py-0.5 rounded shadow-sm font-bold ${inPreviewStatus === 'MANUAL' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'}`}>{inPreviewStatus}</span>}
+                        </div>
                       </div>
                     </div>
                     <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
@@ -1586,8 +1593,14 @@ export default function Home() {
             ) : (
               (state?.pending || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><UserCheck className="w-10 h-10 opacity-30"/> ไม่มีรายการรออนุมัติ</div> 
               : (state?.pending || []).filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase())).map((p, i) => (
-                  <div key={p.id} className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm flex items-center justify-between transition-all animate-in slide-in-from-right-4 mb-2">
+                  <div key={p.id} className={`p-3.5 rounded-2xl border ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} shadow-sm flex items-center justify-between transition-all animate-in slide-in-from-right-4 mb-2`}>
                     <div className="flex items-center gap-3">
+                      {admin && (
+                         <input type="checkbox" checked={selectedPending.includes(p.id)} onChange={(e) => {
+                           if(e.target.checked) setSelectedPending(prev => [...prev, p.id]);
+                           else setSelectedPending(prev => prev.filter(id => id !== p.id));
+                         }} className="w-5 h-5 rounded text-green-600" />
+                      )}
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md ${getSkillColor(p.skill)}`}>{p.name.charAt(0)}</div>
                       <div>
                         <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">{p.name} {(!p.playCount || p.playCount === 0 || String(p.id).startsWith('G')) && <span className="bg-amber-100 text-amber-600 text-[8px] px-1 rounded uppercase font-bold shadow-sm">New</span>}</div>
