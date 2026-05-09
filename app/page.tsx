@@ -7,16 +7,20 @@ import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmakin
 import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck, Download, RefreshCw } from 'lucide-react'
 
 // 🌟 เวอร์ชันของแอป (ระบบจะเคลียร์แคช 100% อัตโนมัติเมื่อค่านี้เปลี่ยน)
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "2.1.1";
 
-const urlBase64ToUint8Array = (base64String: string) => {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
-  return outputArray;
-};
+  // 🌟 ฟังก์ชันแปลง VAPID Key (วางไว้นอก Component หรือบนสุดของไฟล์)
+  const urlBase64ToUint8Array = (base64String: string) => {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+    return outputArray;
+  };
+
+  
+
 
 const Toast = Swal.mixin({
   toast: true,
@@ -253,16 +257,10 @@ export default function Home() {
     }
   }, []);
 
+  // 🌟 แก้ไขฟังก์ชัน requestNotify ใหม่
   const requestNotify = async () => {
-    if (!myProfile) {
-      Toast.fire({ title: '⚠️ กรุณา Check in ก่อนเปิดแจ้งเตือน' });
-      return;
-    }
-
-    if (!('Notification' in window)) {
-      Toast.fire({ title: '❌ เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน' });
-      return;
-    }
+    if (!myProfile) return Toast.fire({ title: '⚠️ กรุณา Check in ก่อนเปิดแจ้งเตือน' });
+    if (!('Notification' in window)) return Toast.fire({ title: '❌ เบราว์เซอร์ไม่รองรับแจ้งเตือน' });
 
     const perm = await Notification.requestPermission();
     setNotifyPerm(perm);
@@ -270,19 +268,15 @@ export default function Home() {
     if (perm === 'granted') {
       try {
         const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-        if (!vapidPublicKey) {
-            Toast.fire({ title: '✅ เปิดสิทธิ์สำเร็จ (แต่ระบบ Push Backend ยังไม่ได้ตั้งค่า)' });
-            return;
-        }
+        if (!vapidPublicKey) return Toast.fire({ title: '⚠️ ลืมตั้งค่า VAPID Key ใน .env' });
 
-        // ขอ Subscription Token จาก Service Worker
         const reg = await navigator.serviceWorker.ready;
         const subscription = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
         });
 
-        // ส่ง Token ไปเก็บที่ Backend ของเรา
+        // 🌟 ส่งข้อมูลไปบันทึกลง Supabase
         await fetch('/api/webpush', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -291,8 +285,8 @@ export default function Home() {
 
         Toast.fire({ title: '✅ เปิดระบบแจ้งเตือนพื้นหลังสำเร็จ!' });
       } catch (error) {
-        console.error('Push Subscription Error:', error);
-        Toast.fire({ title: '⚠️ ไม่สามารถตั้งค่า Push พื้นหลังได้' });
+        console.error('Push Error:', error);
+        Toast.fire({ title: '⚠️ ไม่สามารถบันทึก Token ได้' });
       }
     } else {
       Toast.fire({ title: '⚠️ คุณปฏิเสธการแจ้งเตือน' });
