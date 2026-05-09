@@ -1777,6 +1777,30 @@ export default function Home() {
                  <span className="w-full sm:w-auto text-center text-xs font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-400 px-4 py-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50 shadow-inner">เปิดใช้งานแล้ว</span>
               )}
            </div>
+<button onClick={async () => {
+    try {
+        const res = await fetch('/api/webpush', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                action: 'send', 
+                userId: myProfile?.id, 
+                title: 'Test Debug', 
+                message: 'กำลังทดสอบยิงจาก Backend' 
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            alert('❌ Backend Error: ' + JSON.stringify(data));
+        } else {
+            alert('✅ Backend ยิงสำเร็จ! (ถ้ามือถือยังไม่เด้ง แปลว่าใบอนุญาตในมือถือหลุด)');
+        }
+    } catch (e: any) {
+        alert('❌ Network Error: ' + e.message);
+    }
+}} className="w-full mb-3 bg-red-100 text-red-600 px-4 py-2 rounded-xl font-bold">
+    🔍 ปุ่มกดเพื่อเช็ค Error ระบบ Push (Debug)
+</button>
 
            {/* Test Noti Button */}
            <button onClick={() => {
