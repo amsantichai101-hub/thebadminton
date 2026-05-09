@@ -4,7 +4,10 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import Swal from 'sweetalert2'
 import type { AppState, WaitingPlayer as Player } from '@/lib/types'
 import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
-import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck } from 'lucide-react'
+import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck, Download, RefreshCw } from 'lucide-react'
+
+// 🌟 เวอร์ชันของแอป (ระบบจะเคลียร์แคช 100% อัตโนมัติเมื่อค่านี้เปลี่ยน)
+const APP_VERSION = "1.8.0";
 
 const Toast = Swal.mixin({
   toast: true,
@@ -24,6 +27,9 @@ const Toast = Swal.mixin({
 });
 
 export default function Home() {
+  // ==========================================
+  // 🌟 1. STATES
+  // ==========================================
   const [state, setState] = useState<AppState | null>(null)
   const [admin, setAdmin] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
@@ -31,7 +37,6 @@ export default function Home() {
   const [theme, setTheme] = useState<'light'|'dark'>('light')
   const [isLoading, setIsLoading] = useState(true) 
   const [loadingCourts, setLoadingCourts] = useState<string[]>([]) 
-  const [pausedIds, setPausedIds] = useState<string[]>([]);
   
   const [myProfile, setMyProfile] = useState<{id: string, name: string} | null>(null)
   const [searchPending, setSearchPending] = useState('')
@@ -46,14 +51,14 @@ export default function Home() {
 
   // 🌟 Tab, Nav, Sub-tab & History State
   const [activeTab, setActiveTab] = useState<'home' | 'queue' | 'notifications' | 'profile'>('home');
-  const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'pending'>('waiting'); // 🌟 สำหรับสลับหน้าคิวรอ / รออนุมัติ
+  const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'pending'>('waiting'); 
   const [showNav, setShowNav] = useState(true);
   const lastScrollY = useRef(0);
   const [notifyHistory, setNotifyHistory] = useState<{id: number, title: string, body: string, time: string, isRead: boolean}[]>([]);
   const [myPlayHistory, setMyPlayHistory] = useState<any[]>([]);
 
-  // 🌟 Custom Capsule Alert State (แทนการใช้ Toast)
-  const [capsuleAlert, setCapsuleAlert] = useState<{title: string, body: string, visible: boolean}>({title: '', body: '', visible: false});
+  // 🌟 Custom Capsule Alert State 
+  const [capsuleAlert, setCapsuleAlert] = useState<{title: string, body: string, visible: boolean, onClick?: () => void}>({title: '', body: '', visible: false});
 
   // 🌟 Modal State for Court Manager
   const [isCourtManagerOpen, setIsCourtManagerOpen] = useState(false);
@@ -62,7 +67,6 @@ export default function Home() {
   const wakeLockRef = useRef<any>(null);
   const [isAwake, setIsAwake] = useState(false);
   const [notifyPerm, setNotifyPerm] = useState<string>('default');
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   const activeWaiting = (state?.waiting || []).filter(p => !p.name.includes('(พัก)'));
   const myWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
@@ -75,7 +79,11 @@ export default function Home() {
   
   const courtsCount = state?.courtCount && state.courtCount > 0 ? state.courtCount : 1;
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
+  const [pausedIds, setPausedIds] = useState<string[]>([]);
  
+  // ==========================================
+  // 🌟 2. HELPER FUNCTIONS & COMPUTATIONS
+  // ==========================================
   const estWaitMins = (() => {
     if (myWaitIndex === -1 || !myProfile || pausedIds.includes(myProfile.id)) return 0;
     
@@ -107,10 +115,6 @@ export default function Home() {
     return Math.max(1, Math.ceil(estimatedFinish));
   })();
 
-  const notifiedStandby = useRef(false);
-  const notifiedPlay = useRef(false);
-
-  // 🌟 Color Badge by Skill Level
   const getSkillColor = (skill: number | undefined) => {
     switch(skill) {
       case 1: return 'bg-slate-400 text-white border-slate-500';
@@ -122,7 +126,94 @@ export default function Home() {
     }
   }
 
-  // 🌟 Hide/Show Header on Scroll
+  const getMySkillLevel = () => {
+    if (myQueueData) return myQueueData.skill;
+    if (myPending) return myPending.skill;
+    if (myActiveCourt) {
+      if (myActiveCourt.p1Id === myProfile?.id) return myActiveCourt.p1Skill;
+      if (myActiveCourt.p2Id === myProfile?.id) return myActiveCourt.p2Skill;
+      if (myActiveCourt.p3Id === myProfile?.id) return myActiveCourt.p3Skill;
+      if (myActiveCourt.p4Id === myProfile?.id) return myActiveCourt.p4Skill;
+    }
+    const stored = localStorage.getItem('myProfileSkill');
+    if (stored) return Number(stored);
+    return 0;
+  }
+
+  const getSkillName = (s: number) => ['มือใหม่แกะกล่อง', 'มือใหม่เริ่มมีทรง', 'มือกลางมีพื้นฐาน', 'มือตึงสายคุมเกมส์', 'มือปีศาจ'][s-1] || 'ไม่ระบุ';
+
+  function isSimilarSkillGroup(players: any[]): boolean {
+    if (players.length !== 4) return false;
+    const skills = players.map(p => Number(p.skill));
+    return Math.max(...skills) - Math.min(...skills) <= 1; 
+  }
+
+  function getAutoNextMatches(players: any[], availableSlots = 3, mode = matchMode, history = matchHistory): any[] {
+    const matches = [];
+    let currentPlayers = [...players];
+
+    for (let i = 0; i < availableSlots; i++) {
+      if (currentPlayers.length < 4) break;
+
+      if (mode === 'smart') {
+        const match = extractBestMatch(currentPlayers, history); 
+        if (!match) break;
+        matches.push({ matchNumber: i + 1, teams: match.teams, diff: match.diff });
+        currentPlayers = currentPlayers.filter((_, index) => !match.indices.includes(index));
+      } else {
+        const group = currentPlayers.slice(0, 4);
+        if (mode === 'similar-skill' && !isSimilarSkillGroup(group)) {
+            currentPlayers = currentPlayers.slice(4);
+            continue;
+        }
+        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(p.skill) })), history);
+        matches.push({
+          matchNumber: i + 1,
+          teams: [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ],
+          diff: balanced.diff
+        });
+        currentPlayers = currentPlayers.slice(4);
+      }
+    }
+    return matches;
+  }
+
+  // 🌟 3. PREVIEW COMPUTATIONS
+  const availableCourts = (state?.courtNames || []).filter(cn => !(state?.playing || []).find(p => p.court === cn));
+  const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
+  const availableWaitingView = activeWaiting.filter(p => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id)); 
+  const remainingSlots = availableCourts.length - manualPreviews.length;
+  
+  const autoMatches = (globalPreview && availableWaitingView.length >= 4 && remainingSlots > 0 && matchMode !== 'manual') 
+        ? (extractBestMatch(availableWaitingView, matchHistory) ? getAutoNextMatches(availableWaitingView, remainingSlots, matchMode, matchHistory) : []) 
+        : [];
+  
+  // ให้เรียง Manual ขึ้นก่อน แล้วต่อด้วย Auto (เติมในสล็อตคอร์ทที่ยังว่าง)
+  const allPreviews = [...manualPreviews, ...autoMatches];
+
+  const myStartLogs = myPlayHistory.filter(h => h.action.toLowerCase().includes('start') || h.action.includes('ลงสนาม'));
+  const realPlayCount = myStartLogs.length;
+  const realPlayTime = realPlayCount * avgMatchDuration; 
+
+  // ==========================================
+  // 🌟 4. USE EFFECTS & NOTIFICATION LOGIC
+  // ==========================================
+  
+  const notifiedStandby = useRef(false);
+  const notifiedPlay = useRef(false);
+
+  useEffect(() => {
+    const localVer = localStorage.getItem('appVersion');
+    if (localVer !== APP_VERSION) {
+      const adminAuth = localStorage.getItem('adminAuth');
+      localStorage.clear();
+      sessionStorage.clear();
+      if (adminAuth) localStorage.setItem('adminAuth', adminAuth);
+      localStorage.setItem('appVersion', APP_VERSION);
+      window.location.reload();
+    }
+  }, []);
+
   useEffect(() => {
     const handleScroll = () => {
       if (window.scrollY > lastScrollY.current && window.scrollY > 60) setShowNav(false);
@@ -133,7 +224,6 @@ export default function Home() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // 🌟 Register Service Worker for Background Notification
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW Reg Failed', err));
@@ -168,7 +258,6 @@ export default function Home() {
     }
   };
 
-  // 🌟 บังคับขอสิทธิ์แจ้งเตือนเมื่อเข้าแอปครั้งแรก
   useEffect(() => {
     const hasPrompted = localStorage.getItem('appNotiPrompted');
     if (!hasPrompted && 'Notification' in window && Notification.permission !== 'granted') {
@@ -192,7 +281,6 @@ export default function Home() {
     }
   }, []);
 
-  // 🌟 Reset Notification flags based on state
   useEffect(() => {
     if (myWaitIndex === -1 || myWaitIndex >= 4) {
       notifiedStandby.current = false;
@@ -202,61 +290,78 @@ export default function Home() {
     }
   }, [myWaitIndex, amIPlaying]);
 
-  // 🌟 ระบบแจ้งเตือน (Native Push + Web Capsule)
+  // 🌟 ฟังก์ชันการแจ้งเตือนหลักตามโค้ดดั้งเดิม 100% พร้อมเพิ่ม OnClick กลับหน้าแรก
+  const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue') => {
+    // 1. เสียงเตือน
+    playAlertSound(); 
+    
+    // 2. เก็บประวัติแจ้งเตือน
+    addNotification(title, body);
+    
+    // 3. ระบบสั่น (ถ้าอุปกรณ์รองรับ)
+    try {
+      if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
+    } catch (e) {}
+    
+    // 4. Native Push Notification (ระบบดั้งเดิมที่เสถียรที่สุด)
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        // ยิงตรงเข้า Notification API ของอุปกรณ์
+        const n = new Notification(title, { 
+          body: body, 
+          icon: '/icon.png',
+          badge: '/icon.png'
+        });
+        
+        n.onclick = () => {
+           window.focus();
+           if (targetTab) handleTabClick(targetTab);
+        };
+
+        // ปิดอัตโนมัติกันค้างบนหน้าจอ
+        setTimeout(() => n.close(), 8000); 
+      } catch(e) {
+        // Fallback เผื่อ PWA บนมือถือบางรุ่นที่บังคับใช้ Service Worker
+        try {
+          if ('serviceWorker' in navigator) {
+            const reg = await navigator.serviceWorker.ready;
+            reg.showNotification(title, { body, icon: '/icon.png', vibrate: vibratePattern, badge: '/icon.png' } as any);
+          }
+        } catch(swErr) {}
+      }
+    }
+    
+    // 5. Custom UI Capsule Notification (หน้าเว็บ)
+    setCapsuleAlert({ 
+      title, 
+      body, 
+      visible: true, 
+      onClick: () => targetTab && handleTabClick(targetTab) 
+    });
+    setTimeout(() => setCapsuleAlert(prev => ({...prev, visible: false})), 6000);
+  };
+
+  // 🌟 ตรวจจับการเปลี่ยนแปลงคิวและยิงเตือน
   useEffect(() => {
     if (!myProfile) return;
 
-    const fireNotification = async (title: string, body: string, vibratePattern: number[]) => {
-      // 1. เสียงเตือน
-      playAlertSound(); 
-      
-      // 2. เก็บประวัติแจ้งเตือน
-      addNotification(title, body);
-      
-      // 3. ระบบสั่น (ถ้าอุปกรณ์รองรับ)
-      try {
-        if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
-      } catch (e) {}
-      
-      // 4. Native Push Notification (ระบบดั้งเดิมที่เสถียรที่สุด)
-      if ('Notification' in window && Notification.permission === 'granted') {
-        try {
-          // ยิงตรงเข้า Notification API ของอุปกรณ์
-          const n = new Notification(title, { 
-            body: body, 
-            icon: '/icon.png',
-            badge: '/icon.png'
-          });
-          // ปิดอัตโนมัติกันค้างบนหน้าจอ
-          setTimeout(() => n.close(), 8000); 
-        } catch(e) {
-          // Fallback เผื่อ PWA บนมือถือบางรุ่นที่บังคับใช้ Service Worker
-          try {
-            if ('serviceWorker' in navigator) {
-              const reg = await navigator.serviceWorker.ready;
-              reg.showNotification(title, { body, icon: '/icon.png', vibrate: vibratePattern, badge: '/icon.png' } as any);
-            }
-          } catch(swErr) {}
-        }
-      }
-      
-      // 5. Custom UI Capsule Notification (หน้าเว็บ)
-      setCapsuleAlert({ title, body, visible: true });
-      setTimeout(() => setCapsuleAlert(prev => ({...prev, visible: false})), 6000);
-    };
-
-    // Logic วอร์มรอ (คิวที่ 1-4) แจ้งเตือนแค่ครั้งเดียวเมื่อเข้ามาอยู่ใน 4 คิวแรก
     if (myWaitIndex >= 0 && myWaitIndex < 4) {
       if (!notifiedStandby.current) {
-        fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [500, 200, 500]);
+        triggerNotification('🔥 เตรียมตัววอร์ม!', `คุณ ${myProfile.name} ใกล้ถึงคิวของคุณแล้ว (คิวที่ ${myWaitIndex + 1})`, [500, 200, 500], 'queue');
         notifiedStandby.current = true;
       }
     }
 
-    // Logic ถึงคิวลงสนาม (เล่นอยู่) แจ้งเตือนแค่ครั้งเดียวเมื่อได้ลงคอร์ท
     if (amIPlaying && myActiveCourt) {
       if (!notifiedPlay.current) {
-        fireNotification('🏸 ถึงคิวคุณแล้ว!', `เชิญลงสนาม ${myActiveCourt.court} ได้เลย ขอให้สนุกครับ!`, [500, 200, 500, 200, 1000, 200, 1000]);
+        let mate = '', opp1 = '', opp2 = '';
+        if (myActiveCourt.p1Id === myProfile.id) { mate = myActiveCourt.p2Name; opp1 = myActiveCourt.p3Name; opp2 = myActiveCourt.p4Name; }
+        else if (myActiveCourt.p2Id === myProfile.id) { mate = myActiveCourt.p1Name; opp1 = myActiveCourt.p3Name; opp2 = myActiveCourt.p4Name; }
+        else if (myActiveCourt.p3Id === myProfile.id) { mate = myActiveCourt.p4Name; opp1 = myActiveCourt.p1Name; opp2 = myActiveCourt.p2Name; }
+        else if (myActiveCourt.p4Id === myProfile.id) { mate = myActiveCourt.p3Name; opp1 = myActiveCourt.p1Name; opp2 = myActiveCourt.p2Name; }
+
+        const msg = `คุณ ${myProfile.name} & ${mate} vs ${opp1} & ${opp2} ไปลุยกันเลยที่คอร์ท ${myActiveCourt.court} นะจร๊ะ`;
+        triggerNotification('🏸 ถึงคิวคุณแล้ว!', msg, [500, 200, 500, 200, 1000, 200, 1000], 'home');
         notifiedPlay.current = true;
       }
     }
@@ -276,10 +381,7 @@ export default function Home() {
           wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
           setIsAwake(true);
           Toast.fire({ title: '☀️ เปิดโหมดห้ามหน้าจอดับ' });
-          
-          wakeLockRef.current.addEventListener('release', () => {
-            setIsAwake(false);
-          });
+          wakeLockRef.current.addEventListener('release', () => setIsAwake(false));
         } else {
           Toast.fire({ title: '⚠️ Browser ไม่รองรับระบบนี้' });
         }
@@ -292,33 +394,13 @@ export default function Home() {
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && isAwake && 'wakeLock' in navigator) {
-        try {
-          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-        } catch(e) {}
+        try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch(e) {}
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isAwake]);
 
-  // 🌟 API Fetching
-  const refresh = async (showLoader = false, forceClearCache = false) => { 
-    if(showLoader) setIsLoading(true);
-    try {
-      const headers: HeadersInit | undefined = forceClearCache 
-        ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } 
-        : undefined;
-      const res = await fetch('/api/state', { cache: 'no-store', headers }); 
-      const d = await res.json(); 
-      setState(d)
-      if (d.globalShowPreview !== undefined) setGlobalPreview(d.globalShowPreview);
-      if (d.playStartTime) setPlayStartTime(d.playStartTime);
-      if (d.playEndTime) setPlayEndTime(d.playEndTime);
-    } catch(e) {}
-    finally { setIsLoading(false); }
-  }
-
-  // 🌟 Fetch Profile History
   const fetchProfileHistory = async () => {
     if (!myProfile) return;
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
@@ -332,11 +414,26 @@ export default function Home() {
     } catch (e) {}
   };
 
+  const refresh = async (showLoader = false, forceClearCache = false) => { 
+    if(showLoader) setIsLoading(true);
+    try {
+      const headers: HeadersInit | undefined = forceClearCache 
+        ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } 
+        : undefined;
+      const res = await fetch('/api/state', { cache: 'no-store', headers }); 
+      const d = await res.json(); 
+      setState(d)
+      if (d.globalShowPreview !== undefined) setGlobalPreview(d.globalShowPreview);
+      if (d.playStartTime) setPlayStartTime(d.playStartTime);
+      if (d.playEndTime) setPlayEndTime(d.playEndTime);
+      
+      if (myProfile) { fetchProfileHistory(); }
+    } catch(e) {}
+    finally { setIsLoading(false); }
+  }
+
   const handleTabClick = (tab: any) => {
-    if (tab === 'home' && activeTab === 'home') {
-      refresh(true, true); 
-      Toast.fire({ title: '🔄 อัปเดตข้อมูลล่าสุดแล้ว' });
-    }
+    refresh(true, true); 
     if (tab === 'profile') fetchProfileHistory();
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -384,6 +481,9 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [admin, state?.playing, avgMatchDuration, loadingCourts, state?.autoMatch]);
 
+  // ==========================================
+  // 🌟 6. ACTION FUNCTIONS
+  // ==========================================
   const recordMatchToHistory = (ids: string[]) => {
     if (ids.length !== 4) return;
     const newRecord = { t1: [ids[0], ids[1]], t2: [ids[2], ids[3]] };
@@ -394,11 +494,6 @@ export default function Home() {
     });
   }
 
-  const safeSetLocalStorage = (key: string, value: string) => {
-    try { localStorage.setItem(key, value); } 
-    catch (e) { Swal.fire({ icon: 'error', title: '⚠️ หน่วยความจำเต็ม', text: 'กรุณากดล้างแคชที่หน้าโปรไฟล์ครับ' }); }
-  };
-
   const clearBrowserData = () => {
     Swal.fire({
       title: '🧹 ล้างข้อมูลเบราว์เซอร์?',
@@ -408,16 +503,17 @@ export default function Home() {
       confirmButtonText: 'ใช่, ล้างข้อมูล!',
       confirmButtonColor: '#ef4444',
       preConfirm: () => {
+        const adminAuth = localStorage.getItem('adminAuth');
         localStorage.clear();
         sessionStorage.clear();
+        if (adminAuth) localStorage.setItem('adminAuth', adminAuth);
         setMyProfile(null);
-        setAdmin(false);
         setSelected([]);
         setTheme('light');
         setMatchHistory([]);
         setManualPreviews([]);
         document.documentElement.classList.remove('dark');
-        Toast.fire({ title: '✅ Data cleared! Reloading...' });
+        Toast.fire({ title: '✅ ล้างข้อมูลสำเร็จ เริ่มต้นใหม่...' });
         setTimeout(() => window.location.reload(), 1500);
       }
     });
@@ -466,7 +562,6 @@ export default function Home() {
     }
   }
 
-  // 🌟 Court Manager Action Handlers
   const openCourtManager = () => {
     setIsCourtManagerOpen(true);
   }
@@ -484,7 +579,6 @@ export default function Home() {
     refresh(false); Toast.fire({ title: '🗑️ ลบคอร์ทแล้ว' });
   }
 
-  // 🌟 Logic การตรวจสอบคนใหม่แบบลึก
   const handleApproveProcess = async (p: any) => {
     Swal.fire({title: 'กำลังตรวจสอบข้อมูล...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading()});
     
@@ -537,6 +631,18 @@ export default function Home() {
       await runApi('/api/approve', { id: p.id }, true);
       Toast.fire({ title: '✅ อนุมัติลงคิวเรียบร้อย' });
     }
+  }
+
+  const handleBulkApprove = async () => {
+    if(selectedPending.length === 0) return;
+    Swal.fire({title: 'กำลังอนุมัติ...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading()});
+    for(const id of selectedPending) {
+       await fetch('/api/approve', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ id }) });
+    }
+    setSelectedPending([]);
+    refresh(false);
+    Swal.close();
+    Toast.fire({ title: '✅ อนุมัติผู้เล่นทั้งหมดแล้ว' });
   }
 
   const handleRejectPlayer = async (id: string) => {
@@ -609,16 +715,32 @@ export default function Home() {
     Toast.fire({ title: '✅ ลงสนามเรียบร้อย!' });
   }
 
+  // 🌟 Toggle Select พร้อมรีเฟรชถ้ากดยกเลิกติ๊กจนหมด
   const toggleSelect = (pId: string) => {
     if(!admin) return;
     if (matchMode !== 'manual') setMatchMode('manual');
-    setSelected(prev => prev.includes(pId) ? prev.filter(x=>x!==pId) : (prev.length>=4?prev:[...prev, pId]));
+    setSelected(prev => {
+       if (prev.includes(pId)) {
+          const newSel = prev.filter(x => x !== pId);
+          if (newSel.length === 0) refresh(true); 
+          return newSel;
+       } else {
+          if (prev.length >= 4) return prev;
+          return [...prev, pId];
+       }
+    });
   };
 
+  // 🌟 Manual Match Override (จัดแมนนวลได้เรื่อยๆ จนเต็มคอร์ท)
   const handleMatchSelected = async () => {
     if (selected.length !== 4) return Toast.fire({ title: '⚠️ เลือก 4 คนให้พอดีเป๊ะครับ' }); 
     const selectedPlayers = state?.waiting?.filter(p => selected.includes(p.id)) || [];
     
+    const availableCourtsCount = state?.courtNames.filter(cn => !state.playing.find(p => p.court === cn)).length || 0;
+    if (manualPreviews.length >= availableCourtsCount) {
+       return Toast.fire({ title: '⚠️ ไม่สามารถแทรกคิวเพิ่มได้ (คอร์ทเตรียมเต็มแล้ว)' });
+    }
+
     let matchData;
     if (matchMode === 'manual') {
       matchData = { isManual: true, matchNumber: Date.now(), teams: [ [selectedPlayers[0], selectedPlayers[1]], [selectedPlayers[2], selectedPlayers[3]] ], diff: 0 };
@@ -628,11 +750,13 @@ export default function Home() {
     }
     
     if (state?.autoMatch) {
-        const cn = availableCourts[0];
+        const cn = availableCourts[manualPreviews.length];
         if (cn) confirmSpecificMatch(matchData, cn); else Toast.fire({ title: '⚠️ ไม่มีคอร์ทว่าง' });
         setSelected([]); 
     } else {
-        setManualPreviews(prev => [matchData, ...prev]); setSelected([]); Toast.fire({ title: '✅ จัดทีมแทรกคิวสำเร็จ!' });
+        setManualPreviews(prev => [...prev, matchData]); 
+        setSelected([]); 
+        Toast.fire({ title: '✅ จัดทีมแทรกคิวสำเร็จ!' });
     }
   }
 
@@ -894,9 +1018,11 @@ export default function Home() {
                     e.preventDefault();
                     const profileData = { id: p.id, name: p.name };
                     localStorage.setItem('myProfile', JSON.stringify(profileData));
+                    localStorage.setItem('myProfileSkill', p.skill.toString());
                     setMyProfile(profileData);
                     Swal.close();
                     Toast.fire({ title: '✅ กู้คืนโปรไฟล์สำเร็จ!' });
+                    setTimeout(() => window.location.reload(), 1000);
                   };
                   
                   tdAction.appendChild(btn);
@@ -932,17 +1058,17 @@ export default function Home() {
             return { id, name, skill: Number(skill), isGuest: false };
         } else {
             const swGuest = document.getElementById('swGuest') as HTMLInputElement;
-            const swID = document.getElementById('swID') as HTMLInputElement;
-            const swName = document.getElementById('swName') as HTMLInputElement;
+            // 🌟 ตัด 000 ด้านหน้าออกก่อนลงทะเบียน
+            let idVal = (document.getElementById('swID') as HTMLInputElement).value.trim().replace(/^0+/, ''); 
+            const nameVal = (document.getElementById('swName') as HTMLInputElement).value.trim();
             const swSkill = document.getElementById('swSkill') as HTMLSelectElement;
 
             const isGuest = swGuest.checked;
-            const idVal = swID.value.trim();
-            const nameVal = swName.value.trim();
 
             if(!isGuest && !idVal) { Swal.showValidationMessage('กรุณากรอกรหัสพนักงาน หรือเลือกเป็น Guest'); return false; }
             if(!nameVal) { Swal.showValidationMessage('กรุณากรอกชื่อเล่นที่ต้องการแสดง'); return false; }
 
+            // 🌟 เช็คชื่อซ้ำก่อนสมัครใหม่
             if (!isGuest) {
                try {
                  const res = await fetch(`/api/player?q=${nameVal}`);
@@ -953,12 +1079,9 @@ export default function Home() {
                  else if (data.data && Array.isArray(data.data)) playerList = data.data;
                  else if (data.found && data.id) playerList = [data];
 
-                 const isDup = playerList.some(p => 
-                    (p.name && p.name.toLowerCase() === nameVal.toLowerCase()) || 
-                    (p.id && p.id.toString() === idVal.toString())
-                 );
+                 const isDup = playerList.some(p => p.name && p.name.toLowerCase() === nameVal.toLowerCase());
                  if (isDup) {
-                   Swal.showValidationMessage('ชื่อหรือรหัสนี้ซ้ำในระบบ กรุณากดแท็บค้นหารายชื่อแทน');
+                   Swal.showValidationMessage('ชื่อนี้มีอยู่แล้ว กรุณาเปลี่ยนชื่อใหม่ที่ระบุตัวตนคุณได้ (เช่น เติมนามสกุล)');
                    return false;
                  }
                } catch(e) {}
@@ -968,11 +1091,37 @@ export default function Home() {
         }
       }
     }).then(async (r) => {
-      if(r.isConfirmed) {
+      if(r.isConfirmed && r.value) {
+        
+        // 🌟 Auto Sync คนเก่า (ดักตอนกด Check in ซ้ำ)
+        const currentWaiters = state?.waiting || [];
+        const currentPending = state?.pending || [];
+        const currentPlaying = state?.playing || [];
+        
+        const isAlreadyActive = currentWaiters.some(p => p.id === r.value.id) || 
+                                currentPending.some(p => p.id === r.value.id) || 
+                                currentPlaying.some(c => c.p1Id === r.value.id || c.p2Id === r.value.id || c.p3Id === r.value.id || c.p4Id === r.value.id);
+
+        if (isAlreadyActive) {
+            const newProfile = { id: r.value.id, name: r.value.name };
+            localStorage.setItem('myProfile', JSON.stringify(newProfile)); 
+            localStorage.setItem('myProfileSkill', r.value.skill.toString());
+            setMyProfile(newProfile);
+            if ('Notification' in window && Notification.permission === 'default') {
+                const perm = await Notification.requestPermission(); setNotifyPerm(perm);
+            }
+            setActiveTab('home'); 
+            Swal.fire({ title: '✅ ซิงค์ข้อมูลสำเร็จ', text: 'คุณมีคิวอยู่ในระบบแล้ว ซิงค์โปรไฟล์ให้เรียบร้อยโดยไม่ต้องต่อคิวใหม่', icon: 'success' });
+            setTimeout(() => window.location.reload(), 1500);
+            return;
+        }
+
         const res = await runApi('/api/checkin', r.value, false);
         if(res && (res.ok || res.status === 'success')) {
           const newProfile = { id: r.value.id || res.generatedId || 'Guest', name: r.value.name };
-          localStorage.setItem('myProfile', JSON.stringify(newProfile)); setMyProfile(newProfile);
+          localStorage.setItem('myProfile', JSON.stringify(newProfile)); 
+          localStorage.setItem('myProfileSkill', r.value.skill.toString()); 
+          setMyProfile(newProfile);
           
           if ('Notification' in window && Notification.permission === 'default') {
             const perm = await Notification.requestPermission();
@@ -981,6 +1130,7 @@ export default function Home() {
 
           setActiveTab('home');
           Toast.fire({ title: '✅ Checked in! Wait for approval.' });
+          setTimeout(() => window.location.reload(), 1500);
         } else { Toast.fire({ title: `❌ ${res?.message || 'Error checking in'}` }); }
       }
     });
@@ -1007,19 +1157,20 @@ export default function Home() {
         }).then(() => refresh(false));
         localStorage.removeItem('myProfile'); setMyProfile(null);
         Toast.fire({ title: '✅ Signed Out Successfully' });
+        setTimeout(() => window.location.reload(), 1500);
       }
     })
   }
 
   const openAddMember = () => {
     Swal.fire({
-      title: '➕ Add Member (Direct to Queue)',
+      title: '➕ เพิ่มสมาชิกเข้าคิวทันที',
       html: `
         <div class="flex flex-col gap-3 text-left">
-          <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No.</label><input id="amID" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="12345"></div>
-          <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label><input id="amName" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Name"></div>
+          <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No.</label><input id="amID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="12345"></div>
+          <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label><input id="amName" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Name"></div>
           <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Skill Level</label>
-            <select id="amSkill" class="w-full p-2 border border-slate-300 rounded shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+            <select id="amSkill" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
               <option value="1">1 (มือใหม่แกะกล่อง)</option>
               <option value="2" selected>2 (มือใหม่เริ่มมีทรง)</option>
               <option value="3">3 (มือกลาง มีพื้นฐาน)</option>
@@ -1031,55 +1182,71 @@ export default function Home() {
       `,
       showCancelButton: true, confirmButtonText: 'Add to Queue', confirmButtonColor: '#2563eb',
       preConfirm: () => {
-        const id = (document.getElementById('amID') as HTMLInputElement).value;
-        const name = (document.getElementById('amName') as HTMLInputElement).value;
-        if(!id.trim()) { Swal.showValidationMessage('Enter Employee No.'); return false; }
-        if(!name.trim()) { Swal.showValidationMessage('Enter Name'); return false; }
-        return { id: id.trim(), name: name.trim(), skill: Number((document.getElementById('amSkill') as HTMLSelectElement).value), isGuest: false }
+        let id = (document.getElementById('amID') as HTMLInputElement).value.trim().replace(/^0+/, '');
+        const name = (document.getElementById('amName') as HTMLInputElement).value.trim();
+        if(!id) { Swal.showValidationMessage('Enter Employee No.'); return false; }
+        if(!name) { Swal.showValidationMessage('Enter Name'); return false; }
+        return { id, name, skill: Number((document.getElementById('amSkill') as HTMLSelectElement).value), isGuest: false }
       }
     }).then(async (r) => {
       if(r.isConfirmed) {
         const res = await runApi('/api/checkin', r.value, false);
         if(res && (res.ok || res.status === 'success')) {
           await runApi('/api/approve', { id: r.value.id }, false);
-          Toast.fire({ title: '✅ Member added directly to Queue!' });
+          Toast.fire({ title: '✅ เพิ่มสมาชิกและอนุมัติลงคิวแล้ว!' });
         } else Toast.fire({ title: `❌ ${res?.message || 'Error'}` });
       }
     });
   }
 
-  const openAdminEdit = (p: any) => {
+  const auth = async () => { const pin = prompt('Enter Admin PIN:'); if(!pin) return; const res = await fetch('/api/config', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ action:'auth', pin })}); const d = await res.json(); if(d.ok) { localStorage.setItem('adminAuth','true'); setAdmin(true); Toast.fire({ title: '✅ Welcome Admin' }); } else Toast.fire({ title: '❌ Incorrect PIN' }); }
+  const logout = () => { localStorage.removeItem('adminAuth'); setAdmin(false); Toast.fire({ title: 'ℹ️ Logged Out' }); setTimeout(() => window.location.reload(), 1500); }
+  
+  const finish = (court: string) => { 
+    Swal.fire({title: `Finish Match at ${court}?`, showCancelButton: true}).then(async r => { 
+      if(r.isConfirmed) { 
+        setState(prev => prev ? { ...prev, playing: (prev.playing || []).filter(c => c.court !== court) } : prev); 
+        Toast.fire({ title: '✅ Match Finished' });
+        await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
+        refresh(false);
+        fetchProfileHistory(); 
+      } 
+    }) 
+  }
+
+  const openAdminEditPlayer = (p: any) => {
     Swal.fire({
-      title: '✏️ Edit Player',
+      title: '✏️ แก้ไขข้อมูลผู้เล่น',
       html: `
         <div class="flex flex-col gap-3 text-left">
           <input type="hidden" id="editOldId" value="${p.id}">
-          <div><label class="text-[10px] font-bold text-slate-500">Employee No.</label><input id="editId" value="${p.id}" class="w-full p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
-          <div><label class="text-[10px] font-bold text-slate-500">Display Name</label><input id="editName" value="${p.name}" class="w-full p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
+          <div><label class="text-[10px] font-bold text-slate-500">Employee No.</label><input id="editId" value="${p.id}" class="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
+          <div><label class="text-[10px] font-bold text-slate-500">Display Name</label><input id="editName" value="${p.name}" class="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
           <div><label class="text-[10px] font-bold text-slate-500">Skill</label>
-            <select id="editSkill" class="w-full p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="1" ${p.skill===1?'selected':''}>1 (มือใหม่แกะกล่อง)</option>
-              <option value="2" ${p.skill===2?'selected':''}>2 (มือใหม่เริ่มมีทรง)</option>
-              <option value="3" ${p.skill===3?'selected':''}>3 (มือกลาง มีพื้นฐาน)</option>
-              <option value="4" ${p.skill===4?'selected':''}>4 (มือตึง สายคุมเกมส์)</option>
-              <option value="5" ${p.skill===5?'selected':''}>5 (มือปีศาจ "ยอดมนุษย์ดาวแบด")</option>
+            <select id="editSkill" class="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="1" ${p.skill===1?'selected':''}>1</option>
+              <option value="2" ${p.skill===2?'selected':''}>2</option>
+              <option value="3" ${p.skill===3?'selected':''}>3</option>
+              <option value="4" ${p.skill===4?'selected':''}>4</option>
+              <option value="5" ${p.skill===5?'selected':''}>5</option>
             </select>
           </div>
         </div>
       `,
       showCancelButton: true, confirmButtonText: 'Save',
       preConfirm: () => ({ oldId: p.id, newId: (document.getElementById('editId') as HTMLInputElement).value, name: (document.getElementById('editName') as HTMLInputElement).value, skill: Number((document.getElementById('editSkill') as HTMLSelectElement).value) })
-    }).then(async r => { if(r.isConfirmed) { await runApi('/api/update-player', r.value, false); Toast.fire({ title: '✅ Changes Saved' }); } })
+    }).then(async r => { if(r.isConfirmed) { await runApi('/api/update-player', r.value, false); Toast.fire({ title: '✅ บันทึกการแก้ไขแล้ว' }); } })
   }
 
-  const showDailyReport = () => {
+  // 🌟 Daily Report Menu (พรีวิวก่อนโหลด + เลือกวันได้)
+  const showDailyReportMenu = () => {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
     Swal.fire({
       title: '📊 Daily Report',
       html: `
         <div class="mb-4 text-left">
            <label class="text-xs font-bold text-slate-500 block mb-1">Select Date:</label>
-           <input type="date" id="reportDate" value="${today}" class="w-full p-2 border rounded shadow-sm text-sm outline-none focus:border-blue-400">
+           <input type="date" id="reportDate" value="${today}" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm outline-none focus:ring-2 focus:ring-blue-500">
         </div>
         <div id="reportContent" class="text-center py-4 text-slate-400">Loading...</div>
       `,
@@ -1096,17 +1263,17 @@ export default function Home() {
             const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             
-            let tableHtml = `<div class="max-h-48 overflow-y-auto text-xs mt-4 border rounded shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">Time</th><th class="p-2">Name</th><th class="p-2">Action</th></tr></thead><tbody>`;
-            (data.tableData || []).forEach((row: any) => { tableHtml += `<tr class="border-t"><td class="p-2">${row.time}</td><td class="p-2 font-bold">${row.name}</td><td class="p-2 text-blue-600">${row.action}</td></tr>`; });
+            let tableHtml = `<div class="max-h-48 overflow-y-auto text-xs mt-4 border rounded-xl shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0 shadow-sm text-slate-600"><tr><th class="p-3">Time</th><th class="p-3">Name</th><th class="p-3">Action</th></tr></thead><tbody>`;
+            (data.tableData || []).forEach((row: any) => { tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-2.5 text-slate-500">${row.time}</td><td class="p-2.5 font-bold text-slate-700">${row.name}</td><td class="p-2.5 text-blue-600">${row.action}</td></tr>`; });
             tableHtml += `</tbody></table></div>`;
 
             document.getElementById('reportContent')!.innerHTML = `
               <div class="grid grid-cols-2 gap-4">
-                  <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 shadow-sm"><div class="text-2xl font-black text-blue-600">${data.totalMatches || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Matches</div></div>
-                  <div class="bg-green-50 p-3 rounded-xl border border-green-100 shadow-sm"><div class="text-2xl font-black text-green-600">${data.totalPlayers || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase">Players</div></div>
+                  <div class="bg-blue-50 p-4 rounded-xl border border-blue-100 shadow-sm"><div class="text-3xl font-black text-blue-600">${data.totalMatches || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Matches</div></div>
+                  <div class="bg-green-50 p-4 rounded-xl border border-green-100 shadow-sm"><div class="text-3xl font-black text-green-600">${data.totalPlayers || 0}</div><div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Players</div></div>
               </div>
               ${tableHtml}
-              <a href="${url}" download="badminton_report_${date}.csv" class="w-full mt-4 block text-center bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-lg text-sm font-bold shadow-md transition">📥 Download CSV</a>
+              <a href="${url}" download="badminton_report_${date}.csv" class="w-full mt-4 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold shadow-md transition active:scale-95"><Download className="w-4 h-4"/> Download CSV</a>
             `;
           } catch (e) {
             document.getElementById('reportContent')!.innerHTML = '<div class="py-5 text-red-500 font-bold">❌ Error loading report</div>';
@@ -1119,76 +1286,62 @@ export default function Home() {
     });
   }
 
-  const showAnalytics = () => {
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
-    
-    Swal.fire({
-      title: '📈 Analytics & Report',
-      width: '600px',
-      html: `
-        <div class="flex gap-3 mb-4 text-left">
-           <div class="flex-1">
-             <label class="text-xs font-bold text-slate-500 block mb-1 uppercase tracking-wider">Start Date:</label>
-             <input type="date" id="reportStart" value="${today}" class="w-full p-2 border border-slate-200 rounded-lg shadow-sm text-sm outline-none focus:border-blue-400">
-           </div>
-           <div class="flex-1">
-             <label class="text-xs font-bold text-slate-500 block mb-1 uppercase tracking-wider">End Date:</label>
-             <input type="date" id="reportEnd" value="${today}" class="w-full p-2 border border-slate-200 rounded-lg shadow-sm text-sm outline-none focus:border-blue-400">
-           </div>
-        </div>
-        <div id="reportContent" class="text-center py-4 text-slate-400">Loading...</div>
-      `,
-      showConfirmButton: false, 
-      showCloseButton: true,
-      didOpen: async () => {
-        const fetchReport = async (sDate: string, eDate: string) => {
-          document.getElementById('reportContent')!.innerHTML = '<div class="py-10 text-blue-500 font-bold animate-pulse">⏳ Fetching analytics...</div>';
-          try {
-            const res = await fetch(`/api/report?startDate=${sDate}&endDate=${eDate}`); 
-            if (!res.ok) throw new Error('API failed');
-            const data = await res.json();
-            if (data.error) throw new Error(data.error);
-            
-            const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            
-            let topPlayersHtml = (data.topPlayers || []).map((p:any, i:number) => `<div class="text-xs truncate py-0.5 border-b border-amber-100 last:border-0"><span class="font-bold text-amber-600">#${i+1}</span> ${p.name} <span class="text-[9px] text-slate-400">(${p.count})</span></div>`).join('') || '<div class="text-xs text-slate-400">No data</div>';
+  const showAnalyticsMenu = () => window.open('/analytics', '_blank');
 
-            let tableHtml = `<div class="max-h-56 overflow-y-auto text-xs mt-4 border border-slate-200 rounded-xl shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0 shadow-sm text-slate-600 uppercase tracking-widest text-[9px]"><tr><th class="p-3">Date</th><th class="p-3">Time</th><th class="p-3">Name/Group</th><th class="p-3">Action</th></tr></thead><tbody>`;
-            (data.tableData || []).forEach((row: any) => { tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-3">${row.date}</td><td class="p-3">${row.time}</td><td class="p-3 font-bold truncate max-w-[150px] text-slate-700">${row.name}</td><td class="p-3 text-blue-600 font-medium">${row.action}</td></tr>`; });
+  // 🌟 ฟังก์ชันดาวน์โหลดรายงานคนลงทะเบียนรายวัน
+  const exportRegisteredToday = () => {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
+    Swal.fire({
+      title: '📋 ผู้ลงทะเบียนรายวัน',
+      html: `
+        <div class="mb-4 text-left">
+           <label class="text-xs font-bold text-slate-500 block mb-1">เลือกวันที่:</label>
+           <input type="date" id="regDate" value="${today}" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div id="regContent" class="text-center py-4 text-slate-400">Loading...</div>
+      `,
+      showConfirmButton: false, showCloseButton: true,
+      didOpen: async () => {
+        const fetchRegReport = async (date: string) => {
+          document.getElementById('regContent')!.innerHTML = '<div class="py-5 text-blue-500 font-bold animate-pulse">⏳ Fetching data...</div>';
+          try {
+            const res = await fetch('/api/player'); 
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data.list || data.data || []);
+            
+            const targetList = list.filter((p: any) => p.timestamp && p.timestamp.startsWith(date));
+            
+            let csv = '\uFEFFEmployee ID,Name,Skill,Type,Timestamp\n';
+            let tableHtml = `<div class="max-h-48 overflow-y-auto text-xs mt-4 border rounded-xl shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0 shadow-sm text-slate-600"><tr><th class="p-3">ID</th><th class="p-3">Name</th><th class="p-3 text-center">Lv</th><th class="p-3">Time</th></tr></thead><tbody>`;
+            
+            targetList.forEach((p: any) => {
+               const timeStr = new Date(p.timestamp).toLocaleTimeString('th-TH');
+               csv += `"${p.id}","${p.name}","${p.skill}","${p.type || 'Emp'}","${timeStr}"\n`;
+               tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-2.5 font-mono text-slate-500">${p.id}</td><td class="p-2.5 font-bold text-slate-700">${p.name}</td><td class="p-2.5 text-center"><span class="bg-slate-200 px-2 py-0.5 rounded-md font-bold">${p.skill}</span></td><td class="p-2.5 text-slate-500">${timeStr}</td></tr>`;
+            });
             tableHtml += `</tbody></table></div>`;
 
-            document.getElementById('reportContent')!.innerHTML = `
-              <div class="grid grid-cols-3 gap-3">
-                  <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 shadow-sm flex flex-col justify-center transition hover:shadow-md">
-                    <div class="text-2xl font-black text-blue-600">${data.totalMatches || 0}</div>
-                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Matches</div>
-                  </div>
-                  <div class="bg-green-50 p-3 rounded-xl border border-green-100 shadow-sm flex flex-col justify-center transition hover:shadow-md">
-                    <div class="text-2xl font-black text-green-600">${data.totalPlayers || 0}</div>
-                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Unique Players</div>
-                  </div>
-                  <div class="bg-amber-50 p-3 rounded-xl border border-amber-100 shadow-sm flex flex-col justify-center text-left transition hover:shadow-md">
-                    <div class="text-[10px] font-black text-amber-800 uppercase mb-2 tracking-widest">Top Players</div>
-                    ${topPlayersHtml}
-                  </div>
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            document.getElementById('regContent')!.innerHTML = `
+              <div class="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 shadow-sm mb-3 text-left flex justify-between items-center">
+                 <div>
+                   <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Registered Players</div>
+                   <div class="text-3xl font-black text-indigo-600 leading-none mt-1">${targetList.length} <span class="text-sm">คน</span></div>
+                 </div>
+                 <Users className="w-10 h-10 text-indigo-200" />
               </div>
               ${tableHtml}
-              <a href="${url}" download="badminton_analytics_${sDate}_to_${eDate}.csv" class="w-full mt-4 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold shadow-md transition active:scale-95">📥 Download CSV Report</a>
+              <a href="${url}" download="registered_players_${date}.csv" class="w-full mt-4 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl text-sm font-bold shadow-md transition active:scale-95"><Download className="w-4 h-4"/> Download CSV</a>
             `;
-          } catch (e) {
-            console.error(e);
-            document.getElementById('reportContent')!.innerHTML = '<div class="py-10 text-red-500 font-bold">❌ Error loading report</div>';
+          } catch(e) {
+            document.getElementById('regContent')!.innerHTML = '<div class="py-5 text-red-500 font-bold">❌ Error loading report</div>';
           }
-        };
-
-        const startInput = document.getElementById('reportStart') as HTMLInputElement;
-        const endInput = document.getElementById('reportEnd') as HTMLInputElement;
-        
-        startInput.addEventListener('change', (e) => fetchReport((e.target as HTMLInputElement).value, endInput.value));
-        endInput.addEventListener('change', (e) => fetchReport(startInput.value, (e.target as HTMLInputElement).value));
-        
-        await fetchReport(today, today);
+        }
+        const dateInput = document.getElementById('regDate') as HTMLInputElement;
+        dateInput.addEventListener('change', (e) => fetchRegReport((e.target as HTMLInputElement).value));
+        await fetchRegReport(today);
       }
     });
   }
@@ -1204,76 +1357,6 @@ export default function Home() {
       } 
     })
   }
-
-  const auth = async () => {
-    const pin = prompt('Enter Admin PIN:'); if(!pin) return;
-    const res = await fetch('/api/config', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ action:'auth', pin })});
-    const d = await res.json();
-    if(d.ok) { localStorage.setItem('adminAuth','true'); setAdmin(true); Toast.fire({ title: '✅ Welcome Admin' }); } 
-    else Toast.fire({ title: '❌ Incorrect PIN' });
-  }
-
-  const logout = () => { localStorage.removeItem('adminAuth'); setAdmin(false); Toast.fire({ title: 'ℹ️ Logged Out' }); }
-  
-  const finish = (court: string) => { 
-    Swal.fire({title: `Finish Match at ${court}?`, showCancelButton: true}).then(async r => { 
-      if(r.isConfirmed) { 
-        setState(prev => prev ? { ...prev, playing: (prev.playing || []).filter(c => c.court !== court) } : prev); 
-        Toast.fire({ title: '✅ Match Finished' });
-        fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) }).then(() => refresh(false));
-      } 
-    }) 
-  }
-
-  const SkillDot = ({ skill }: { skill: number }) => {
-    const colors = ['bg-slate-400', 'bg-green-500', 'bg-blue-500', 'bg-red-500', 'bg-purple-600'];
-    return <span className={`inline-block w-2.5 h-2.5 rounded-full border border-black/10 shadow-sm ${colors[skill-1] || 'bg-slate-400'}`}></span>
-  }
-  
-  const getSkillName = (s: number) => ['มือใหม่แกะกล่อง', 'มือใหม่เริ่มมีทรง', 'มือกลางมีพื้นฐาน', 'มือตึงสายคุมเกมส์', 'มือปีศาจ'][s-1] || 'ไม่ระบุ';
-
-  function isSimilarSkillGroup(players: any[]): boolean {
-    if (players.length !== 4) return false;
-    const skills = players.map(p => Number(p.skill));
-    return Math.max(...skills) - Math.min(...skills) <= 1; 
-  }
-
-  function getAutoNextMatches(players: any[], availableSlots = 3, mode = matchMode, history = matchHistory): any[] {
-    const matches = [];
-    let currentPlayers = [...players];
-
-    for (let i = 0; i < availableSlots; i++) {
-      if (currentPlayers.length < 4) break;
-
-      if (mode === 'smart') {
-        const match = extractBestMatch(currentPlayers, history); 
-        if (!match) break;
-        matches.push({ matchNumber: i + 1, teams: match.teams, diff: match.diff });
-        currentPlayers = currentPlayers.filter((_, index) => !match.indices.includes(index));
-      } else {
-        const group = currentPlayers.slice(0, 4);
-        if (mode === 'similar-skill' && !isSimilarSkillGroup(group)) {
-            currentPlayers = currentPlayers.slice(4);
-            continue;
-        }
-        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(p.skill) })), history);
-        matches.push({
-          matchNumber: i + 1,
-          teams: [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ],
-          diff: balanced.diff
-        });
-        currentPlayers = currentPlayers.slice(4);
-      }
-    }
-    return matches;
-  }
-  
-  const availableCourts = (state?.courtNames || []).filter(cn => !(state?.playing || []).find(p => p.court === cn));
-  const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
-  const availableWaiting = (state?.waiting || []).filter(p => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
-  const remainingSlots = availableCourts.length - manualPreviews.length;
-  const autoMatches = (globalPreview && availableWaiting.length >= 4 && remainingSlots > 0 && matchMode !== 'manual') ? (extractBestMatch(availableWaiting, matchHistory) ? getAutoNextMatches(availableWaiting, remainingSlots, matchMode, matchHistory) : []) : [];
-  const allPreviews = [...manualPreviews, ...autoMatches];
 
   // ==========================================
   // 🌟 FULLSCREEN FOCUS MODE (Adaptive Theme)
@@ -1370,14 +1453,10 @@ export default function Home() {
                       </div>
                     </div>
                     {admin && (
-                      <div className="flex gap-2 mx-3 mb-3 z-20">
-                        <button onClick={() => confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black uppercase transition active:scale-95 flex items-center justify-center gap-1.5 shadow-md">
-                          <CheckCircle2 className="w-4 h-4" /> Confirm
-                        </button>
+                      <div className="flex gap-2 mx-3 mb-3 z-20 mt-4">
+                        <button onClick={()=>confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg shadow-sm active:scale-95 transition flex items-center justify-center gap-1.5"><CheckCircle2 className="w-4 h-4"/> Confirm</button>
                         {prepMatch.isManual && (
-                          <button onClick={() => setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-2 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-200 rounded-lg text-xs font-black transition active:scale-95 shadow-md">
-                            ✕
-                          </button>
+                          <button onClick={() => setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-2 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-200 rounded-lg text-xs font-black transition active:scale-95 shadow-md">✕</button>
                         )}
                       </div>
                     )}
@@ -1415,8 +1494,8 @@ export default function Home() {
   return (
     <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-24 transition-all duration-300 ${state?.announcement ? 'pt-24' : 'pt-16'}`}>
       
-      {/* 🌟 Custom In-App Capsule Notification (ลอยด้านบน ไม่บัง UI) */}
-      <div className={`fixed top-14 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 pointer-events-none ${capsuleAlert.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-10 scale-95'}`}>
+      {/* 🌟 Custom In-App Capsule Notification (ลอยด้านบน ไม่บัง UI และกดเด้งไปหน้าแรกได้) */}
+      <div className={`fixed top-14 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 cursor-pointer ${capsuleAlert.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-10 scale-95 pointer-events-none'}`} onClick={() => { if(capsuleAlert.onClick) capsuleAlert.onClick(); setCapsuleAlert(prev => ({...prev, visible: false})); }}>
         <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 w-max max-w-[90vw]">
           <div className="bg-blue-500/20 text-blue-400 p-2 rounded-full"><Bell className="w-5 h-5 animate-pulse" /></div>
           <div className="flex flex-col">
@@ -1462,8 +1541,14 @@ export default function Home() {
           ) : (
             <div className={`mb-6 p-4 rounded-2xl shadow-sm border flex items-center justify-between transition-all ${amIPlaying ? 'bg-blue-600 text-white border-blue-700' : myPending ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-yellow-900/30 dark:border-yellow-700/50 dark:text-yellow-200' : (myWaitIndex !== -1) ? 'bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-700/50 dark:text-emerald-200' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-white border-slate-200 dark:border-slate-700'}`}>
               <div className="flex items-center gap-3">
-                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-black shadow-lg ${getSkillColor(myQueueData?.skill)}`}>{myProfile.name.charAt(0)}</div>
-                 <div><div className="font-black text-base leading-tight">{myProfile.name}</div><div className="text-[10px] font-bold opacity-70 uppercase tracking-wide mt-0.5">Status</div></div>
+                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-black shadow-lg ${getSkillColor(getMySkillLevel())}`}>{myProfile.name.charAt(0)}</div>
+                 <div>
+                    <div className="font-black text-base leading-tight">{myProfile.name}</div>
+                    <div className="text-[10px] font-bold opacity-70 uppercase tracking-wide mt-0.5 flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${getSkillColor(getMySkillLevel()).split(' ')[0]}`}></span>
+                      Lv {getMySkillLevel()} • {getSkillName(getMySkillLevel())}
+                    </div>
+                 </div>
               </div>
               <div className="text-right">
                 {amIPlaying ? ( <div className="text-sm font-black bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-inner"><Play className="w-4 h-4"/> Playing!</div>) 
@@ -1484,7 +1569,7 @@ export default function Home() {
             {(state?.courtNames || []).map(cn => {
               const isLoadingCourt = loadingCourts.includes(cn);
               const m = (state?.playing || []).find(p=>p.court === cn);
-              const prepMatch = allPreviews[availableCourts.indexOf(cn)];
+              const prepMatch = allPreviews.find(p => allPreviews.indexOf(p) === availableCourts.indexOf(cn));
 
               if (isLoadingCourt) {
                 return (
@@ -1509,19 +1594,26 @@ export default function Home() {
                       <div className="flex justify-center -my-3 z-10 relative"><span className="bg-white dark:bg-slate-800 text-[9px] px-1.5 rounded-full text-slate-400 border border-slate-100 dark:border-slate-700 flex items-center gap-1 shadow-sm"><Swords className="w-3.5 h-3.5"/></span></div>
                       <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 rounded-lg p-2.5 flex justify-between items-center shadow-sm"><span className="text-slate-700 dark:text-slate-200">{m.p3Name}</span><span className="text-slate-700 dark:text-slate-200">{m.p4Name}</span></div>
                     </div>
-                    {admin && <button onClick={async() => { setLoadingCourts([...loadingCourts, m.court]); await fetch('/api/finish', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({court:m.court})}); refresh(false); setLoadingCourts(prev=>prev.filter(c=>c!==m.court)); if(state?.autoMatch) executeAutoMatch(); }} className="mt-4 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-bold rounded-lg active:scale-95 transition flex items-center justify-center gap-1.5 shadow-md"><Check className="w-4 h-4"/> Finish Match</button>}
+                    {admin && <button onClick={async() => { setLoadingCourts([...loadingCourts, m.court]); await fetch('/api/finish', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({court:m.court})}); refresh(false); setLoadingCourts(prev=>prev.filter(c=>c!==m.court)); if(state?.autoMatch) executeAutoMatch(); fetchProfileHistory(); }} className="mt-4 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-bold rounded-lg active:scale-95 transition flex items-center justify-center gap-1.5 shadow-md"><Check className="w-4 h-4"/> Finish Match</button>}
                   </div>
                 )
               } else if (prepMatch) {
                 return (
                   <div key={cn} className="bg-emerald-50 dark:bg-emerald-900/10 border-2 border-dashed border-emerald-300 dark:border-emerald-700/50 rounded-2xl p-4 shadow-sm">
-                    <div className="flex justify-between items-center mb-3"><span className="text-[10px] font-bold bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 rounded shadow-sm">{prepMatch.isManual?'Manual':'Up Next'}</span><span className="text-xs font-black text-slate-400">{cn}</span></div>
+                    <div className="flex justify-between items-center mb-3"><span className="text-[10px] font-bold bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 rounded shadow-sm">{prepMatch.isManual?'MANUAL':'UP NEXT'}</span><span className="text-xs font-black text-slate-400">{cn}</span></div>
                     <div className="text-sm font-bold text-slate-700 dark:text-slate-300 space-y-1.5 opacity-80">
                       <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg flex justify-between shadow-sm border border-slate-100 dark:border-slate-700"><span>{prepMatch.teams[0][0].name}</span><span>{prepMatch.teams[0][1].name}</span></div>
                       <div className="flex justify-center -my-3 z-10 relative"><span className="bg-emerald-50 dark:bg-emerald-900/10 text-[9px] px-1.5 rounded-full text-slate-400 flex items-center gap-1"><Swords className="w-3.5 h-3.5"/></span></div>
                       <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg flex justify-between shadow-sm border border-slate-100 dark:border-slate-700"><span>{prepMatch.teams[1][0].name}</span><span>{prepMatch.teams[1][1].name}</span></div>
                     </div>
-                    {admin && <button onClick={()=>confirmSpecificMatch(prepMatch, cn)} className="mt-4 w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg shadow-sm active:scale-95 transition flex items-center justify-center gap-1.5"><CheckCircle2 className="w-4 h-4"/> Confirm</button>}
+                    {admin && (
+                      <div className="flex gap-2 mx-3 mb-3 z-20 mt-4">
+                        <button onClick={()=>confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg shadow-sm active:scale-95 transition flex items-center justify-center gap-1.5"><CheckCircle2 className="w-4 h-4"/> Confirm</button>
+                        {prepMatch.isManual && (
+                          <button onClick={() => setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-2 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-200 rounded-lg text-xs font-black transition active:scale-95 shadow-md">✕</button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               } else {
@@ -1554,6 +1646,12 @@ export default function Home() {
                   <Users className="w-4 h-4"/> จัดทีมลงสนาม ({selected.length}/4)
                 </button>
              )}
+
+             {admin && selectedPending.length > 0 && queueSubTab === 'pending' && (
+                <button onClick={handleBulkApprove} className="w-full mt-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
+                  <CheckCircle2 className="w-4 h-4"/> อนุมัติที่เลือก ({selectedPending.length} รายการ)
+                </button>
+             )}
           </div>
 
           <div className="space-y-2 pb-10 pt-2">
@@ -1561,6 +1659,11 @@ export default function Home() {
               (state?.waiting || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><Users className="w-10 h-10 opacity-30"/> ไม่มีคิวรอ</div> 
               : (state?.waiting || []).filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase())).map((p, i) => {
                 const isSel = selected.includes(p.id); const isMe = p.id === myProfile?.id; const isPaused = p.name.includes('(พัก)'); const selIndex = selected.indexOf(p.id); const teamBadge = selIndex !== -1 ? (selIndex < 2 ? <span className="bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team A</span> : <span className="bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team B</span>) : null;
+                
+                const isManualPrev = manualPreviews.flatMap(m => m.teams.flat().map((ap: any) => ap.id)).includes(p.id);
+                const isAutoPrev = autoMatches.flatMap(m => m.teams.flat().map((ap: any) => ap.id)).includes(p.id);
+                const inPreviewStatus = isManualPrev ? 'MANUAL' : isAutoPrev ? 'UP NEXT' : null;
+
                 return (
                   <div key={p.id} onClick={() => toggleSelect(p.id)} className={`cursor-pointer p-3.5 rounded-2xl border ${isSel ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md ring-1 ring-blue-400/50' : isPaused ? 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 opacity-60' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm'} flex items-center justify-between transition-all hover:shadow-md`}>
                     <div className="flex items-center gap-3">
@@ -1572,12 +1675,15 @@ export default function Home() {
                           {p.playCount > 0 && <span className="bg-slate-200 dark:bg-slate-700 text-[9px] px-1.5 py-0.5 rounded-md text-slate-600 dark:text-slate-300 font-mono shadow-inner">{p.playCount}P</span>}
                           {isMe && <span className="text-[9px] bg-amber-400 text-white font-bold px-1.5 py-0.5 rounded shadow-sm">YOU</span>}
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5"><span className="text-[10px] text-slate-400 font-mono font-bold">คิวที่ {i+1} • Lv {p.skill}</span></div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono font-bold">คิวที่ {i+1} • Lv {p.skill}</span>
+                          {inPreviewStatus && <span className={`text-[9px] px-1.5 py-0.5 rounded shadow-sm font-bold ${inPreviewStatus === 'MANUAL' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'}`}>{inPreviewStatus}</span>}
+                        </div>
                       </div>
                     </div>
                     <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
                       {(isMe || admin) && <button onClick={()=>togglePause(p)} className="w-8 h-8 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-amber-100 dark:border-amber-800">{isPaused ? <Play className="w-4 h-4"/> : <Pause className="w-4 h-4"/>}</button>}
-                      {admin && <button onClick={()=>openAdminEdit(p)} className="w-8 h-8 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-blue-100 dark:border-blue-800"><Edit3 className="w-4 h-4"/></button>}
+                      {admin && <button onClick={()=>openAdminEditPlayer(p)} className="w-8 h-8 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-blue-100 dark:border-blue-800"><Edit3 className="w-4 h-4"/></button>}
                       {admin && <button onClick={async()=>{ await fetch('/api/checkout',{method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id:p.id})}); refresh(false); }} className="w-8 h-8 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-red-100 dark:border-red-800"><X className="w-4 h-4"/></button>}
                     </div>
                   </div>
@@ -1586,8 +1692,14 @@ export default function Home() {
             ) : (
               (state?.pending || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><UserCheck className="w-10 h-10 opacity-30"/> ไม่มีรายการรออนุมัติ</div> 
               : (state?.pending || []).filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase())).map((p, i) => (
-                  <div key={p.id} className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm flex items-center justify-between transition-all animate-in slide-in-from-right-4 mb-2">
+                  <div key={p.id} className={`p-3.5 rounded-2xl border ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} shadow-sm flex items-center justify-between transition-all animate-in slide-in-from-right-4 mb-2`}>
                     <div className="flex items-center gap-3">
+                      {admin && (
+                         <input type="checkbox" checked={selectedPending.includes(p.id)} onChange={(e) => {
+                           if(e.target.checked) setSelectedPending(prev => [...prev, p.id]);
+                           else setSelectedPending(prev => prev.filter(id => id !== p.id));
+                         }} className="w-5 h-5 rounded text-green-600" />
+                      )}
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md ${getSkillColor(p.skill)}`}>{p.name.charAt(0)}</div>
                       <div>
                         <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">{p.name} {(!p.playCount || p.playCount === 0 || String(p.id).startsWith('G')) && <span className="bg-amber-100 text-amber-600 text-[8px] px-1 rounded uppercase font-bold shadow-sm">New</span>}</div>
@@ -1625,6 +1737,18 @@ export default function Home() {
               )}
            </div>
 
+           {/* Test Noti Button */}
+           <button onClick={() => {
+              let msg = `คุณ ${myProfile?.name || 'ไม่ทราบ'} ระดับมือ: ${getSkillName(getMySkillLevel())}`;
+              if (myWaitIndex !== -1) msg += ` และอยู่คิวที่: ${myWaitIndex + 1}`;
+              else if (amIPlaying) msg += ` และกำลังลงสนามอยู่`;
+              else msg += ` และยังไม่ได้เข้าคิว`;
+              
+              triggerNotification('🧪 ทดสอบการแจ้งเตือน', msg, [200, 100, 200], 'home');
+           }} className="w-full mb-5 text-xs font-bold bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white px-4 py-3 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2">
+             <Bell className="w-4 h-4"/> ทดสอบระบบแจ้งเตือน
+           </button>
+
            {notifyPerm !== 'granted' && (
              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-100 dark:border-blue-800/50 p-4 rounded-2xl mb-5 shadow-sm">
                 <h4 className="font-black text-blue-800 dark:text-blue-300 text-xs flex items-center gap-1.5 mb-1.5"><Smartphone className="w-4 h-4"/> แนะนำเพิ่มเติมเพื่อความเสถียร</h4>
@@ -1661,17 +1785,17 @@ export default function Home() {
                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm mb-6 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
                   <div className="flex items-center gap-4 mb-6 relative z-10">
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black shadow-lg ${getSkillColor(myQueueData?.skill)}`}>{myProfile.name.charAt(0)}</div>
+                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black shadow-lg ${getSkillColor(getMySkillLevel())}`}>{myProfile.name.charAt(0)}</div>
                     <div>
                       <h3 className="font-black text-xl text-slate-800 dark:text-white">{myProfile.name}</h3>
                       <div className="text-xs font-mono text-slate-500 mt-0.5">ID: {myProfile.id}</div>
-                      <div className="mt-1.5"><span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 shadow-sm">{myQueueData ? getSkillName(myQueueData.skill) : 'ไม่ระบุระดับ'}</span></div>
+                      <div className="mt-1.5"><span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 shadow-sm">{getSkillName(getMySkillLevel())}</span></div>
                     </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-3 mb-6 relative z-10">
-                    <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-xl text-center shadow-sm"><div className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-center gap-1 mb-1 tracking-widest"><Play className="w-3 h-3"/> เล่นไปแล้ว</div><div className="text-2xl font-black text-blue-600 dark:text-blue-400">{myQueueData?.playCount || 0} <span className="text-sm font-bold opacity-70">เกม</span></div></div>
-                    <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-xl text-center shadow-sm"><div className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-center gap-1 mb-1 tracking-widest"><Clock className="w-3 h-3"/> เวลาโดยประมาณ</div><div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">~{((myQueueData?.playCount || 0) * avgMatchDuration)} <span className="text-sm font-bold opacity-70">นาที</span></div></div>
+                    <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-xl text-center shadow-sm"><div className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-center gap-1 mb-1 tracking-widest"><Play className="w-3 h-3"/> เล่นไปแล้ว</div><div className="text-2xl font-black text-blue-600 dark:text-blue-400">{realPlayCount} <span className="text-sm font-bold opacity-70">เกม</span></div></div>
+                    <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-xl text-center shadow-sm"><div className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-center gap-1 mb-1 tracking-widest"><Clock className="w-3 h-3"/> เวลาโดยประมาณ</div><div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">~{realPlayTime} <span className="text-sm font-bold opacity-70">นาที</span></div></div>
                   </div>
                   
                   <button onClick={openSignOut} className="w-full bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 font-bold py-3 rounded-xl transition active:scale-95 border border-red-100 dark:border-red-800/50 shadow-sm flex items-center justify-center gap-2"><LogOut className="w-4 h-4"/> Sign Out ออกจากระบบ</button>
@@ -1737,15 +1861,24 @@ export default function Home() {
                      <button onClick={openAddMember} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition"><Plus className="w-4 h-4"/> เพิ่มสมาชิก</button>
                      <button onClick={openCourtManager} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition"><Settings className="w-4 h-4"/> จัดการคอร์ท</button>
                      <button onClick={()=>setFullscreen(true)} className="col-span-2 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Monitor className="w-4 h-4"/> เข้าสู่โหมด Live Focus</button>
-                     <button onClick={showAnalytics} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><PieChart className="w-4 h-4"/> Analytics</button>
-                     <button onClick={showDailyReport} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><BarChart2 className="w-4 h-4"/> Daily Report</button>
+                     
+                     <button onClick={exportRegisteredToday} className="col-span-2 bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Download className="w-4 h-4"/> รายงานผู้ลงทะเบียนวันนี้ (มีรหัสพนักงาน)</button>
+
+                     <button onClick={showAnalyticsMenu} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><PieChart className="w-4 h-4"/> Analytics</button>
+                     <button onClick={showDailyReportMenu} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><BarChart2 className="w-4 h-4"/> Daily Report</button>
                      <button onClick={resetDay} className="col-span-2 bg-red-900/50 text-red-400 border border-red-800 text-xs font-bold py-3 rounded-xl mt-2 active:scale-95 flex items-center justify-center gap-1.5 shadow-sm hover:bg-red-900/80 transition"><CalendarX className="w-4 h-4"/> รีเซ็ตระบบรายวัน</button>
                    </div>
                 </div>
               )}
            </div>
            
-           <div className="text-center pb-8"><button onClick={clearBrowserData} className="text-[10px] text-slate-400 hover:text-slate-600 underline uppercase flex items-center justify-center gap-1 w-full"><Trash2 className="w-3 h-3"/> ล้างข้อมูลและตั้งค่าแอปทั้งหมดบนเครื่องนี้</button></div>
+           <div className="text-center pb-8 flex flex-col items-center gap-3">
+             <div className="flex gap-2 w-full max-w-[200px] mx-auto">
+               <button onClick={clearBrowserData} className="flex-1 bg-slate-200 dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-[10px] font-bold py-2 rounded-lg transition shadow-sm border border-slate-300 dark:border-slate-700 flex items-center justify-center gap-1.5"><Trash2 className="w-3 h-3"/> ล้างแคช</button>
+               <button onClick={() => window.location.reload()} className="flex-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 text-[10px] font-bold py-2 rounded-lg transition shadow-sm border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1.5"><RefreshCw className="w-3 h-3"/> รีเฟรชแอป</button>
+             </div>
+             <span className="text-[9px] text-slate-300 font-mono tracking-widest mt-2">v {APP_VERSION}</span>
+           </div>
         </div>
 
       </div>
