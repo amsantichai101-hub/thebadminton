@@ -70,6 +70,44 @@ export async function POST(req: Request) {
 
     // 5. เคลียร์คอร์ทให้ว่าง
     await supabaseAdmin.from('active_courts').delete().eq('court', court)
+    
+// ========================================================
+    // 🌟 ระบบยิง Push ทะลุจอ แจ้งเตือน 4 คนแรกให้เตรียมวอร์ม เมื่อจบแมตช์
+    // ========================================================
+    try {
+      // 1. ดึงข้อมูล 4 คนแรกที่รออยู่ในคิว (และข้ามคนที่กำลัง "พัก" อยู่)
+      const { data: waitingPlayers } = await supabaseAdmin
+        .from('player_queue')
+        .select('id, name')
+        .not('name', 'like', '%(พัก)%')
+        .order('id', { ascending: true }) // *หมายเหตุ: ถ้าคิวคุณใช้ timestamp เรียง ให้แก้เป็น .order('timestamp', ...)
+        .limit(4);
+
+      if (waitingPlayers && waitingPlayers.length > 0) {
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        
+        // 2. วนลูปยิง Push ไปบอกให้ทั้ง 4 คนเตรียมตัว
+        for (const p of waitingPlayers) {
+          fetch(`${baseUrl}/api/webpush`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send',
+              userId: p.id,
+              title: '🔥 เตรียมตัววอร์ม!',
+              message: `มีคอร์ทเพิ่งจบแมตช์! คุณ ${p.name} อยู่ใน 4 คิวแรก ลุกขึ้นยืดเส้นได้เลย`,
+              url: '/?tab=queue',
+              vibrate: [200, 100, 200] // สั่นเป็นจังหวะเตือนสั้นๆ
+            })
+          }).catch(err => console.error('Push prepare error:', err));
+        }
+      }
+    } catch (e) {
+      console.error('Error sending prepare push:', e);
+    }
+    // ========================================================
+
+    
 
     return NextResponse.json({ status: 'success' })
   } catch (error: any) {
