@@ -1,5 +1,13 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
+import webpush from 'web-push'
+
+// ตั้งค่า VAPID สำหรับ Web Push ตรงนี้เลย
+webpush.setVapidDetails(
+  'mailto:admin@badminton.com', // ใส่อีเมลอะไรก็ได้
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY as string,
+  process.env.VAPID_PRIVATE_KEY as string
+);
 
 export async function POST(req: Request) {
   try {
@@ -9,12 +17,9 @@ export async function POST(req: Request) {
     const { data: players } = await supabaseAdmin.from('player_queue').select('*').in('id', ids)
     if (!players || players.length !== 4) return NextResponse.json({ status: 'error', message: 'ดึงข้อมูลผู้เล่นไม่ครบ' })
 
-    // บังคับเรียงตามลำดับ ids ที่ส่งมาจากหน้าบ้านเป๊ะๆ เพื่อรักษา Team A และ Team B ไว้
     const sortedPlayers = ids.map((id: string) => players.find((p: any) => p.id === id)).filter(Boolean) as any[]
-
     let targetCourt = court;
     
-    // ถ้าไม่ได้ระบุ Court มา หรือระบุมาแต่ Court นั้นไม่ว่าง ให้หา Court ว่างแทน
     const { data: config } = await supabaseAdmin.from('system_config').select('value').eq('key', 'Courts').single()
     const allCourts = (config?.value || 'Court 1, Court 2').split(',').map((s: string) => s.trim())
     const { data: activeCourts } = await supabaseAdmin.from('active_courts').select('court')
@@ -44,37 +49,42 @@ export async function POST(req: Request) {
     await supabaseAdmin.from('match_logs').insert(logs)
 
     // ========================================================
-    // 🌟 ระบบยิง Web Push Notification ให้ทั้ง 4 คน แบบ Background
+    // 🌟 ระบบยิง Web Push Notification โดยตรงจากไฟล์นี้
     // ========================================================
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-    
-    // วนลูปยิงแจ้งเตือนแยกแต่ละคน เพื่อบอกว่าใครคู่ใคร
     for (let i = 0; i < 4; i++) {
-      const isTeamA = i < 2; // คนที่ 0, 1 คือ Team A | 2, 3 คือ Team B
-      
-      // หาเพื่อนร่วมทีม
-      const mate = isTeamA ? sortedPlayers[1 - i] : sortedPlayers[5 - i]; 
-      
-      // หาคู่แข่ง
+      const isTeamA = i < 2;
+      const mate = isTeamA ? sortedPlayers[1 - i] : sortedPlayers[5 - i];
       const opp1 = isTeamA ? sortedPlayers[2] : sortedPlayers[0];
       const opp2 = isTeamA ? sortedPlayers[3] : sortedPlayers[1];
       
-      const message = `คุณ ${sortedPlayers[i].name} & ${mate.name} vs ${opp1.name} & ${opp2.name} ไปลุยกันเลยที่คอร์ท ${targetCourt} นะจร๊ะ`;
+      const message = `คุณ ${sortedPlayers[i].name} & ${mate.name} vs ${opp1.name} & ${opp2.name} ลุยเลยที่คอร์ท ${targetCourt}!`;
 
-      // ยิง Trigger ไปที่ API /api/webpush เพื่อดัน Push ลงมือถือ
-      // (ใส่ catch ไว้เพื่อไม่ให้ API หลักพัง ถ้าคนนั้นไม่ได้เปิดแจ้งเตือนไว้)
-      fetch(`${baseUrl}/api/webpush`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'send',
-          userId: sortedPlayers[i].id,
-          title: '🏸 ถึงคิวคุณแล้ว!',
-          message: message,
-          url: '/?tab=home', // กดแจ้งเตือนแล้วเด้งมาแท็บ home
-          vibrate: [500, 200, 500, 200, 1000] // สั่นยาวๆ 
-        })
-      }).catch(err => console.error('Push Error:', err));
+      try {
+        // 1. ดึง Token ของผู้เล่นคนนี้จากฐานข้อมูล
+        const { data: subData } = await supabaseAdmin
+            .from('push_subscriptions')
+            .select('subscription')
+            .eq('user_id', sortedPlayers[i].id)
+            .single();
+
+        if (subData && subData.subscription) {
+            // 2. สั่งยิง Push ตรงไปที่มือถือผู้เล่นทันที (ทะลุ Doze Mode)
+            await webpush.sendNotification(
+                subData.subscription, 
+                JSON.stringify({
+                    title: '🏸 ถึงคิวคุณแล้ว!',
+                    body: message,
+                    url: '/?tab=home'
+                }),
+                { urgency: 'high', TTL: 60 * 60 } // บังคับให้มือถือตื่นทันที
+            );
+            console.log(`✅ Push sent to ${sortedPlayers[i].name}`);
+        } else {
+            console.log(`⚠️ No subscription found for ${sortedPlayers[i].name}`);
+        }
+      } catch (err) {
+        console.error(`❌ Push failed for ${sortedPlayers[i].name}:`, err);
+      }
     }
     // ========================================================
 
