@@ -43,6 +43,41 @@ export async function POST(req: Request) {
     }))
     await supabaseAdmin.from('match_logs').insert(logs)
 
+    // ========================================================
+    // 🌟 ระบบยิง Web Push Notification ให้ทั้ง 4 คน แบบ Background
+    // ========================================================
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    
+    // วนลูปยิงแจ้งเตือนแยกแต่ละคน เพื่อบอกว่าใครคู่ใคร
+    for (let i = 0; i < 4; i++) {
+      const isTeamA = i < 2; // คนที่ 0, 1 คือ Team A | 2, 3 คือ Team B
+      
+      // หาเพื่อนร่วมทีม
+      const mate = isTeamA ? sortedPlayers[1 - i] : sortedPlayers[5 - i]; 
+      
+      // หาคู่แข่ง
+      const opp1 = isTeamA ? sortedPlayers[2] : sortedPlayers[0];
+      const opp2 = isTeamA ? sortedPlayers[3] : sortedPlayers[1];
+      
+      const message = `คุณ ${sortedPlayers[i].name} & ${mate.name} vs ${opp1.name} & ${opp2.name} ไปลุยกันเลยที่คอร์ท ${targetCourt} นะจร๊ะ`;
+
+      // ยิง Trigger ไปที่ API /api/webpush เพื่อดัน Push ลงมือถือ
+      // (ใส่ catch ไว้เพื่อไม่ให้ API หลักพัง ถ้าคนนั้นไม่ได้เปิดแจ้งเตือนไว้)
+      fetch(`${baseUrl}/api/webpush`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send',
+          userId: sortedPlayers[i].id,
+          title: '🏸 ถึงคิวคุณแล้ว!',
+          message: message,
+          url: '/?tab=home', // กดแจ้งเตือนแล้วเด้งมาแท็บ home
+          vibrate: [500, 200, 500, 200, 1000] // สั่นยาวๆ 
+        })
+      }).catch(err => console.error('Push Error:', err));
+    }
+    // ========================================================
+
     return NextResponse.json({ status: 'success' })
   } catch (error: any) {
     return NextResponse.json({ status: 'error', message: error.message })

@@ -19,12 +19,14 @@
     "react-dom": "^18.2.0",
     "sweetalert2": "^11.26.24",
     "tailwind-merge": "^2.3.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
+    "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.4.19",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.1",

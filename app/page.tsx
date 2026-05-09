@@ -9,6 +9,15 @@ import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellO
 // 🌟 เวอร์ชันของแอป (ระบบจะเคลียร์แคช 100% อัตโนมัติเมื่อค่านี้เปลี่ยน)
 const APP_VERSION = "1.8.0";
 
+const urlBase64ToUint8Array = (base64String: string) => {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+  return outputArray;
+};
+
 const Toast = Swal.mixin({
   toast: true,
   position: 'top',
@@ -245,16 +254,48 @@ export default function Home() {
   }, []);
 
   const requestNotify = async () => {
-    if ('Notification' in window) {
-      const perm = await Notification.requestPermission();
-      setNotifyPerm(perm);
-      if (perm === 'granted') {
-        Toast.fire({ title: '✅ เปิดระบบแจ้งเตือนสำเร็จ!' });
-      } else {
-        Toast.fire({ title: '⚠️ คุณปฏิเสธการแจ้งเตือน' });
+    if (!myProfile) {
+      Toast.fire({ title: '⚠️ กรุณา Check in ก่อนเปิดแจ้งเตือน' });
+      return;
+    }
+
+    if (!('Notification' in window)) {
+      Toast.fire({ title: '❌ เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน' });
+      return;
+    }
+
+    const perm = await Notification.requestPermission();
+    setNotifyPerm(perm);
+
+    if (perm === 'granted') {
+      try {
+        const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+        if (!vapidPublicKey) {
+            Toast.fire({ title: '✅ เปิดสิทธิ์สำเร็จ (แต่ระบบ Push Backend ยังไม่ได้ตั้งค่า)' });
+            return;
+        }
+
+        // ขอ Subscription Token จาก Service Worker
+        const reg = await navigator.serviceWorker.ready;
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+        });
+
+        // ส่ง Token ไปเก็บที่ Backend ของเรา
+        await fetch('/api/webpush', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'subscribe', subscription, userId: myProfile.id })
+        });
+
+        Toast.fire({ title: '✅ เปิดระบบแจ้งเตือนพื้นหลังสำเร็จ!' });
+      } catch (error) {
+        console.error('Push Subscription Error:', error);
+        Toast.fire({ title: '⚠️ ไม่สามารถตั้งค่า Push พื้นหลังได้' });
       }
     } else {
-      Toast.fire({ title: '❌ เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน' });
+      Toast.fire({ title: '⚠️ คุณปฏิเสธการแจ้งเตือน' });
     }
   };
 
