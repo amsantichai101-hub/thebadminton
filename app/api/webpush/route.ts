@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // 1. รับ Token จากมือถือมาบันทึกลงฐานข้อมูล
+    // ส่วนบันทึกข้อมูล Token
     if (body.action === 'subscribe') {
       const { error } = await supabaseAdmin.from('push_subscriptions').upsert({
         user_id: body.userId,
@@ -20,10 +20,10 @@ export async function POST(req: Request) {
       }, { onConflict: 'user_id' });
       
       if (error) throw error;
-      return NextResponse.json({ success: true, message: 'Saved to Database' });
+      return NextResponse.json({ success: true });
     }
 
-    // 2. ดึง Token จากฐานข้อมูลมายิง Push
+    // ส่วนส่งแจ้งเตือน
     if (body.action === 'send') {
       const { data, error } = await supabaseAdmin
          .from('push_subscriptions')
@@ -31,10 +31,7 @@ export async function POST(req: Request) {
          .eq('user_id', body.userId)
          .single();
          
-      // ถ้ายิงแล้ว Error ตรงนี้แปลว่าไม่มีข้อมูลใน Database จริงๆ
-      if (error || !data) {
-          return NextResponse.json({ error: 'User not subscribed (No data in Supabase)' }, { status: 404 });
-      }
+      if (error || !data) return NextResponse.json({ error: 'User not subscribed' }, { status: 404 });
 
       const payload = JSON.stringify({
         title: body.title,
@@ -42,12 +39,9 @@ export async function POST(req: Request) {
         url: body.url || '/?tab=home'
       });
 
-      // ยิงออกแบบด่วนที่สุด
       await webpush.sendNotification(data.subscription, payload, { urgency: 'high', TTL: 60 });
-      return NextResponse.json({ success: true, message: 'Push sent!' });
+      return NextResponse.json({ success: true });
     }
-
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
