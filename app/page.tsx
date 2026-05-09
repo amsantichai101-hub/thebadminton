@@ -1765,11 +1765,16 @@ export default function Home() {
                     <p className="text-[10px] text-slate-500 font-bold">แจ้งเมื่อถึงคิวลงสนาม</p>
                  </div>
               </div>
+              
               {notifyPerm !== 'granted' ? (
-                 <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"><Bell className="w-4 h-4"/> เปิดการแจ้งเตือน</button>
-              ) : (
-                 <span className="w-full sm:w-auto text-center text-xs font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-400 px-4 py-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50 shadow-inner">เปิดใช้งานแล้ว</span>
-              )}
+   <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"><Bell className="w-4 h-4"/> เปิดการแจ้งเตือน</button>
+) : (
+   <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-black text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-4 py-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50 shadow-inner transition active:scale-95 flex items-center justify-center gap-2">
+      <CheckCircle2 className="w-4 h-4"/> เปิดแล้ว (คลิกเพื่อซิงค์ข้อมูลลง Server)
+   </button>
+)}
+
+
            </div>
 <button onClick={async () => {
     try {
