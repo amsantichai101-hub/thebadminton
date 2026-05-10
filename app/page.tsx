@@ -7,7 +7,7 @@ import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmakin
 import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck, Download, RefreshCw } from 'lucide-react'
 
 // 🌟 เวอร์ชันของแอป (ระบบจะเคลียร์แคช 100% อัตโนมัติเมื่อค่านี้เปลี่ยน)
-const APP_VERSION = "2.1.1";
+const APP_VERSION = "2.1.2";
 
   // 🌟 ฟังก์ชันแปลง VAPID Key (วางไว้นอก Component หรือบนสุดของไฟล์)
   const urlBase64ToUint8Array = (base64String: string) => {
@@ -283,7 +283,7 @@ export default function Home() {
           body: JSON.stringify({ action: 'subscribe', subscription, userId: myProfile.id })
         });
 
-        Toast.fire({ title: '✅ เปิดระบบแจ้งเตือนพื้นหลังสำเร็จ!' });
+        Toast.fire({ title: '✅ เปิดระบบอนุญาตแจ้งเตือน!' });
       } catch (error) {
         console.error('Push Error:', error);
         Toast.fire({ title: '⚠️ ไม่สามารถบันทึก Token ได้' });
@@ -297,15 +297,15 @@ export default function Home() {
     const hasPrompted = localStorage.getItem('appNotiPrompted');
     if (!hasPrompted && 'Notification' in window && Notification.permission !== 'granted') {
       Swal.fire({
-        title: '🔔 เปิดการแจ้งเตือน',
+        title: '🔔 เปิดตั้งค่าการแจ้งเตือน',
         html: `
           <div class="text-sm text-slate-600 text-left space-y-2">
             <p>เพื่อไม่ให้คุณพลาดคิวลงสนาม!</p>
-            <p class="text-blue-600 font-bold">1. กรุณากด "เปิดการแจ้งเตือน" (Allow)</p>
+            <p class="text-blue-600 font-bold">1. กรุณากด "เปิดตั้งค่าการแจ้งเตือน" (Allow)</p>
             <p class="text-green-600 font-bold">2. แนะนำให้กด Share > "Add to Home Screen"</p>
           </div>
         `,
-        confirmButtonText: 'เปิดการแจ้งเตือนทันที!', 
+        confirmButtonText: 'เปิดตั้งค่าการแจ้งเตือน', 
         confirmButtonColor: '#2563eb',
         showCancelButton: true, 
         cancelButtonText: 'ไว้ทีหลัง'
@@ -1762,15 +1762,15 @@ export default function Home() {
                  <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-inner ${notifyPerm === 'granted' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}><Bell className="w-6 h-6"/></div>
                  <div>
                     <h4 className="font-black text-sm text-slate-800 dark:text-white">การแจ้งเตือนแอป</h4>
-                    <p className="text-[10px] text-slate-500 font-bold">แจ้งเมื่อถึงคิวลงสนาม</p>
+                    <p className="text-[10px] text-slate-500 font-bold">แจ้งเตือนจะทำงานได้ครบถ้วนเมื่อ เปิดตั้งค่า และอนุญาตการแจ้งเตือน</p>
                  </div>
               </div>
               
               {notifyPerm !== 'granted' ? (
-   <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"><Bell className="w-4 h-4"/> เปิดการแจ้งเตือน</button>
+   <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"><Bell className="w-4 h-4"/> เปิดตั้งค่าการแจ้งเตือน</button>
 ) : (
    <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-black text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-4 py-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50 shadow-inner transition active:scale-95 flex items-center justify-center gap-2">
-      <CheckCircle2 className="w-4 h-4"/> เปิดแล้ว (คลิกเพื่อซิงค์ข้อมูลลง Server)
+      <CheckCircle2 className="w-4 h-4"/> อนุญาตให้แจ้งเตือนบนอุปกรณ์ของคุณ
    </button>
 )}
 
