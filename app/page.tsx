@@ -393,21 +393,19 @@ export default function Home() {
   };
 
   // 🌟 ตรวจจับการเปลี่ยนแปลงคิวและยิงเตือน
-useEffect(() => {
+  useEffect(() => {
     if (!myProfile) return;
 
-    // การแจ้งเตือนใกล้ถึงคิว (แก้ตรงนี้!)
+    // การแจ้งเตือนใกล้ถึงคิว 
     if (myWaitIndex >= 0 && myWaitIndex < 4) {
       if (!notifiedStandby.current) {
-        // 🌟 บอกให้ Frontend ข้ามการส่ง OS Push ไปเลย เพราะ Backend ยิงมาให้แล้ว!
-        const skipOSPush = (notifyPerm === 'granted'); 
-        
-        triggerNotification('🔥 เตรียมตัววอร์ม!', `คุณ ${myProfile.name} ใกล้ถึงคิวของคุณแล้ว (คิวที่ ${myWaitIndex + 1})`, [500, 200, 500], 'queue', skipOSPush);
+        // บังคับให้ false เพื่อให้หน้าเว็บส่งแจ้งเตือนเองเสมอ
+        triggerNotification('🔥 เตรียมตัววอร์ม!', `คุณ ${myProfile.name} ใกล้ถึงคิวของคุณแล้ว (คิวที่ ${myWaitIndex + 1})`, [500, 200, 500], 'queue', false);
         notifiedStandby.current = true;
       }
     }
 
-    // การแจ้งเตือนเมื่อลงสนาม (เหมือนเดิม ข้าม OS Push เพราะ BE ทำหน้าที่นี้แล้ว)
+    // การแจ้งเตือนเมื่อลงสนาม 
     if (amIPlaying && myActiveCourt) {
       if (!notifiedPlay.current) {
         let mate = '', opp1 = '', opp2 = '';
@@ -418,14 +416,14 @@ useEffect(() => {
 
         const msg = `คุณ ${myProfile.name} & ${mate} vs ${opp1} & ${opp2} ไปลุยกันเลยที่คอร์ท ${myActiveCourt.court} นะจร๊ะ`;
         
-        // ส่ง flag แจ้งให้ข้ามการส่ง OS Push บน FE (ถ้า Notification granted แล้ว BE จะรับหน้าที่เอง)
-        const skipOSPush = (notifyPerm === 'granted');
-        triggerNotification('🏸 ถึงคิวคุณแล้ว!', msg, [500, 200, 500, 200, 1000, 200, 1000], 'home', skipOSPush);
+        // ✅ ปลดล็อค! ลบตัวแปร skipOSPush ออก และใส่ false แทน เพื่อให้หน้าเว็บสั่งเด้ง OS Notification 100% แบบเมื่อวาน
+        triggerNotification('🏸 ถึงคิวคุณแล้ว!', msg, [500, 200, 500, 200, 1000, 200, 1000], 'home', false);
         
         notifiedPlay.current = true;
       }
     }
-  }, [state, myProfile, amIPlaying, myActiveCourt, myWaitIndex, notifyPerm]);
+  // 🌟 ลบ notifyPerm ออกจากวงเล็บด้านล่างด้วย เพื่อป้องกัน Error Changed Size
+  }, [state, myProfile, amIPlaying, myActiveCourt, myWaitIndex]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
