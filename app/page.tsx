@@ -4,10 +4,10 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import Swal from 'sweetalert2'
 import type { AppState, WaitingPlayer as Player } from '@/lib/types'
 import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
-import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck, Download, RefreshCw } from 'lucide-react'
+import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck, Download, RefreshCw, Megaphone } from 'lucide-react'
 
 // 🌟 เวอร์ชันของแอป (ระบบจะเคลียร์แคช 100% อัตโนมัติเมื่อค่านี้เปลี่ยน)
-const APP_VERSION = "2.1.4";
+const APP_VERSION = "2.1.5";
 
   // 🌟 ฟังก์ชันแปลง VAPID Key (วางไว้นอก Component หรือบนสุดของไฟล์)
   const urlBase64ToUint8Array = (base64String: string) => {
@@ -264,7 +264,6 @@ export default function Home() {
 
     if (perm === 'granted') {
       try {
-        // 🌟 Requirement 1: เคลียร์ข้อมูลอุปกรณ์ทั้งหมด และใส่โปรไฟล์ล่าสุดกลับเข้าไป เพื่อกันแจ้งเตือนสลับคน
         const currentProfile = myProfile;
         const currentSkill = getMySkillLevel();
         const adminAuth = localStorage.getItem('adminAuth');
@@ -343,21 +342,15 @@ export default function Home() {
 
   // 🌟 ฟังก์ชันการแจ้งเตือนหลัก + Deduplicate OS Push Check
   const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue', skipOSPushIfGranted: boolean = false) => {
-    // 1. เสียงเตือน
     playAlertSound(); 
-    
-    // 2. เก็บประวัติแจ้งเตือน
     addNotification(title, body);
     
-    // 3. ระบบสั่น (ถ้าอุปกรณ์รองรับ)
     try {
       if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
     } catch (e) {}
     
-    // 4. Native Push Notification (Requirement: ไม่แจ้งเตือนซ้ำบน FE ถ้า BE ส่ง Push มาแล้ว)
     if (!skipOSPushIfGranted && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        // ยิงตรงเข้า Notification API ของอุปกรณ์
         const n = new Notification(title, { 
           body: body, 
           icon: '/icon.png',
@@ -368,11 +361,8 @@ export default function Home() {
            window.focus();
            if (targetTab) handleTabClick(targetTab);
         };
-
-        // ปิดอัตโนมัติกันค้างบนหน้าจอ
         setTimeout(() => n.close(), 8000); 
       } catch(e) {
-        // Fallback เผื่อ PWA บนมือถือบางรุ่นที่บังคับใช้ Service Worker
         try {
           if ('serviceWorker' in navigator) {
             const reg = await navigator.serviceWorker.ready;
@@ -382,7 +372,6 @@ export default function Home() {
       }
     }
     
-    // 5. Custom UI Capsule Notification (หน้าเว็บ) - เด้งเสมอเป็น Fallback และ UI Guide
     setCapsuleAlert({ 
       title, 
       body, 
@@ -392,20 +381,17 @@ export default function Home() {
     setTimeout(() => setCapsuleAlert(prev => ({...prev, visible: false})), 6000);
   };
 
-  // 🌟 ตรวจจับการเปลี่ยนแปลงคิวและยิงเตือน
+  // 🌟 ตรวจจับการเปลี่ยนแปลงคิวและยิงเตือน (เอา skipOSPush ออกเพื่อบังคับหน้าเว็บยิงเอง 100%)
   useEffect(() => {
     if (!myProfile) return;
 
-    // การแจ้งเตือนใกล้ถึงคิว 
     if (myWaitIndex >= 0 && myWaitIndex < 4) {
       if (!notifiedStandby.current) {
-        // บังคับให้ false เพื่อให้หน้าเว็บส่งแจ้งเตือนเองเสมอ
         triggerNotification('🔥 เตรียมตัววอร์ม!', `คุณ ${myProfile.name} ใกล้ถึงคิวของคุณแล้ว (คิวที่ ${myWaitIndex + 1})`, [500, 200, 500], 'queue', false);
         notifiedStandby.current = true;
       }
     }
 
-    // การแจ้งเตือนเมื่อลงสนาม 
     if (amIPlaying && myActiveCourt) {
       if (!notifiedPlay.current) {
         let mate = '', opp1 = '', opp2 = '';
@@ -416,13 +402,11 @@ export default function Home() {
 
         const msg = `คุณ ${myProfile.name} & ${mate} vs ${opp1} & ${opp2} ไปลุยกันเลยที่คอร์ท ${myActiveCourt.court} นะจร๊ะ`;
         
-        // ✅ ปลดล็อค! ลบตัวแปร skipOSPush ออก และใส่ false แทน เพื่อให้หน้าเว็บสั่งเด้ง OS Notification 100% แบบเมื่อวาน
         triggerNotification('🏸 ถึงคิวคุณแล้ว!', msg, [500, 200, 500, 200, 1000, 200, 1000], 'home', false);
         
         notifiedPlay.current = true;
       }
     }
-  // 🌟 ลบ notifyPerm ออกจากวงเล็บด้านล่างด้วย เพื่อป้องกัน Error Changed Size
   }, [state, myProfile, amIPlaying, myActiveCourt, myWaitIndex]);
 
   const toggleWakeLock = async () => {
@@ -796,7 +780,6 @@ export default function Home() {
   const handleMatchSelected = async () => {
     if (selected.length !== 4) return Toast.fire({ title: '⚠️ เลือก 4 คนให้พอดีเป๊ะครับ' }); 
     
-    // ดึงผู้เล่นตาม "ลำดับการถูกเลือก (selected array)" ไม่ใช่ดึงตามคิว ช่วยรักษาลำดับการจัดทีมแบบ 100%
     const selectedPlayers = (selected.map(id => state?.waiting?.find(p => p.id === id)).filter(Boolean) as Player[]) || [];
     
     if (selectedPlayers.length !== 4) return Toast.fire({ title: '⚠️ ดึงข้อมูลผู้เล่นไม่ครบ' });
@@ -1301,6 +1284,72 @@ export default function Home() {
       showCancelButton: true, confirmButtonText: 'Save',
       preConfirm: () => ({ oldId: p.id, newId: (document.getElementById('editId') as HTMLInputElement).value, name: (document.getElementById('editName') as HTMLInputElement).value, skill: Number((document.getElementById('editSkill') as HTMLSelectElement).value) })
     }).then(async r => { if(r.isConfirmed) { await runApi('/api/update-player', r.value, false); Toast.fire({ title: '✅ บันทึกการแก้ไขแล้ว' }); } })
+  }
+
+  // 🌟 ฟังก์ชันส่งแจ้งเตือนกลุ่ม (Broadcast) สำหรับ Admin
+  const openBroadcastModal = () => {
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    const defaultDate = oneMonthAgo.toISOString().split('T')[0];
+
+    Swal.fire({
+      title: '📢 ส่งแจ้งเตือนกลุ่ม (Broadcast)',
+      html: `
+        <div class="flex flex-col gap-3 text-left">
+          <div>
+            <label class="text-[10px] font-bold text-slate-500 uppercase">วันที่เริ่มดึงข้อมูล (วันที่เปิดสิทธิ์แจ้งเตือน)</label>
+            <input type="date" id="bcDate" value="${defaultDate}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="text-[10px] font-bold text-slate-500 uppercase">หัวข้อการแจ้งเตือน</label>
+            <input type="text" id="bcTitle" placeholder="เช่น ประกาศสำคัญจากคลับ" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="text-[10px] font-bold text-slate-500 uppercase">เนื้อหาการแจ้งเตือน</label>
+            <textarea id="bcMessage" rows="3" placeholder="พิมพ์ข้อความที่ต้องการส่ง..." class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'ส่งการแจ้งเตือน',
+      confirmButtonColor: '#2563eb',
+      preConfirm: () => {
+        const date = (document.getElementById('bcDate') as HTMLInputElement).value;
+        const title = (document.getElementById('bcTitle') as HTMLInputElement).value.trim();
+        const message = (document.getElementById('bcMessage') as HTMLTextAreaElement).value.trim();
+        if (!title) { Swal.showValidationMessage('กรุณาใส่หัวข้อ'); return false; }
+        if (!message) { Swal.showValidationMessage('กรุณาใส่เนื้อหา'); return false; }
+        return { date, title, message };
+      }
+    }).then(async (r) => {
+      if (r.isConfirmed) {
+        Swal.fire({ title: 'กำลังสั่งรัน Broadcast...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        
+        try {
+          // ✅ เปลี่ยนมาเรียก API Webpush ของเราตรงๆ ให้ Server จัดการ
+          const res = await fetch('/api/webpush', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'broadcast',
+              date: r.value.date,
+              title: r.value.title,
+              message: r.value.message
+            })
+          });
+          
+          const data = await res.json();
+
+          if (!res.ok) {
+            Swal.fire('ไม่พบข้อมูล', data.error || 'ไม่พบผู้ลงทะเบียนในช่วงเวลานี้', 'info');
+          } else {
+            Swal.fire('✅ ส่งสำเร็จ', `ยิงแจ้งเตือนถึงอุปกรณ์ที่พร้อมรับ ${data.count} จากทั้งหมด ${data.total} เครื่อง`, 'success');
+          }
+        } catch (e: any) {
+          Swal.fire('❌ ผิดพลาด', e.message, 'error');
+        }
+      }
+    });
   }
 
   // 🌟 Daily Report Menu (พรีวิวก่อนโหลด + เลือกวันได้)
@@ -1837,7 +1886,7 @@ export default function Home() {
               else if (amIPlaying) msg += ` และกำลังลงสนามอยู่`;
               else msg += ` และยังไม่ได้เข้าคิว`;
               
-              triggerNotification('🧪 ทดสอบการแจ้งเตือน (FE)', msg, [200, 100, 200], 'home');
+              triggerNotification('🧪 ทดสอบการแจ้งเตือน (FE)', msg, [200, 100, 200], 'home', false);
            }} className="w-full mb-5 text-xs font-bold bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white px-4 py-3 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2">
              <Bell className="w-4 h-4"/> ทดสอบระบบแจ้งเตือนภายในเครื่อง
            </button>
@@ -1951,8 +2000,11 @@ export default function Home() {
 
                    <div className="grid grid-cols-2 gap-2 mt-2">
                      <button onClick={executeAutoMatch} className="col-span-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold py-3.5 rounded-xl active:scale-95 flex items-center justify-center gap-2 shadow-md"><Play className="w-4 h-4"/> ปล่อยคิวอัตโนมัติทันที</button>
-                     <button onClick={openAddMember} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition"><Plus className="w-4 h-4"/> เพิ่มสมาชิก</button>
-                     <button onClick={openCourtManager} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition"><Settings className="w-4 h-4"/> จัดการคอร์ท</button>
+                     
+                     <button onClick={openBroadcastModal} className="col-span-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-md transition mt-1"><Megaphone className="w-4 h-4"/> ส่งการแจ้งเตือนกลุ่ม (Broadcast)</button>
+
+                     <button onClick={openAddMember} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Plus className="w-4 h-4"/> เพิ่มสมาชิก</button>
+                     <button onClick={openCourtManager} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Settings className="w-4 h-4"/> จัดการคอร์ท</button>
                      <button onClick={()=>setFullscreen(true)} className="col-span-2 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Monitor className="w-4 h-4"/> เข้าสู่โหมด Live Focus</button>
                      
                      <button onClick={exportRegisteredToday} className="col-span-2 bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Download className="w-4 h-4"/> รายงานผู้ลงทะเบียนวันนี้ (มีรหัสพนักงาน)</button>
@@ -2003,7 +2055,7 @@ export default function Home() {
          </div>
       )}
 
-      {/* 🌟 Bottom Navigation (Modern Facebook Style) */}
+      {/* 🌟 Bottom Navigation */}
       <div className={`fixed bottom-0 w-full bg-white/95 dark:bg-slate-900/95 border-t border-gray-200 dark:border-slate-800 px-6 py-3 backdrop-blur-xl z-50 transition-transform duration-300 pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)] ${showNav ? 'translate-y-0' : 'translate-y-full'}`}>
          <div className="max-w-md mx-auto flex justify-between items-center relative">
             <button onClick={()=>handleTabClick('home')} className={`flex flex-col items-center gap-1 transition-all ${activeTab==='home'?'text-blue-600 scale-110':'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}>
