@@ -39,7 +39,10 @@ export async function POST(req: Request) {
         url: body.url || '/?tab=home'
       });
 
-      await webpush.sendNotification(data.subscription, payload, { urgency: 'high', TTL: 60 });
+      await webpush.sendNotification(data.subscription, payload, {
+        urgency: 'high', // 🌟 สำคัญมาก! ทะลวงโหมดประหยัดแบตเตอรี่ Android
+        TTL: 60 * 60 // 🌟 ให้ค้างข้อความไว้ 1 ชม. เผื่อมือถือเน็ตหลุดชั่วคราว
+      });
       return NextResponse.json({ success: true });
     }
   } catch (error: any) {

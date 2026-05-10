@@ -1,13 +1,5 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
-import webpush from 'web-push'
-
-// ตั้งค่า VAPID สำหรับ Web Push ตรงนี้เลย
-webpush.setVapidDetails(
-  'mailto:admin@badminton.com', // ใส่อีเมลอะไรก็ได้
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY as string,
-  process.env.VAPID_PRIVATE_KEY as string
-);
 
 export async function POST(req: Request) {
   try {
@@ -17,9 +9,12 @@ export async function POST(req: Request) {
     const { data: players } = await supabaseAdmin.from('player_queue').select('*').in('id', ids)
     if (!players || players.length !== 4) return NextResponse.json({ status: 'error', message: 'ดึงข้อมูลผู้เล่นไม่ครบ' })
 
+    // บังคับเรียงตามลำดับ ids ที่ส่งมาจากหน้าบ้านเป๊ะๆ เพื่อรักษา Team A และ Team B ไว้
     const sortedPlayers = ids.map((id: string) => players.find((p: any) => p.id === id)).filter(Boolean) as any[]
+
     let targetCourt = court;
     
+    // ถ้าไม่ได้ระบุ Court มา หรือระบุมาแต่ Court นั้นไม่ว่าง ให้หา Court ว่างแทน
     const { data: config } = await supabaseAdmin.from('system_config').select('value').eq('key', 'Courts').single()
     const allCourts = (config?.value || 'Court 1, Court 2').split(',').map((s: string) => s.trim())
     const { data: activeCourts } = await supabaseAdmin.from('active_courts').select('court')
@@ -48,45 +43,57 @@ export async function POST(req: Request) {
     }))
     await supabaseAdmin.from('match_logs').insert(logs)
 
-    // ========================================================
-    // 🌟 ระบบยิง Web Push Notification โดยตรงจากไฟล์นี้
-    // ========================================================
+    // =========================================================
+    // 🌟 ระบบยิงแจ้งเตือนผ่าน Backend (ทำงานได้ 100% แม้ล็อคจอ)
+    // =========================================================
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+
+    // 1. แจ้งเตือน 4 คนที่กำลังจะได้ "ลงสนาม"
     for (let i = 0; i < 4; i++) {
       const isTeamA = i < 2;
       const mate = isTeamA ? sortedPlayers[1 - i] : sortedPlayers[5 - i];
       const opp1 = isTeamA ? sortedPlayers[2] : sortedPlayers[0];
       const opp2 = isTeamA ? sortedPlayers[3] : sortedPlayers[1];
-      
-      const message = `คุณ ${sortedPlayers[i].name} & ${mate.name} vs ${opp1.name} & ${opp2.name} ลุยเลยที่คอร์ท ${targetCourt}!`;
 
-      try {
-        // 1. ดึง Token ของผู้เล่นคนนี้จากฐานข้อมูล
-        const { data: subData } = await supabaseAdmin
-            .from('push_subscriptions')
-            .select('subscription')
-            .eq('user_id', sortedPlayers[i].id)
-            .single();
+      const msg = `คุณ ${sortedPlayers[i].name} & ${mate.name} vs ${opp1.name} & ${opp2.name} ไปลุยกันเลยที่คอร์ท ${targetCourt} นะจร๊ะ`;
 
-        if (subData && subData.subscription) {
-            // 2. สั่งยิง Push ตรงไปที่มือถือผู้เล่นทันที (ทะลุ Doze Mode)
-            await webpush.sendNotification(
-                subData.subscription, 
-                JSON.stringify({
-                    title: '🏸 ถึงคิวคุณแล้ว!',
-                    body: message,
-                    url: '/?tab=home'
-                }),
-                { urgency: 'high', TTL: 60 * 60 } // บังคับให้มือถือตื่นทันที
-            );
-            console.log(`✅ Push sent to ${sortedPlayers[i].name}`);
-        } else {
-            console.log(`⚠️ No subscription found for ${sortedPlayers[i].name}`);
-        }
-      } catch (err) {
-        console.error(`❌ Push failed for ${sortedPlayers[i].name}:`, err);
+      fetch(`${baseUrl}/api/webpush`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send',
+          userId: sortedPlayers[i].id,
+          title: '🏸 ถึงคิวคุณแล้ว!',
+          message: msg,
+          url: '/?tab=home'
+        })
+      }).catch(e => console.error(e));
+    }
+
+    // 2. แจ้งเตือน "ใกล้ถึงคิว" ให้กับคนที่เหลือในคิว 4 คนแรก
+    const { data: nextQueue } = await supabaseAdmin
+      .from('player_queue')
+      .select('id, name')
+      .not('name', 'ilike', '%(พัก)%') // ข้ามคนที่กดพักอยู่
+      .order('timestamp', { ascending: true }) // เรียงคิวตามเวลาที่มา
+      .limit(4); // เอาแค่ 4 คนแรก
+
+    if (nextQueue) {
+      for (let i = 0; i < nextQueue.length; i++) {
+        fetch(`${baseUrl}/api/webpush`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send',
+            userId: nextQueue[i].id,
+            title: '🔥 เตรียมตัววอร์ม!',
+            message: `คุณ ${nextQueue[i].name} ใกล้ถึงคิวของคุณแล้ว (คิวที่ ${i + 1})`,
+            url: '/?tab=queue'
+          })
+        }).catch(e => console.error(e));
       }
     }
-    // ========================================================
+    // =========================================================
 
     return NextResponse.json({ status: 'success' })
   } catch (error: any) {

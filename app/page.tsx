@@ -393,18 +393,21 @@ export default function Home() {
   };
 
   // 🌟 ตรวจจับการเปลี่ยนแปลงคิวและยิงเตือน
-  useEffect(() => {
+useEffect(() => {
     if (!myProfile) return;
 
-    // การแจ้งเตือนใกล้ถึงคิว (BE ไม่ส่ง FE จึงต้องส่งปกติ)
+    // การแจ้งเตือนใกล้ถึงคิว (แก้ตรงนี้!)
     if (myWaitIndex >= 0 && myWaitIndex < 4) {
       if (!notifiedStandby.current) {
-        triggerNotification('🔥 เตรียมตัววอร์ม!', `คุณ ${myProfile.name} ใกล้ถึงคิวของคุณแล้ว (คิวที่ ${myWaitIndex + 1})`, [500, 200, 500], 'queue');
+        // 🌟 บอกให้ Frontend ข้ามการส่ง OS Push ไปเลย เพราะ Backend ยิงมาให้แล้ว!
+        const skipOSPush = (notifyPerm === 'granted'); 
+        
+        triggerNotification('🔥 เตรียมตัววอร์ม!', `คุณ ${myProfile.name} ใกล้ถึงคิวของคุณแล้ว (คิวที่ ${myWaitIndex + 1})`, [500, 200, 500], 'queue', skipOSPush);
         notifiedStandby.current = true;
       }
     }
 
-    // การแจ้งเตือนเมื่อลงสนาม (BE จะเป็นคนส่ง Push ดังนั้น FE จะข้ามการทำ OS Push ซ้ำซ้อน)
+    // การแจ้งเตือนเมื่อลงสนาม (เหมือนเดิม ข้าม OS Push เพราะ BE ทำหน้าที่นี้แล้ว)
     if (amIPlaying && myActiveCourt) {
       if (!notifiedPlay.current) {
         let mate = '', opp1 = '', opp2 = '';
