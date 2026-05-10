@@ -7,7 +7,7 @@ import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmakin
 import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck, Download, RefreshCw } from 'lucide-react'
 
 // 🌟 เวอร์ชันของแอป (ระบบจะเคลียร์แคช 100% อัตโนมัติเมื่อค่านี้เปลี่ยน)
-const APP_VERSION = "2.1.2";
+const APP_VERSION = "2.1.3";
 
   // 🌟 ฟังก์ชันแปลง VAPID Key (วางไว้นอก Component หรือบนสุดของไฟล์)
   const urlBase64ToUint8Array = (base64String: string) => {
@@ -18,9 +18,6 @@ const APP_VERSION = "2.1.2";
     for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
     return outputArray;
   };
-
-  
-
 
 const Toast = Swal.mixin({
   toast: true,
@@ -267,6 +264,22 @@ export default function Home() {
 
     if (perm === 'granted') {
       try {
+        // 🌟 Requirement 1: เคลียร์ข้อมูลอุปกรณ์ทั้งหมด และใส่โปรไฟล์ล่าสุดกลับเข้าไป เพื่อกันแจ้งเตือนสลับคน
+        const currentProfile = myProfile;
+        const currentSkill = getMySkillLevel();
+        const adminAuth = localStorage.getItem('adminAuth');
+        const appVer = localStorage.getItem('appVersion');
+        const history = localStorage.getItem('localMatchHistory');
+        
+        localStorage.clear();
+        sessionStorage.clear();
+        
+        localStorage.setItem('myProfile', JSON.stringify(currentProfile));
+        localStorage.setItem('myProfileSkill', currentSkill.toString());
+        if (adminAuth) localStorage.setItem('adminAuth', adminAuth);
+        if (appVer) localStorage.setItem('appVersion', appVer);
+        if (history) localStorage.setItem('localMatchHistory', history);
+
         const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
         if (!vapidPublicKey) return Toast.fire({ title: '⚠️ ลืมตั้งค่า VAPID Key ใน .env' });
 
@@ -276,17 +289,20 @@ export default function Home() {
           applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
         });
 
-        // 🌟 ส่งข้อมูลไปบันทึกลง Supabase
-        await fetch('/api/webpush', {
+        // ส่งข้อมูลไปบันทึกลง Supabase
+        const res = await fetch('/api/webpush', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'subscribe', subscription, userId: myProfile.id })
+          body: JSON.stringify({ action: 'subscribe', subscription, userId: currentProfile.id })
         });
 
-        Toast.fire({ title: '✅ เปิดระบบอนุญาตแจ้งเตือน!' });
+        if (!res.ok) throw new Error('Failed to subscribe on backend');
+
+        Toast.fire({ title: '✅ เปิดระบบอนุญาตแจ้งเตือนสมบูรณ์!' });
+        refresh(false); // ซอฟต์รีเฟรชอัปเดตสถานะ
       } catch (error) {
         console.error('Push Error:', error);
-        Toast.fire({ title: '⚠️ ไม่สามารถบันทึก Token ได้' });
+        Toast.fire({ title: '⚠️ ไม่สามารถบันทึก Token ได้ (ใช้แจ้งเตือนในแอปแทน)' });
       }
     } else {
       Toast.fire({ title: '⚠️ คุณปฏิเสธการแจ้งเตือน' });
@@ -325,8 +341,8 @@ export default function Home() {
     }
   }, [myWaitIndex, amIPlaying]);
 
-  // 🌟 ฟังก์ชันการแจ้งเตือนหลักตามโค้ดดั้งเดิม 100% พร้อมเพิ่ม OnClick กลับหน้าแรก
-  const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue') => {
+  // 🌟 ฟังก์ชันการแจ้งเตือนหลัก + Deduplicate OS Push Check
+  const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue', skipOSPushIfGranted: boolean = false) => {
     // 1. เสียงเตือน
     playAlertSound(); 
     
@@ -338,8 +354,8 @@ export default function Home() {
       if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
     } catch (e) {}
     
-    // 4. Native Push Notification (ระบบดั้งเดิมที่เสถียรที่สุด)
-    if ('Notification' in window && Notification.permission === 'granted') {
+    // 4. Native Push Notification (Requirement: ไม่แจ้งเตือนซ้ำบน FE ถ้า BE ส่ง Push มาแล้ว)
+    if (!skipOSPushIfGranted && 'Notification' in window && Notification.permission === 'granted') {
       try {
         // ยิงตรงเข้า Notification API ของอุปกรณ์
         const n = new Notification(title, { 
@@ -366,7 +382,7 @@ export default function Home() {
       }
     }
     
-    // 5. Custom UI Capsule Notification (หน้าเว็บ)
+    // 5. Custom UI Capsule Notification (หน้าเว็บ) - เด้งเสมอเป็น Fallback และ UI Guide
     setCapsuleAlert({ 
       title, 
       body, 
@@ -380,6 +396,7 @@ export default function Home() {
   useEffect(() => {
     if (!myProfile) return;
 
+    // การแจ้งเตือนใกล้ถึงคิว (BE ไม่ส่ง FE จึงต้องส่งปกติ)
     if (myWaitIndex >= 0 && myWaitIndex < 4) {
       if (!notifiedStandby.current) {
         triggerNotification('🔥 เตรียมตัววอร์ม!', `คุณ ${myProfile.name} ใกล้ถึงคิวของคุณแล้ว (คิวที่ ${myWaitIndex + 1})`, [500, 200, 500], 'queue');
@@ -387,6 +404,7 @@ export default function Home() {
       }
     }
 
+    // การแจ้งเตือนเมื่อลงสนาม (BE จะเป็นคนส่ง Push ดังนั้น FE จะข้ามการทำ OS Push ซ้ำซ้อน)
     if (amIPlaying && myActiveCourt) {
       if (!notifiedPlay.current) {
         let mate = '', opp1 = '', opp2 = '';
@@ -396,11 +414,15 @@ export default function Home() {
         else if (myActiveCourt.p4Id === myProfile.id) { mate = myActiveCourt.p3Name; opp1 = myActiveCourt.p1Name; opp2 = myActiveCourt.p2Name; }
 
         const msg = `คุณ ${myProfile.name} & ${mate} vs ${opp1} & ${opp2} ไปลุยกันเลยที่คอร์ท ${myActiveCourt.court} นะจร๊ะ`;
-        triggerNotification('🏸 ถึงคิวคุณแล้ว!', msg, [500, 200, 500, 200, 1000, 200, 1000], 'home');
+        
+        // ส่ง flag แจ้งให้ข้ามการส่ง OS Push บน FE (ถ้า Notification granted แล้ว BE จะรับหน้าที่เอง)
+        const skipOSPush = (notifyPerm === 'granted');
+        triggerNotification('🏸 ถึงคิวคุณแล้ว!', msg, [500, 200, 500, 200, 1000, 200, 1000], 'home', skipOSPush);
+        
         notifiedPlay.current = true;
       }
     }
-  }, [state, myProfile, amIPlaying, myActiveCourt, myWaitIndex]);
+  }, [state, myProfile, amIPlaying, myActiveCourt, myWaitIndex, notifyPerm]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
@@ -562,6 +584,8 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set', key: 'GlobalShowPreview', value: checked.toString() })
       });
+      Toast.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว' });
+      refresh(false);
     }
   }
 
@@ -578,6 +602,7 @@ export default function Home() {
       body: JSON.stringify({ action: 'set', key: 'PlayEndTime', value: playEndTime })
     });
     Toast.fire({ title: '✅ Play Time Saved' });
+    refresh(false);
   }
 
   const runApi = async (url: string, body?: any, showLoader = true) => {
@@ -766,11 +791,15 @@ export default function Home() {
     });
   };
 
-  // 🌟 Manual Match Override (จัดแมนนวลได้เรื่อยๆ จนเต็มคอร์ท)
+  // 🌟 Manual Match Override - Requirement 3: แก้ไขทีมให้ตรงกับการคลิกเลือก
   const handleMatchSelected = async () => {
     if (selected.length !== 4) return Toast.fire({ title: '⚠️ เลือก 4 คนให้พอดีเป๊ะครับ' }); 
-    const selectedPlayers = state?.waiting?.filter(p => selected.includes(p.id)) || [];
     
+    // ดึงผู้เล่นตาม "ลำดับการถูกเลือก (selected array)" ไม่ใช่ดึงตามคิว ช่วยรักษาลำดับการจัดทีมแบบ 100%
+    const selectedPlayers = (selected.map(id => state?.waiting?.find(p => p.id === id)).filter(Boolean) as Player[]) || [];
+    
+    if (selectedPlayers.length !== 4) return Toast.fire({ title: '⚠️ ดึงข้อมูลผู้เล่นไม่ครบ' });
+
     const availableCourtsCount = state?.courtNames.filter(cn => !state.playing.find(p => p.court === cn)).length || 0;
     if (manualPreviews.length >= availableCourtsCount) {
        return Toast.fire({ title: '⚠️ ไม่สามารถแทรกคิวเพิ่มได้ (คอร์ทเตรียมเต็มแล้ว)' });
@@ -1767,39 +1796,38 @@ export default function Home() {
               </div>
               
               {notifyPerm !== 'granted' ? (
-   <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"><Bell className="w-4 h-4"/> เปิดตั้งค่าการแจ้งเตือน</button>
-) : (
-   <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-black text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-4 py-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50 shadow-inner transition active:scale-95 flex items-center justify-center gap-2">
-      <CheckCircle2 className="w-4 h-4"/> อนุญาตให้แจ้งเตือนบนอุปกรณ์ของคุณ
-   </button>
-)}
-
-
+                 <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"><Bell className="w-4 h-4"/> เปิดตั้งค่าการแจ้งเตือน</button>
+              ) : (
+                 <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-black text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-4 py-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50 shadow-inner transition active:scale-95 flex items-center justify-center gap-2">
+                    <CheckCircle2 className="w-4 h-4"/> อัปเดตสิทธิ์บนอุปกรณ์
+                 </button>
+              )}
            </div>
-<button onClick={async () => {
-    try {
-        const res = await fetch('/api/webpush', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                action: 'send', 
-                userId: myProfile?.id, 
-                title: 'Test Debug', 
-                message: 'กำลังทดสอบยิงจาก Backend' 
-            })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-            alert('❌ Backend Error: ' + JSON.stringify(data));
-        } else {
-            alert('✅ Backend ยิงสำเร็จ! (ถ้ามือถือยังไม่เด้ง แปลว่าใบอนุญาตในมือถือหลุด)');
-        }
-    } catch (e: any) {
-        alert('❌ Network Error: ' + e.message);
-    }
-}} className="w-full mb-3 bg-red-100 text-red-600 px-4 py-2 rounded-xl font-bold">
-    🔍 ปุ่มกดเพื่อเช็ค Error ระบบ Push (Debug)
-</button>
+
+           <button onClick={async () => {
+              try {
+                  const res = await fetch('/api/webpush', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ 
+                          action: 'send', 
+                          userId: myProfile?.id, 
+                          title: 'Test Debug', 
+                          message: 'กำลังทดสอบยิงจาก Backend' 
+                      })
+                  });
+                  const data = await res.json();
+                  if (!res.ok) {
+                      alert('❌ Backend Error: ' + JSON.stringify(data));
+                  } else {
+                      alert('✅ Backend ยิงสำเร็จ! (ถ้ามือถือยังไม่เด้ง แปลว่าใบอนุญาตในมือถือหลุดให้กดอัปเดตสิทธิ์ใหม่)');
+                  }
+              } catch (e: any) {
+                  alert('❌ Network Error: ' + e.message);
+              }
+           }} className="w-full mb-3 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800/50 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl font-bold shadow-sm active:scale-95 transition flex items-center justify-center gap-2 text-xs">
+              <Search className="w-4 h-4"/> ปุ่มเช็ค Error ระบบ Push (Debug BE)
+           </button>
 
            {/* Test Noti Button */}
            <button onClick={() => {
@@ -1808,9 +1836,9 @@ export default function Home() {
               else if (amIPlaying) msg += ` และกำลังลงสนามอยู่`;
               else msg += ` และยังไม่ได้เข้าคิว`;
               
-              triggerNotification('🧪 ทดสอบการแจ้งเตือน', msg, [200, 100, 200], 'home');
+              triggerNotification('🧪 ทดสอบการแจ้งเตือน (FE)', msg, [200, 100, 200], 'home');
            }} className="w-full mb-5 text-xs font-bold bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white px-4 py-3 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2">
-             <Bell className="w-4 h-4"/> ทดสอบระบบแจ้งเตือน
+             <Bell className="w-4 h-4"/> ทดสอบระบบแจ้งเตือนภายในเครื่อง
            </button>
 
            {notifyPerm !== 'granted' && (
@@ -1894,8 +1922,8 @@ export default function Home() {
               {admin && (
                 <div className="space-y-4">
                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner space-y-3">
-                     <div className="flex justify-between items-center"><span className="text-xs font-bold">Auto Match</span><input type="checkbox" checked={state?.autoMatch||false} onChange={async(e)=>{await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'AutoMatch',value:e.target.checked.toString()})}); refresh(false);}} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
-                     <div className="flex justify-between items-center"><span className="text-xs font-bold">Show Pre-Match (Global)</span><input type="checkbox" checked={globalPreview} onChange={async(e)=>{setGlobalPreview(e.target.checked); await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'GlobalShowPreview',value:e.target.checked.toString()})});}} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
+                     <div className="flex justify-between items-center"><span className="text-xs font-bold">Auto Match</span><input type="checkbox" checked={state?.autoMatch||false} onChange={async(e)=>{await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'AutoMatch',value:e.target.checked.toString()})}); Toast.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว' }); refresh(false);}} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
+                     <div className="flex justify-between items-center"><span className="text-xs font-bold">Show Pre-Match (Global)</span><input type="checkbox" checked={globalPreview} onChange={async(e)=>{setGlobalPreview(e.target.checked); await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'GlobalShowPreview',value:e.target.checked.toString()})}); Toast.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว' }); refresh(false);}} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
                    </div>
 
                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1910,7 +1938,7 @@ export default function Home() {
 
                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner">
                       <label className="text-xs font-bold mb-2 block tracking-widest uppercase">Match Mode</label>
-                      <select value={matchMode} onChange={e => setMatchMode(e.target.value as any)} className="w-full p-2.5 border border-slate-600 rounded-lg text-xs bg-slate-800 text-white outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                      <select value={matchMode} onChange={e => { setMatchMode(e.target.value as any); refresh(false); }} className="w-full p-2.5 border border-slate-600 rounded-lg text-xs bg-slate-800 text-white outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
                         <option value="smart">Smart (ในทีมห่าง≤3, ระหว่างทีมห่าง≤1)</option>
                         <option value="balanced">Balanced (สมดุล/ใกล้เคียงที่สุด)</option>
                         <option value="random">Random (สุ่ม)</option>
