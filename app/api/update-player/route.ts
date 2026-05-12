@@ -2,16 +2,33 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
 
 export async function POST(req: Request) {
-    const { oldId, newId, name, skill } = await req.json();
-    const s = supabaseAdmin;
+  try {
+    const { id, name, skill } = await req.json()
 
-    // อัปเดตในทุกๆ คิวที่ผู้เล่นคนนี้อยู่
-    await s.from('player_queue').update({ id: newId, name, skill }).eq('id', oldId);
-    await s.from('pending_queue').update({ id: newId, name, skill }).eq('id', oldId);
+    // 1. ตรวจสอบในตารางอนุมัติแล้ว
+    const { data: reg } = await supabaseAdmin.from('player_registry').select('id').eq('id', id).single()
     
-    // อัปเดตฐานข้อมูลหลัก
-    const { data: exists } = await s.from('player_registry').select('id').eq('id', oldId).single();
-    if(exists) await s.from('player_registry').update({ id: newId, name, latest_skill: skill }).eq('id', oldId);
+    if (reg) {
+      await supabaseAdmin.from('player_registry').update({ name, latest_skill: skill }).eq('id', id)
+    }
 
-    return NextResponse.json({ status: 'success' });
+    // 2. ตรวจสอบและอัปเดตในตารางรออนุมัติ (Pending)
+    const { data: pending } = await supabaseAdmin.from('pending_queue').select('id').eq('id', id).single()
+    
+    if (pending) {
+      const { error: updateError } = await supabaseAdmin
+        .from('pending_queue')
+        .update({ name, skill })
+        .eq('id', id)
+      
+      if (updateError) throw updateError
+    }
+
+    // 3. อัปเดตในคิวปัจจุบัน (ถ้ามี)
+    await supabaseAdmin.from('player_queue').update({ name, skill }).eq('id', id)
+
+    return NextResponse.json({ status: 'success', message: 'อัปเดตข้อมูลเรียบร้อยแล้ว' })
+  } catch (error: any) {
+    return NextResponse.json({ status: 'error', message: error.message }, { status: 500 })
+  }
 }

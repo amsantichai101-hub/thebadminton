@@ -1,46 +1,47 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
 
-export async function GET() {
+export const dynamic = 'force-dynamic'
+
+export async function GET(req: NextRequest) {
   try {
-    // กำหนดเวลาเริ่มต้นของวันนี้ (Midnight)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const todayStr = today.toISOString()
+    const { searchParams } = new URL(req.url);
+    const start = searchParams.get('startDate');
+    const end = searchParams.get('endDate');
 
-    // 1. ดึง Log แมตช์เฉพาะของวันนี้
-    const { data: logs, error: logsError } = await supabaseAdmin
-      .from('match_logs')
-      .select('*')
-      .gte('ts', todayStr)
+    let query = supabaseAdmin.from('match_logs').select('*');
 
-    // 2. ดึงข้อมูลพนักงานที่มาบ่อยที่สุด 10 อันดับแรก (All-time)
+    // บังคับ Timezone ไทย (+07:00) 
+    if (start && end) {
+      const startTs = new Date(`${start}T00:00:00+07:00`).toISOString();
+      const endTs = new Date(`${end}T23:59:59.999+07:00`).toISOString();
+      query = query.gte('ts', startTs).lte('ts', endTs);
+    } else {
+      const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
+      const startTs = new Date(`${today}T00:00:00+07:00`).toISOString();
+      query = query.gte('ts', startTs);
+    }
+
+    const { data: logs, error: logsError } = await query;
     const { data: activePlayers, error: playersError } = await supabaseAdmin
       .from('player_registry')
       .select('*')
       .order('total_visits', { ascending: false })
-      .limit(10)
+      .limit(10);
 
-    if (logsError || playersError) {
-      throw new Error('Supabase Query Error')
-    }
+    if (logsError || playersError) throw new Error('Query Error');
 
-    // คำนวณ Stats ต่างๆ
-    // จำนวนแมตช์ (ดูจาก Event 'End Match' จะแม่นยำที่สุด)
-    const matchesEnded = logs?.filter(l => l.action.toLowerCase().includes('end')) || []
-    const totalMatches = matchesEnded.length
-
-    // จำนวนผู้เล่น Unique ของวันนี้ (ดูจากใครเช็คอิน หรือใครลงเล่น)
-    const uniquePlayers = new Set(logs?.map(l => l.player_id).filter(Boolean)).size
+    const matchesEnded = logs?.filter(l => l.action.toLowerCase().includes('end')) || [];
+    const uniqueMatches = new Set(matchesEnded.map(l => `${l.court}_${l.ts}`)).size;
+    const uniquePlayers = new Set(logs?.map(l => l.player_id).filter(Boolean)).size;
 
     return NextResponse.json({
-      totalMatches,
+      totalMatches: uniqueMatches,
       uniquePlayers,
       topPlayers: activePlayers || [],
-      recentLogs: logs?.slice(0, 20) || []
-    })
-
+      recentLogs: logs?.slice(0, 50) || []
+    });
   } catch (e) {
-    return NextResponse.json({ error: 'Failed to load analytics data' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }
