@@ -1,4 +1,4 @@
-import { User, CheckCircle2, Play, Clock, Swords, Check } from 'lucide-react'
+import { User, CheckCircle2, Play, Clock, Swords, Check, Eye } from 'lucide-react'
 
 export default function HomeTab(props: any) {
   const {
@@ -77,16 +77,20 @@ export default function HomeTab(props: any) {
                 )
               } else if (prepMatch) {
                 return (
-                  <div key={cn} className="bg-emerald-50 dark:bg-emerald-900/10 border-2 border-dashed border-emerald-300 dark:border-emerald-700/50 rounded-2xl p-4 shadow-sm">
-                    <div className="flex justify-between items-center mb-3"><span className="text-[10px] font-bold bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 rounded shadow-sm">{prepMatch.isManual?'MANUAL':'UP NEXT'}</span><span className="text-xs font-black text-slate-400">{cn}</span></div>
-                    <div className="text-sm font-bold text-slate-700 dark:text-slate-300 space-y-1.5 opacity-80">
+                  <div key={cn} className="bg-emerald-50 dark:bg-emerald-900/10 border-2 border-dashed border-emerald-400 dark:border-emerald-700/50 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-200 dark:bg-emerald-800/30 blur-2xl rounded-full -mr-4 -mt-4 z-0"></div>
+                    <div className="flex justify-between items-center mb-3 relative z-10">
+                        <span className="text-[10px] font-black tracking-widest uppercase bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 rounded shadow-sm flex items-center gap-1"><Eye className="w-3 h-3"/> {prepMatch.isManual?'MANUAL FIFO':'UP NEXT'}</span>
+                        <span className="text-xs font-black text-slate-400">{cn}</span>
+                    </div>
+                    <div className="text-sm font-bold text-slate-700 dark:text-slate-300 space-y-1.5 relative z-10">
                       <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg flex justify-between shadow-sm border border-slate-100 dark:border-slate-700"><span>{prepMatch.teams[0][0].name}</span><span>{prepMatch.teams[0][1].name}</span></div>
-                      <div className="flex justify-center -my-3 z-10 relative"><span className="bg-emerald-50 dark:bg-emerald-900/10 text-[9px] px-1.5 rounded-full text-slate-400 flex items-center gap-1"><Swords className="w-3.5 h-3.5"/></span></div>
+                      <div className="flex justify-center -my-3 z-10 relative"><span className="bg-emerald-50 dark:bg-slate-900 text-[9px] px-1.5 rounded-full text-slate-400 flex items-center gap-1"><Swords className="w-3.5 h-3.5"/></span></div>
                       <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg flex justify-between shadow-sm border border-slate-100 dark:border-slate-700"><span>{prepMatch.teams[1][0].name}</span><span>{prepMatch.teams[1][1].name}</span></div>
                     </div>
                     {admin && (
-                      <div className="flex gap-2 mx-3 mb-3 z-20 mt-4">
-                        <button onClick={()=>confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg shadow-sm active:scale-95 transition flex items-center justify-center gap-1.5"><CheckCircle2 className="w-4 h-4"/> Confirm</button>
+                      <div className="flex gap-2 relative z-10 mt-4">
+                        <button onClick={()=>confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg shadow-sm active:scale-95 transition flex items-center justify-center gap-1.5"><CheckCircle2 className="w-4 h-4"/> Confirm Court</button>
                         {prepMatch.isManual && (
                           <button onClick={() => setManualPreviews((prev: any) => prev.filter((m: any) => m !== prepMatch))} className="px-3 py-2 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-200 rounded-lg text-xs font-black transition active:scale-95 shadow-md">✕</button>
                         )}

@@ -8,7 +8,7 @@ export default function ProfileTab(props: any) {
     state, refresh, globalPreview, setGlobalPreview, playStartTime, setPlayStartTime,
     playEndTime, setPlayEndTime, savePlayTime, matchMode, setMatchMode, executeAutoMatch,
     openBroadcastModal, openAddMember, openCourtManager, setFullscreen, exportRegisteredToday,
-    showAnalyticsMenu, showDailyReportMenu, resetDay, clearBrowserData, APP_VERSION
+    showAnalyticsMenu, showDailyReportMenu, resetDay, clearBrowserData, APP_VERSION, toggleGlobalPreviewState
   } = props;
 
   return (
@@ -42,7 +42,6 @@ export default function ProfileTab(props: any) {
                   <button onClick={openSignOut} className="w-full bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 font-bold py-3 rounded-xl transition active:scale-95 border border-red-100 dark:border-red-800/50 shadow-sm flex items-center justify-center gap-2"><LogOut className="w-4 h-4"/> Sign Out ออกจากระบบ</button>
                </div>
 
-               {/* Profile History Section */}
                <div className="mb-6">
                  <h3 className="font-black text-sm uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-2"><Activity className="w-4 h-4"/> ประวัติการลงสนามวันนี้</h3>
                  <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm">
@@ -65,18 +64,32 @@ export default function ProfileTab(props: any) {
              </>
            )}
 
-           {/* ADMIN SECTION IN PROFILE */}
            <div className="bg-slate-800 dark:bg-slate-900 text-slate-200 rounded-2xl p-5 shadow-lg mb-10 pb-6 border border-slate-700">
               <div className="flex items-center justify-between mb-4"><h3 className="font-black text-sm uppercase tracking-widest flex items-center gap-2"><Settings className="w-5 h-5"/> Admin Console</h3>{!admin ? <button onClick={auth} className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm transition">Login</button> : <button onClick={logout} className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm transition">Logout</button>}</div>
               {admin && (
                 <div className="space-y-4">
-                   <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner space-y-3">
-                     <div className="flex justify-between items-center"><span className="text-xs font-bold">Auto Match</span><input type="checkbox" checked={state?.autoMatch||false} onChange={async(e)=>{await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'AutoMatch',value:e.target.checked.toString()})}); Swal.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว', toast: true, position: 'top', showConfirmButton: false, timer: 1500 }); refresh(false);}} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
-                     <div className="flex justify-between items-center"><span className="text-xs font-bold">Show Pre-Match (Global)</span><input type="checkbox" checked={globalPreview} onChange={async(e)=>{setGlobalPreview(e.target.checked); await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'GlobalShowPreview',value:e.target.checked.toString()})}); Swal.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว', toast: true, position: 'top', showConfirmButton: false, timer: 1500 }); refresh(false);}} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
+                   <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-700 shadow-inner space-y-4">
+                     
+                     <div className="flex justify-between items-center">
+                        <div className="flex flex-col"><span className="text-xs font-bold text-white">Auto Match (ปล่อยคิวอัตโนมัติ)</span><span className="text-[9px] text-slate-400">ระบบจะจับคู่ให้อัตโนมัติเมื่อคอร์ทว่าง</span></div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" className="sr-only peer" checked={state?.autoMatch||false} onChange={async(e)=>{await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'AutoMatch',value:e.target.checked.toString()})}); Swal.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว', toast: true, position: 'top', showConfirmButton: false, timer: 1500 }); refresh(false);}} />
+                          <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                        </label>
+                     </div>
+                     
+                     <div className="flex justify-between items-center">
+                        <div className="flex flex-col"><span className="text-xs font-bold text-white">Show Pre-Match (โหมดโชว์คิวถัดไป)</span><span className="text-[9px] text-slate-400">แสดงผลคิวเตรียมลงคอร์ทในหน้าแรกให้ทุกคนเห็น</span></div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" className="sr-only peer" checked={globalPreview} onChange={(e) => toggleGlobalPreviewState(e.target.checked)} />
+                          <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                     </div>
+
                    </div>
 
                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <span className="text-xs font-bold tracking-widest uppercase">Play Time:</span>
+                      <span className="text-xs font-bold tracking-widest uppercase text-slate-300">Play Time:</span>
                       <div className="flex items-center gap-2">
                         <input type="time" value={playStartTime} onChange={e=>setPlayStartTime(e.target.value)} className="bg-slate-800 text-white text-xs p-1.5 rounded-lg border border-slate-600 w-24 outline-none focus:ring-1 focus:ring-blue-500"/>
                         <span className="text-slate-500">-</span>
@@ -86,14 +99,14 @@ export default function ProfileTab(props: any) {
                    </div>
 
                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner">
-                      <label className="text-xs font-bold mb-2 block tracking-widest uppercase">Match Mode</label>
+                      <label className="text-xs font-bold mb-2 block tracking-widest uppercase text-slate-300">Match Mode (ระบบจัดคิว)</label>
                       <select value={matchMode} onChange={e => { setMatchMode(e.target.value as any); refresh(false); }} className="w-full p-2.5 border border-slate-600 rounded-lg text-xs bg-slate-800 text-white outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
                         <option value="smart">Smart (ในทีมห่าง≤3, ระหว่างทีมห่าง≤1)</option>
                         <option value="balanced">Balanced (สมดุล/ใกล้เคียงที่สุด)</option>
                         <option value="random">Random (สุ่ม)</option>
                         <option value="skill-gap">Skill Gap (คู่ฝีมือใกล้เคียง)</option>
                         <option value="similar-skill">Similar Skill (ฝีมือเดียวกัน/ใกล้กัน)</option>
-                        <option value="manual">Manual (ตามลำดับที่เลือกไว้เป๊ะๆ)</option>
+                        <option value="manual">Manual (เฉพาะเวลาไม่ใช้ Auto Match)</option>
                       </select>
                    </div>
 
@@ -106,7 +119,7 @@ export default function ProfileTab(props: any) {
                      <button onClick={openCourtManager} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Settings className="w-4 h-4"/> จัดการคอร์ท</button>
                      <button onClick={()=>setFullscreen(true)} className="col-span-2 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Monitor className="w-4 h-4"/> เข้าสู่โหมด Live Focus</button>
                      
-                     <button onClick={exportRegisteredToday} className="col-span-2 bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Download className="w-4 h-4"/> รายงานผู้ลงทะเบียนวันนี้ (มีรหัสพนักงาน)</button>
+                     <button onClick={exportRegisteredToday} className="col-span-2 bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Download className="w-4 h-4"/> รายงานผู้ลงทะเบียนวันนี้</button>
 
                      <button onClick={showAnalyticsMenu} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><PieChart className="w-4 h-4"/> Analytics</button>
                      <button onClick={showDailyReportMenu} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><BarChart2 className="w-4 h-4"/> Daily Report</button>

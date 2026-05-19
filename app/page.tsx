@@ -12,10 +12,8 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-// 🌟 เวอร์ชันของแอป (ระบบจะเคลียร์แคช 100% อัตโนมัติเมื่อค่านี้เปลี่ยน)
-const APP_VERSION = "2.1.5";
+const APP_VERSION = "2.2.0";
 
-  // 🌟 ฟังก์ชันแปลง VAPID Key (วางไว้นอก Component หรือบนสุดของไฟล์)
   const urlBase64ToUint8Array = (base64String: string) => {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
     const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
@@ -35,17 +33,10 @@ const Toast = Swal.mixin({
     popup: '!bg-slate-800/90 dark:!bg-white/90 !backdrop-blur-md !border-0 !shadow-lg !rounded-full !px-4 !py-2 !w-auto !min-w-0 !mt-4',
     title: '!text-[12px] !font-bold !text-white dark:!text-slate-900 !m-0 !p-0',
     icon: '!hidden', 
-  },
-  didOpen: (toast) => {
-    toast.addEventListener('mouseenter', Swal.stopTimer)
-    toast.addEventListener('mouseleave', Swal.resumeTimer)
   }
 });
 
 export default function Home() {
-  // ==========================================
-  // 🌟 1. STATES
-  // ==========================================
   const [state, setState] = useState<AppState | null>(null)
   const [admin, setAdmin] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
@@ -65,7 +56,6 @@ export default function Home() {
   const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
   const [manualPreviews, setManualPreviews] = useState<any[]>([]);
 
-  // 🌟 Tab, Nav, Sub-tab & History State
   const [activeTab, setActiveTab] = useState<'home' | 'queue' | 'notifications' | 'profile'>('home');
   const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'pending'>('waiting'); 
   const [showNav, setShowNav] = useState(true);
@@ -73,10 +63,8 @@ export default function Home() {
   const [notifyHistory, setNotifyHistory] = useState<{id: number, title: string, body: string, time: string, isRead: boolean}[]>([]);
   const [myPlayHistory, setMyPlayHistory] = useState<any[]>([]);
 
-  // 🌟 Custom Capsule Alert State 
   const [capsuleAlert, setCapsuleAlert] = useState<{title: string, body: string, visible: boolean, onClick?: () => void}>({title: '', body: '', visible: false});
 
-  // 🌟 Modal State for Court Manager
   const [isCourtManagerOpen, setIsCourtManagerOpen] = useState(false);
   const [newCourtName, setNewCourtName] = useState('');
 
@@ -97,9 +85,6 @@ export default function Home() {
   const avgMatchDuration = state?.avgMatchDuration && state.avgMatchDuration > 0 ? state.avgMatchDuration : 15;
   const [pausedIds, setPausedIds] = useState<string[]>([]);
  
-  // ==========================================
-  // 🌟 2. HELPER FUNCTIONS & COMPUTATIONS
-  // ==========================================
   const estWaitMins = (() => {
     if (myWaitIndex === -1 || !myProfile || pausedIds.includes(myProfile.id)) return 0;
     
@@ -194,7 +179,6 @@ export default function Home() {
     return matches;
   }
 
-  // 🌟 3. PREVIEW COMPUTATIONS
   const availableCourts = (state?.courtNames || []).filter(cn => !(state?.playing || []).find(p => p.court === cn));
   const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
   const availableWaitingView = activeWaiting.filter(p => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id)); 
@@ -204,17 +188,12 @@ export default function Home() {
         ? (extractBestMatch(availableWaitingView, matchHistory) ? getAutoNextMatches(availableWaitingView, remainingSlots, matchMode, matchHistory) : []) 
         : [];
   
-  // ให้เรียง Manual ขึ้นก่อน แล้วต่อด้วย Auto (เติมในสล็อตคอร์ทที่ยังว่าง)
   const allPreviews = [...manualPreviews, ...autoMatches];
 
   const myStartLogs = myPlayHistory.filter(h => h.action.toLowerCase().includes('start') || h.action.includes('ลงสนาม'));
   const realPlayCount = myStartLogs.length;
   const realPlayTime = realPlayCount * avgMatchDuration; 
 
-  // ==========================================
-  // 🌟 4. USE EFFECTS & NOTIFICATION LOGIC
-  // ==========================================
-  
   const notifiedStandby = useRef(false);
   const notifiedPlay = useRef(false);
 
@@ -240,12 +219,6 @@ export default function Home() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW Reg Failed', err));
-    }
-  }, []);
-
   const playAlertSound = () => {
     try { const audio = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock_2.ogg'); audio.play().catch(() => {}); } catch(e) {}
   };
@@ -260,7 +233,6 @@ export default function Home() {
     }
   }, []);
 
-  // 🌟 แก้ไขฟังก์ชัน requestNotify ใหม่
   const requestNotify = async () => {
     if (!myProfile) return Toast.fire({ title: '⚠️ กรุณา Check in ก่อนเปิดแจ้งเตือน' });
     if (!('Notification' in window)) return Toast.fire({ title: '❌ เบราว์เซอร์ไม่รองรับแจ้งเตือน' });
@@ -270,21 +242,6 @@ export default function Home() {
 
     if (perm === 'granted') {
       try {
-        const currentProfile = myProfile;
-        const currentSkill = getMySkillLevel();
-        const adminAuth = localStorage.getItem('adminAuth');
-        const appVer = localStorage.getItem('appVersion');
-        const history = localStorage.getItem('localMatchHistory');
-        
-        localStorage.clear();
-        sessionStorage.clear();
-        
-        localStorage.setItem('myProfile', JSON.stringify(currentProfile));
-        localStorage.setItem('myProfileSkill', currentSkill.toString());
-        if (adminAuth) localStorage.setItem('adminAuth', adminAuth);
-        if (appVer) localStorage.setItem('appVersion', appVer);
-        if (history) localStorage.setItem('localMatchHistory', history);
-
         const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
         if (!vapidPublicKey) return Toast.fire({ title: '⚠️ ลืมตั้งค่า VAPID Key ใน .env' });
 
@@ -294,19 +251,16 @@ export default function Home() {
           applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
         });
 
-        // ส่งข้อมูลไปบันทึกลง Supabase
         const res = await fetch('/api/webpush', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'subscribe', subscription, userId: currentProfile.id })
+          body: JSON.stringify({ action: 'subscribe', subscription, userId: myProfile.id })
         });
 
         if (!res.ok) throw new Error('Failed to subscribe on backend');
 
         Toast.fire({ title: '✅ เปิดระบบอนุญาตแจ้งเตือนสมบูรณ์!' });
-        refresh(false); // ซอฟต์รีเฟรชอัปเดตสถานะ
       } catch (error) {
-        console.error('Push Error:', error);
         Toast.fire({ title: '⚠️ ไม่สามารถบันทึก Token ได้ (ใช้แจ้งเตือนในแอปแทน)' });
       }
     } else {
@@ -314,40 +268,7 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
-    const hasPrompted = localStorage.getItem('appNotiPrompted');
-    if (!hasPrompted && 'Notification' in window && Notification.permission !== 'granted') {
-      Swal.fire({
-        title: '🔔 เปิดตั้งค่าการแจ้งเตือน',
-        html: `
-          <div class="text-sm text-slate-600 text-left space-y-2">
-            <p>เพื่อไม่ให้คุณพลาดคิวลงสนาม!</p>
-            <p class="text-blue-600 font-bold">1. กรุณากด "เปิดตั้งค่าการแจ้งเตือน" (Allow)</p>
-            <p class="text-green-600 font-bold">2. แนะนำให้กด Share > "Add to Home Screen"</p>
-          </div>
-        `,
-        confirmButtonText: 'เปิดตั้งค่าการแจ้งเตือน', 
-        confirmButtonColor: '#2563eb',
-        showCancelButton: true, 
-        cancelButtonText: 'ไว้ทีหลัง'
-      }).then((r) => {
-        if(r.isConfirmed) requestNotify();
-        localStorage.setItem('appNotiPrompted', 'true');
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    if (myWaitIndex === -1 || myWaitIndex >= 4) {
-      notifiedStandby.current = false;
-    }
-    if (!amIPlaying) {
-      notifiedPlay.current = false;
-    }
-  }, [myWaitIndex, amIPlaying]);
-
-  // 🌟 ฟังก์ชันการแจ้งเตือนหลัก + Deduplicate OS Push Check
-  const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue', skipOSPushIfGranted: boolean = false) => {
+  const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue') => {
     playAlertSound(); 
     addNotification(title, body);
     
@@ -355,65 +276,17 @@ export default function Home() {
       if ('vibrate' in navigator) navigator.vibrate(vibratePattern);
     } catch (e) {}
     
-    if (!skipOSPushIfGranted && 'Notification' in window && Notification.permission === 'granted') {
+    if ('Notification' in window && Notification.permission === 'granted') {
       try {
-        const n = new Notification(title, { 
-          body: body, 
-          icon: '/icon.png',
-          badge: '/icon.png'
-        });
-        
-        n.onclick = () => {
-           window.focus();
-           if (targetTab) handleTabClick(targetTab);
-        };
+        const n = new Notification(title, { body: body, icon: '/icon.png', badge: '/icon.png' });
+        n.onclick = () => { window.focus(); if (targetTab) handleTabClick(targetTab); };
         setTimeout(() => n.close(), 8000); 
-      } catch(e) {
-        try {
-          if ('serviceWorker' in navigator) {
-            const reg = await navigator.serviceWorker.ready;
-            reg.showNotification(title, { body, icon: '/icon.png', vibrate: vibratePattern, badge: '/icon.png' } as any);
-          }
-        } catch(swErr) {}
-      }
+      } catch(e) {}
     }
     
-    setCapsuleAlert({ 
-      title, 
-      body, 
-      visible: true, 
-      onClick: () => targetTab && handleTabClick(targetTab) 
-    });
+    setCapsuleAlert({ title, body, visible: true, onClick: () => targetTab && handleTabClick(targetTab) });
     setTimeout(() => setCapsuleAlert(prev => ({...prev, visible: false})), 6000);
   };
-
-  // 🌟 ตรวจจับการเปลี่ยนแปลงคิวและยิงเตือน (เอา skipOSPush ออกเพื่อบังคับหน้าเว็บยิงเอง 100%)
-  useEffect(() => {
-    if (!myProfile) return;
-
-    if (myWaitIndex >= 0 && myWaitIndex < 4) {
-      if (!notifiedStandby.current) {
-        triggerNotification('🔥 เตรียมตัววอร์ม!', `คุณ ${myProfile.name} ใกล้ถึงคิวของคุณแล้ว (คิวที่ ${myWaitIndex + 1})`, [500, 200, 500], 'queue', false);
-        notifiedStandby.current = true;
-      }
-    }
-
-    if (amIPlaying && myActiveCourt) {
-      if (!notifiedPlay.current) {
-        let mate = '', opp1 = '', opp2 = '';
-        if (myActiveCourt.p1Id === myProfile.id) { mate = myActiveCourt.p2Name; opp1 = myActiveCourt.p3Name; opp2 = myActiveCourt.p4Name; }
-        else if (myActiveCourt.p2Id === myProfile.id) { mate = myActiveCourt.p1Name; opp1 = myActiveCourt.p3Name; opp2 = myActiveCourt.p4Name; }
-        else if (myActiveCourt.p3Id === myProfile.id) { mate = myActiveCourt.p4Name; opp1 = myActiveCourt.p1Name; opp2 = myActiveCourt.p2Name; }
-        else if (myActiveCourt.p4Id === myProfile.id) { mate = myActiveCourt.p3Name; opp1 = myActiveCourt.p1Name; opp2 = myActiveCourt.p2Name; }
-
-        const msg = `คุณ ${myProfile.name} & ${mate} vs ${opp1} & ${opp2} ไปลุยกันเลยที่คอร์ท ${myActiveCourt.court} นะจร๊ะ`;
-        
-        triggerNotification('🏸 ถึงคิวคุณแล้ว!', msg, [500, 200, 500, 200, 1000, 200, 1000], 'home', false);
-        
-        notifiedPlay.current = true;
-      }
-    }
-  }, [state, myProfile, amIPlaying, myActiveCourt, myWaitIndex]);
 
   const toggleWakeLock = async () => {
     if (isAwake) {
@@ -430,24 +303,10 @@ export default function Home() {
           setIsAwake(true);
           Toast.fire({ title: '☀️ เปิดโหมดห้ามหน้าจอดับ' });
           wakeLockRef.current.addEventListener('release', () => setIsAwake(false));
-        } else {
-          Toast.fire({ title: '⚠️ Browser ไม่รองรับระบบนี้' });
         }
-      } catch (err: any) {
-        Toast.fire({ title: `❌ ล็อคหน้าจอไม่ได้: ${err.message}` });
-      }
+      } catch (err: any) { Toast.fire({ title: `❌ ล็อคหน้าจอไม่ได้: ${err.message}` }); }
     }
   };
-
-  useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible' && isAwake && 'wakeLock' in navigator) {
-        try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch(e) {}
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isAwake]);
 
   const fetchProfileHistory = async () => {
     if (!myProfile) return;
@@ -465,16 +324,13 @@ export default function Home() {
   const refresh = async (showLoader = false, forceClearCache = false) => { 
     if(showLoader) setIsLoading(true);
     try {
-      const headers: HeadersInit | undefined = forceClearCache 
-        ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } 
-        : undefined;
+      const headers: HeadersInit | undefined = forceClearCache ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } : undefined;
       const res = await fetch('/api/state', { cache: 'no-store', headers }); 
       const d = await res.json(); 
       setState(d)
       if (d.globalShowPreview !== undefined) setGlobalPreview(d.globalShowPreview);
       if (d.playStartTime) setPlayStartTime(d.playStartTime);
       if (d.playEndTime) setPlayEndTime(d.playEndTime);
-      
       if (myProfile) { fetchProfileHistory(); }
     } catch(e) {}
     finally { setIsLoading(false); }
@@ -507,7 +363,6 @@ export default function Home() {
     return () => clearInterval(t);
   }, [])
 
-  // ⚡ AUTO END MATCH (7 นาที)
   useEffect(() => {
     if (!admin || !state?.playing || !avgMatchDuration) return;
     const interval = setInterval(() => {
@@ -529,9 +384,6 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [admin, state?.playing, avgMatchDuration, loadingCourts, state?.autoMatch]);
 
-  // ==========================================
-  // 🌟 6. ACTION FUNCTIONS
-  // ==========================================
   const recordMatchToHistory = (ids: string[]) => {
     if (ids.length !== 4) return;
     const newRecord = { t1: [ids[0], ids[1]], t2: [ids[2], ids[3]] };
@@ -575,31 +427,21 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set', key: 'GlobalShowPreview', value: checked.toString() })
       });
-      Toast.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว' });
+      Toast.fire({ title: '✅ อัปเดตการตั้งค่าโชว์คิวถัดไปแล้ว' });
       refresh(false);
     }
   }
 
   const savePlayTime = async () => {
     Toast.fire({ title: 'ℹ️ Saving Time...' });
-    await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set', key: 'PlayStartTime', value: playStartTime })
-    });
-    await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set', key: 'PlayEndTime', value: playEndTime })
-    });
+    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayStartTime', value: playStartTime }) });
+    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayEndTime', value: playEndTime }) });
     Toast.fire({ title: '✅ Play Time Saved' });
     refresh(false);
   }
 
   const runApi = async (url: string, body?: any, showLoader = true) => {
-    if (showLoader) {
-      Swal.fire({ title: 'กำลังประมวลผล...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-    }
+    if (showLoader) Swal.fire({ title: 'กำลังประมวลผล...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
     try {
       const res = await fetch(url, { method: body ? 'POST' : 'GET', headers: body ? {'content-type':'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined });
       const data = await res.json(); 
@@ -631,57 +473,33 @@ export default function Home() {
   }
 
   const handleApproveProcess = async (p: any) => {
-    Swal.fire({title: 'กำลังตรวจสอบข้อมูล...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading()});
-    
-    let isNewPlayer = !p.playCount || p.playCount === 0 || String(p.id).startsWith('G') || !p.timestamp;
-    
-    try {
-      if (!String(p.id).startsWith('G')) {
-        const res = await fetch(`/api/player?q=${p.id}`);
-        const data = await res.json();
-        let playerList: any[] = [];
-        if (Array.isArray(data)) playerList = data;
-        else if (data.list && Array.isArray(data.list)) playerList = data.list;
-        else if (data.data && Array.isArray(data.data)) playerList = data.data;
-        else if (data.found && data.id) playerList = [data];
-
-        isNewPlayer = playerList.length === 0;
-      }
-    } catch (e) { console.error(e); }
-
-    Swal.close();
-
-    if (isNewPlayer) {
-      Swal.fire({
-        title: 'ตรวจสอบโปรไฟล์สมาชิกใหม่',
-        html: `
-          <div class="flex flex-col gap-3 text-left mt-2">
-            <div><label class="text-[10px] font-bold text-slate-500">Employee ID / Guest ID</label><input id="apId" value="${p.id}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
-            <div><label class="text-[10px] font-bold text-slate-500">Display Name</label><input id="apName" value="${p.name}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
-            <div><label class="text-[10px] font-bold text-slate-500">Skill Level</label>
-              <select id="apSkill" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="1" ${p.skill===1?'selected':''}>1 (มือใหม่)</option>
-                <option value="2" ${p.skill===2?'selected':''}>2 (เริ่มมีทรง)</option>
-                <option value="3" ${p.skill===3?'selected':''}>3 (พื้นฐาน)</option>
-                <option value="4" ${p.skill===4?'selected':''}>4 (สายคุม)</option>
-                <option value="5" ${p.skill===5?'selected':''}>5 (ปีศาจ)</option>
-              </select>
-            </div>
+    Swal.fire({
+      title: '✏️ ตรวจสอบก่อนอนุมัติ',
+      html: `
+        <div class="flex flex-col gap-3 text-left mt-2">
+          <div><label class="text-[10px] font-bold text-slate-500">Employee ID / Guest ID</label><input id="apId" value="${p.id}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
+          <div><label class="text-[10px] font-bold text-slate-500">Display Name</label><input id="apName" value="${p.name}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
+          <div><label class="text-[10px] font-bold text-slate-500">Skill Level</label>
+            <select id="apSkill" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="1" ${p.skill===1?'selected':''}>1 (มือใหม่)</option>
+              <option value="2" ${p.skill===2?'selected':''}>2 (เริ่มมีทรง)</option>
+              <option value="3" ${p.skill===3?'selected':''}>3 (พื้นฐาน)</option>
+              <option value="4" ${p.skill===4?'selected':''}>4 (สายคุม)</option>
+              <option value="5" ${p.skill===5?'selected':''}>5 (ปีศาจ)</option>
+            </select>
           </div>
-        `,
-        showCancelButton: true, confirmButtonText: 'บันทึกและอนุมัติ', confirmButtonColor: '#2563eb',
-        preConfirm: () => ({ oldId: p.id, newId: (document.getElementById('apId') as HTMLInputElement).value, name: (document.getElementById('apName') as HTMLInputElement).value, skill: Number((document.getElementById('apSkill') as HTMLSelectElement).value) })
-      }).then(async r => {
-        if(r.isConfirmed) {
-          await fetch('/api/update-player', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(r.value) });
-          await runApi('/api/approve', { id: r.value.newId }, true);
-          Toast.fire({ title: '✅ อนุมัติและเพิ่มเข้าคิวแล้ว' });
-        }
-      });
-    } else {
-      await runApi('/api/approve', { id: p.id }, true);
-      Toast.fire({ title: '✅ อนุมัติลงคิวเรียบร้อย' });
-    }
+        </div>
+      `,
+      showCancelButton: true, confirmButtonText: 'บันทึกและอนุมัติ', confirmButtonColor: '#2563eb',
+      preConfirm: () => ({ oldId: p.id, newId: (document.getElementById('apId') as HTMLInputElement).value, name: (document.getElementById('apName') as HTMLInputElement).value, skill: Number((document.getElementById('apSkill') as HTMLSelectElement).value) })
+    }).then(async r => {
+      if(r.isConfirmed) {
+        Swal.fire({title: 'กำลังตรวจสอบข้อมูล...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading()});
+        await fetch('/api/update-player', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(r.value) });
+        await runApi('/api/approve', { id: r.value.newId }, true);
+        Toast.fire({ title: '✅ อนุมัติลงคิวเรียบร้อย' });
+      }
+    });
   }
 
   const handleBulkApprove = async () => {
@@ -716,49 +534,29 @@ export default function Home() {
 
   const executeAutoMatch = async () => {
     const availableWaiters = activeWaiting.filter(p => !manualPreviews.flatMap(m => m.teams.flat().map((x:any) => x.id)).includes(p.id));
-    if (availableWaiters.length < 4) {
-      Toast.fire({ title: '⚠️ คิวพร้อมเล่นไม่ถึง 4 คน' });
-      return;
-    }
+    if (availableWaiters.length < 4) { Toast.fire({ title: '⚠️ คิวพร้อมเล่นไม่ถึง 4 คน' }); return; }
 
     const availableCourtsCount = state?.courtNames.filter(cn => !state.playing.find(p => p.court === cn)).length || 0;
     const matchTarget = Math.max(1, availableCourtsCount); 
-
     const matches = getAutoNextMatches(availableWaiters, matchTarget, matchMode, matchHistory);
 
-    if (matches.length === 0) {
-      Toast.fire({ title: '⚠️ ระบบหาคู่ที่เหมาะสมไม่ได้' });
-      return;
-    }
-
+    if (matches.length === 0) { Toast.fire({ title: '⚠️ ระบบหาคู่ที่เหมาะสมไม่ได้' }); return; }
     Toast.fire({ title: `⏳ กำลังปล่อยคิว...` });
 
     for (const m of matches) {
       const ids = [m.teams[0][0].id, m.teams[0][1].id, m.teams[1][0].id, m.teams[1][1].id];
       recordMatchToHistory(ids); 
-      await fetch('/api/manual-match', {
-        method: 'POST',
-        headers: {'content-type':'application/json'},
-        body: JSON.stringify({ ids })
-      });
+      await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids }) });
     }
-    refresh(false);
-    Toast.fire({ title: '✅ ปล่อยคิวสำเร็จ!' });
+    refresh(false); Toast.fire({ title: '✅ ปล่อยคิวสำเร็จ!' });
   }
 
   const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
     const courtToLoad = targetCourtName || matchData.court || '';
     if (courtToLoad) setLoadingCourts(prev => [...prev, courtToLoad]); 
-    const ids = [
-      matchData.teams[0][0].id, matchData.teams[0][1].id, 
-      matchData.teams[1][0].id, matchData.teams[1][1].id
-    ];
+    const ids = [ matchData.teams[0][0].id, matchData.teams[0][1].id, matchData.teams[1][0].id, matchData.teams[1][1].id ];
     recordMatchToHistory(ids); 
-    await fetch('/api/manual-match', {
-      method: 'POST',
-      headers: {'content-type':'application/json'},
-      body: JSON.stringify({ ids, court: targetCourtName })
-    });
+    await fetch('/api/manual-match', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ ids, court: targetCourtName }) });
     
     setManualPreviews(prev => prev.filter(m => m !== matchData));
     await refresh(false);
@@ -766,10 +564,8 @@ export default function Home() {
     Toast.fire({ title: '✅ ลงสนามเรียบร้อย!' });
   }
 
-  // 🌟 Toggle Select พร้อมรีเฟรชถ้ากดยกเลิกติ๊กจนหมด
   const toggleSelect = (pId: string) => {
     if(!admin) return;
-    if (matchMode !== 'manual') setMatchMode('manual');
     setSelected(prev => {
        if (prev.includes(pId)) {
           const newSel = prev.filter(x => x !== pId);
@@ -782,45 +578,23 @@ export default function Home() {
     });
   };
 
-  // 🌟 Manual Match Override - Requirement 3: แก้ไขทีมให้ตรงกับการคลิกเลือก
   const handleMatchSelected = async () => {
     if (selected.length !== 4) return Toast.fire({ title: '⚠️ เลือก 4 คนให้พอดีเป๊ะครับ' }); 
-    
     const selectedPlayers = (selected.map(id => state?.waiting?.find(p => p.id === id)).filter(Boolean) as Player[]) || [];
-    
     if (selectedPlayers.length !== 4) return Toast.fire({ title: '⚠️ ดึงข้อมูลผู้เล่นไม่ครบ' });
 
-    const availableCourtsCount = state?.courtNames.filter(cn => !state.playing.find(p => p.court === cn)).length || 0;
-    if (manualPreviews.length >= availableCourtsCount) {
-       return Toast.fire({ title: '⚠️ ไม่สามารถแทรกคิวเพิ่มได้ (คอร์ทเตรียมเต็มแล้ว)' });
-    }
-
-    let matchData;
-    if (matchMode === 'manual') {
-      matchData = { isManual: true, matchNumber: Date.now(), teams: [ [selectedPlayers[0], selectedPlayers[1]], [selectedPlayers[2], selectedPlayers[3]] ], diff: 0 };
-    } else {
-      const balanced = balanceTeams(selectedPlayers, matchHistory);
-      matchData = { isManual: true, matchNumber: Date.now(), teams: [ [balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]] ], diff: balanced.diff };
-    }
+    let matchData = { isManual: true, matchNumber: Date.now(), teams: [ [selectedPlayers[0], selectedPlayers[1]], [selectedPlayers[2], selectedPlayers[3]] ], diff: 0 };
     
-    if (state?.autoMatch) {
-        const cn = availableCourts[manualPreviews.length];
-        if (cn) confirmSpecificMatch(matchData, cn); else Toast.fire({ title: '⚠️ ไม่มีคอร์ทว่าง' });
-        setSelected([]); 
-    } else {
-        setManualPreviews(prev => [...prev, matchData]); 
-        setSelected([]); 
-        Toast.fire({ title: '✅ จัดทีมแทรกคิวสำเร็จ!' });
-    }
+    setManualPreviews(prev => [...prev, matchData]); 
+    setSelected([]); 
+    Toast.fire({ title: '✅ จัดทีมแทรกคิวถัดไปสำเร็จ (FIFO)!' });
   }
 
   const openCheckIn = () => {
     Swal.fire({
       title: '📝 Check In',
       html: `
-        <style>
-          .swal2-container .swal2-popup { overflow: visible !important; padding-bottom: 2rem; }
-        </style>
+        <style> .swal2-container .swal2-popup { overflow: visible !important; padding-bottom: 2rem; } </style>
         <div class="flex flex-col gap-4 text-left w-full relative">
           
           <input type="hidden" id="currentMode" value="search">
@@ -858,7 +632,7 @@ export default function Home() {
 
           <div id="secNew" class="hidden flex-col gap-3 min-h-[180px]">
               <label class="flex items-center gap-2 text-sm font-bold text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg cursor-pointer hover:bg-amber-100 transition shadow-sm">
-                <input type="checkbox" id="swGuest" class="w-4 h-4 text-amber-600"> <span class="flex flex-col">Guest <span class="text-[10px] font-normal text-slate-500">ไม่มี ID พนักงาน ระบบจะสุ่มให้</span></span>
+                <input type="checkbox" id="swGuest" class="w-4 h-4 text-amber-600"> <span class="flex flex-col">Guest <span class="text-[10px] font-normal text-slate-500">ไม่มี ID พนักงาน ระบบจะสุ่มให้ (ตัวเลขล้วน)</span></span>
               </label>
               
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
@@ -889,14 +663,11 @@ export default function Home() {
                 <p class="text-xs text-red-600 font-bold mb-1">⚠️ ใช้กรณีไหน?</p>
                 <p class="text-[10px] text-red-500 leading-tight">ใช้เมื่อคุณ <b>"มีชื่ออยู่ในคิวแล้ว"</b> แต่เผลอเคลียร์แคช หรือหน้าจอเปลี่ยนมือถือ ทำให้ระบบไม่จำหน้าโปรไฟล์คุณ (ไม่ต้องกดเข้าคิวใหม่ให้ซ้ำซ้อน)</p>
              </div>
-             
              <div class="flex gap-2 relative">
                 <input id="syncSearchInput" class="w-full p-3 border border-red-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none placeholder-slate-400" placeholder="🔍 ค้นหาชื่อเพื่อดึงโปรไฟล์กลับมา..." autocomplete="off">
              </div>
-             
              <div id="syncTableContainer" class="w-full bg-white border border-slate-200 shadow-sm rounded-lg hidden max-h-48 overflow-y-auto mt-1"></div>
           </div>
-
         </div>
       `,
       didOpen: () => {
@@ -904,26 +675,19 @@ export default function Home() {
         const tabSearch = document.getElementById('tabSearch') as HTMLButtonElement;
         const tabNew = document.getElementById('tabNew') as HTMLButtonElement;
         const tabSync = document.getElementById('tabSync') as HTMLButtonElement;
-        
         const secSearch = document.getElementById('secSearch') as HTMLDivElement;
         const secNew = document.getElementById('secNew') as HTMLDivElement;
         const secSync = document.getElementById('secSync') as HTMLDivElement;
 
         const switchTab = (mode: string) => {
           currentMode.value = mode;
-          
           tabSearch.className = mode === 'search' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
           tabNew.className = mode === 'new' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-white text-blue-600 transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-slate-500 hover:text-slate-700 transition-all bg-transparent shadow-none';
           tabSync.className = mode === 'sync' ? 'flex-1 py-2 text-[11px] font-bold rounded-md shadow-sm bg-red-500 text-white transition-all' : 'flex-1 py-2 text-[11px] font-bold rounded-md text-red-500 hover:text-red-700 transition-all bg-transparent shadow-none';
 
-          secSearch.classList.toggle('hidden', mode !== 'search');
-          secSearch.classList.toggle('flex', mode === 'search');
-          
-          secNew.classList.toggle('hidden', mode !== 'new');
-          secNew.classList.toggle('flex', mode === 'new');
-
-          secSync.classList.toggle('hidden', mode !== 'sync');
-          secSync.classList.toggle('flex', mode === 'sync');
+          secSearch.classList.toggle('hidden', mode !== 'search'); secSearch.classList.toggle('flex', mode === 'search');
+          secNew.classList.toggle('hidden', mode !== 'new'); secNew.classList.toggle('flex', mode === 'new');
+          secSync.classList.toggle('hidden', mode !== 'sync'); secSync.classList.toggle('flex', mode === 'sync');
         };
 
         tabSearch.onclick = () => switchTab('search');
@@ -934,32 +698,22 @@ export default function Home() {
         const swTableContainer = document.getElementById('swTableContainer') as HTMLDivElement;
         const swClearBtn = document.getElementById('swClearBtn') as HTMLButtonElement;
         const searchSelectedPreview = document.getElementById('searchSelectedPreview') as HTMLDivElement;
-        
         const hidId = document.getElementById('hidId') as HTMLInputElement;
         const hidName = document.getElementById('hidName') as HTMLInputElement;
         const hidSkill = document.getElementById('hidSkill') as HTMLInputElement;
 
         const lockFields = (p: any) => {
            hidId.value = p.id; hidName.value = p.name; hidSkill.value = p.skill;
-           
            document.getElementById('previewId')!.textContent = 'ID: ' + p.id;
            document.getElementById('previewName')!.textContent = p.name;
            document.getElementById('previewSkill')!.textContent = 'Lv ' + p.skill;
-           
-           searchSelectedPreview.classList.remove('hidden');
-           swSearch.classList.add('hidden');
-           swTableContainer.classList.add('hidden');
-           swClearBtn.classList.remove('hidden');
+           searchSelectedPreview.classList.remove('hidden'); swSearch.classList.add('hidden'); swTableContainer.classList.add('hidden'); swClearBtn.classList.remove('hidden');
         };
 
         const unlockFields = () => {
            hidId.value = ''; hidName.value = ''; hidSkill.value = '';
-           searchSelectedPreview.classList.add('hidden');
-           swSearch.classList.remove('hidden');
-           swSearch.value = '';
-           swClearBtn.classList.add('hidden');
-           swTableContainer.innerHTML = '';
-           swSearch.focus();
+           searchSelectedPreview.classList.add('hidden'); swSearch.classList.remove('hidden'); swSearch.value = '';
+           swClearBtn.classList.add('hidden'); swTableContainer.innerHTML = ''; swSearch.focus();
         };
 
         swClearBtn.addEventListener('click', unlockFields);
@@ -969,46 +723,27 @@ export default function Home() {
           clearTimeout(timeout);
           swTableContainer.innerHTML = '';
           if(swSearch.value.length < 2) { swTableContainer.classList.add('hidden'); return; }
-          
           timeout = setTimeout(async () => {
             try {
               const res = await fetch(`/api/player?q=${swSearch.value}`);
               const data = await res.json();
-              
-              let playerList = [];
-              if (Array.isArray(data)) playerList = data;
-              else if (data.list && Array.isArray(data.list)) playerList = data.list;
-              else if (data.data && Array.isArray(data.data)) playerList = data.data;
-              else if (data.found && data.id) playerList = [data];
-
+              let playerList = Array.isArray(data) ? data : (data.list || data.data || (data.found ? [data] : []));
               swTableContainer.classList.remove('hidden');
-
               if(playerList.length > 0) {
-                const table = document.createElement('table');
-                table.className = 'w-full text-left text-xs';
+                const table = document.createElement('table'); table.className = 'w-full text-left text-xs';
                 table.innerHTML = '<thead class="bg-slate-100 sticky top-0"><tr><th class="p-2">ID</th><th class="p-2">Name</th><th class="p-2 text-center">Lv</th><th class="p-2 text-center">Action</th></tr></thead>';
                 const tbody = document.createElement('tbody');
-                
                 playerList.forEach((p: any) => {
-                  const tr = document.createElement('tr');
-                  tr.className = 'border-b border-slate-100 hover:bg-blue-50 transition-colors cursor-pointer';
+                  const tr = document.createElement('tr'); tr.className = 'border-b border-slate-100 hover:bg-blue-50 transition-colors cursor-pointer';
                   tr.onmousedown = (e) => { e.preventDefault(); lockFields(p); };
-                  
                   const tdId = document.createElement('td'); tdId.className = 'p-2 font-bold text-blue-600'; tdId.textContent = p.id;
                   const tdName = document.createElement('td'); tdName.className = 'p-2 font-medium'; tdName.textContent = p.name;
                   const tdLv = document.createElement('td'); tdLv.className = 'p-2 text-center'; tdLv.innerHTML = `<span class="bg-slate-200 px-1.5 py-0.5 rounded shadow-inner font-bold">${p.skill}</span>`;
                   const tdAction = document.createElement('td'); tdAction.className = 'p-2 text-center';
-                  
-                  const btn = document.createElement('button');
-                  btn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform';
-                  btn.textContent = 'Select';
-                  
-                  tdAction.appendChild(btn);
-                  tr.append(tdId, tdName, tdLv, tdAction);
-                  tbody.appendChild(tr);
+                  const btn = document.createElement('button'); btn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform'; btn.textContent = 'Select';
+                  tdAction.appendChild(btn); tr.append(tdId, tdName, tdLv, tdAction); tbody.appendChild(tr);
                 });
-                table.appendChild(tbody);
-                swTableContainer.appendChild(table);
+                table.appendChild(tbody); swTableContainer.appendChild(table);
               } else {
                 swTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูลผู้เล่น <br/>(กดแท็บ "มาครั้งแรก" ด้านบนเพื่อลงทะเบียน)</div>';
               }
@@ -1022,12 +757,8 @@ export default function Home() {
         swGuest.addEventListener('change', (e) => {
            const isGuest = (e.target as HTMLInputElement).checked;
            swID.disabled = isGuest; 
-           if(isGuest) { 
-             swID.classList.add('bg-slate-100', 'cursor-not-allowed', 'opacity-50');
-             swID.value = '';
-           } else { 
-             swID.classList.remove('bg-slate-100', 'cursor-not-allowed', 'opacity-50');
-           }
+           if(isGuest) { swID.classList.add('bg-slate-100', 'cursor-not-allowed', 'opacity-50'); swID.value = ''; } 
+           else { swID.classList.remove('bg-slate-100', 'cursor-not-allowed', 'opacity-50'); }
         });
 
         const syncSearchInput = document.getElementById('syncSearchInput') as HTMLInputElement;
@@ -1038,152 +769,97 @@ export default function Home() {
           clearTimeout(syncTimeout);
           syncTableContainer.innerHTML = '';
           if(syncSearchInput.value.length < 2) { syncTableContainer.classList.add('hidden'); return; }
-          
           syncTimeout = setTimeout(async () => {
             try {
               const res = await fetch(`/api/player?q=${syncSearchInput.value}`);
               const data = await res.json();
-              
-              let playerList = [];
-              if (Array.isArray(data)) playerList = data;
-              else if (data.list && Array.isArray(data.list)) playerList = data.list;
-              else if (data.data && Array.isArray(data.data)) playerList = data.data;
-              else if (data.found && data.id) playerList = [data];
-
+              let playerList = Array.isArray(data) ? data : (data.list || data.data || (data.found ? [data] : []));
               syncTableContainer.classList.remove('hidden');
-
               if(playerList.length > 0) {
-                const table = document.createElement('table');
-                table.className = 'w-full text-left text-xs';
+                const table = document.createElement('table'); table.className = 'w-full text-left text-xs';
                 table.innerHTML = '<thead class="bg-red-100 sticky top-0 text-red-800"><tr><th class="p-2">Name</th><th class="p-2 text-center">Action</th></tr></thead>';
                 const tbody = document.createElement('tbody');
-                
                 playerList.forEach((p: any) => {
-                  const tr = document.createElement('tr');
-                  tr.className = 'border-b border-slate-100 hover:bg-red-50 transition-colors';
-                  
+                  const tr = document.createElement('tr'); tr.className = 'border-b border-slate-100 hover:bg-red-50 transition-colors';
                   const tdName = document.createElement('td'); tdName.className = 'p-2 font-bold text-slate-700'; tdName.textContent = p.name;
                   const tdAction = document.createElement('td'); tdAction.className = 'p-2 text-center';
-                  
-                  const btn = document.createElement('button');
-                  btn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform';
-                  btn.textContent = 'Sync Device';
+                  const btn = document.createElement('button'); btn.className = 'bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform'; btn.textContent = 'Sync Device';
                   btn.onclick = (e) => {
                     e.preventDefault();
                     const profileData = { id: p.id, name: p.name };
                     localStorage.setItem('myProfile', JSON.stringify(profileData));
                     localStorage.setItem('myProfileSkill', p.skill.toString());
                     setMyProfile(profileData);
-                    Swal.close();
-                    Toast.fire({ title: '✅ กู้คืนโปรไฟล์สำเร็จ!' });
-                    setTimeout(() => window.location.reload(), 1000);
+                    Swal.close(); Toast.fire({ title: '✅ กู้คืนโปรไฟล์สำเร็จ!' }); setTimeout(() => window.location.reload(), 1000);
                   };
-                  
-                  tdAction.appendChild(btn);
-                  tr.append(tdName, tdAction);
-                  tbody.appendChild(tr);
+                  tdAction.appendChild(btn); tr.append(tdName, tdAction); tbody.appendChild(tr);
                 });
-                table.appendChild(tbody);
-                syncTableContainer.appendChild(table);
+                table.appendChild(tbody); syncTableContainer.appendChild(table);
               } else {
                 syncTableContainer.innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">ไม่พบข้อมูล</div>';
               }
             } catch (e) {}
           }, 300);
         });
-
       },
       showCancelButton: true, confirmButtonText: 'Check In', confirmButtonColor: '#2563eb',
       preConfirm: async () => {
         const mode = (document.getElementById('currentMode') as HTMLInputElement).value;
-
-        if (mode === 'sync') {
-            Swal.showValidationMessage('กรุณากดปุ่ม Sync Device ที่รายชื่อของคุณ');
-            return false;
-        } else if (mode === 'search') {
+        if (mode === 'sync') { Swal.showValidationMessage('กรุณากดปุ่ม Sync Device ที่รายชื่อของคุณ'); return false; } 
+        else if (mode === 'search') {
             const id = (document.getElementById('hidId') as HTMLInputElement).value;
             const name = (document.getElementById('hidName') as HTMLInputElement).value;
             const skill = (document.getElementById('hidSkill') as HTMLInputElement).value;
-            
-            if (!id) {
-              Swal.showValidationMessage('กรุณาค้นหาและเลือกรายชื่อผู้เล่นก่อน หรือไปที่แท็บลงทะเบียนใหม่');
-              return false;
-            }
+            if (!id) { Swal.showValidationMessage('กรุณาค้นหาและเลือกรายชื่อผู้เล่นก่อน หรือไปที่แท็บลงทะเบียนใหม่'); return false; }
             return { id, name, skill: Number(skill), isGuest: false };
         } else {
             const swGuest = document.getElementById('swGuest') as HTMLInputElement;
-            // 🌟 ตัด 000 ด้านหน้าออกก่อนลงทะเบียน
             let idVal = (document.getElementById('swID') as HTMLInputElement).value.trim().replace(/^0+/, ''); 
             const nameVal = (document.getElementById('swName') as HTMLInputElement).value.trim();
             const swSkill = document.getElementById('swSkill') as HTMLSelectElement;
-
             const isGuest = swGuest.checked;
+            
+            // Random Number 6 digits for guest
+            const finalId = isGuest ? Math.floor(100000 + Math.random() * 900000).toString() : idVal; 
 
             if(!isGuest && !idVal) { Swal.showValidationMessage('กรุณากรอกรหัสพนักงาน หรือเลือกเป็น Guest'); return false; }
             if(!nameVal) { Swal.showValidationMessage('กรุณากรอกชื่อเล่นที่ต้องการแสดง'); return false; }
 
-            // 🌟 เช็คชื่อซ้ำก่อนสมัครใหม่
             if (!isGuest) {
                try {
                  const res = await fetch(`/api/player?q=${nameVal}`);
                  const data = await res.json();
-                 let playerList: any[] = [];
-                 if (Array.isArray(data)) playerList = data;
-                 else if (data.list && Array.isArray(data.list)) playerList = data.list;
-                 else if (data.data && Array.isArray(data.data)) playerList = data.data;
-                 else if (data.found && data.id) playerList = [data];
-
-                 const isDup = playerList.some(p => p.name && p.name.toLowerCase() === nameVal.toLowerCase());
-                 if (isDup) {
-                   Swal.showValidationMessage('ชื่อนี้มีอยู่แล้ว กรุณาเปลี่ยนชื่อใหม่ที่ระบุตัวตนคุณได้ (เช่น เติมนามสกุล)');
-                   return false;
-                 }
+                 let playerList = Array.isArray(data) ? data : (data.list || data.data || (data.found ? [data] : []));
+                 const isDup = playerList.some((p: any) => p.name && p.name.toLowerCase() === nameVal.toLowerCase());
+                 if (isDup) { Swal.showValidationMessage('ชื่อนี้มีอยู่แล้ว กรุณาเปลี่ยนชื่อใหม่ที่ระบุตัวตนคุณได้'); return false; }
                } catch(e) {}
             }
-
-            return { id: isGuest ? undefined : idVal, name: nameVal, skill: Number(swSkill.value), isGuest }
+            return { id: finalId, name: nameVal, skill: Number(swSkill.value), isGuest }
         }
       }
     }).then(async (r) => {
       if(r.isConfirmed && r.value) {
-        
-        // 🌟 Auto Sync คนเก่า (ดักตอนกด Check in ซ้ำ)
-        const currentWaiters = state?.waiting || [];
-        const currentPending = state?.pending || [];
-        const currentPlaying = state?.playing || [];
-        
-        const isAlreadyActive = currentWaiters.some(p => p.id === r.value.id) || 
-                                currentPending.some(p => p.id === r.value.id) || 
-                                currentPlaying.some(c => c.p1Id === r.value.id || c.p2Id === r.value.id || c.p3Id === r.value.id || c.p4Id === r.value.id);
+        const currentWaiters = state?.waiting || []; const currentPending = state?.pending || []; const currentPlaying = state?.playing || [];
+        const isAlreadyActive = currentWaiters.some(p => p.id === r.value.id) || currentPending.some(p => p.id === r.value.id) || currentPlaying.some(c => c.p1Id === r.value.id || c.p2Id === r.value.id || c.p3Id === r.value.id || c.p4Id === r.value.id);
 
         if (isAlreadyActive) {
             const newProfile = { id: r.value.id, name: r.value.name };
             localStorage.setItem('myProfile', JSON.stringify(newProfile)); 
             localStorage.setItem('myProfileSkill', r.value.skill.toString());
             setMyProfile(newProfile);
-            if ('Notification' in window && Notification.permission === 'default') {
-                const perm = await Notification.requestPermission(); setNotifyPerm(perm);
-            }
-            setActiveTab('home'); 
-            Swal.fire({ title: '✅ ซิงค์ข้อมูลสำเร็จ', text: 'คุณมีคิวอยู่ในระบบแล้ว ซิงค์โปรไฟล์ให้เรียบร้อยโดยไม่ต้องต่อคิวใหม่', icon: 'success' });
-            setTimeout(() => window.location.reload(), 1500);
-            return;
+            if ('Notification' in window && Notification.permission === 'default') { const perm = await Notification.requestPermission(); setNotifyPerm(perm); }
+            setActiveTab('home'); Swal.fire({ title: '✅ ซิงค์ข้อมูลสำเร็จ', text: 'คุณมีคิวอยู่ในระบบแล้ว ซิงค์โปรไฟล์ให้เรียบร้อยโดยไม่ต้องต่อคิวใหม่', icon: 'success' });
+            setTimeout(() => window.location.reload(), 1500); return;
         }
 
         const res = await runApi('/api/checkin', r.value, false);
         if(res && (res.ok || res.status === 'success')) {
-          const newProfile = { id: r.value.id || res.generatedId || 'Guest', name: r.value.name };
+          const newProfile = { id: r.value.id, name: r.value.name };
           localStorage.setItem('myProfile', JSON.stringify(newProfile)); 
           localStorage.setItem('myProfileSkill', r.value.skill.toString()); 
           setMyProfile(newProfile);
-          
-          if ('Notification' in window && Notification.permission === 'default') {
-            const perm = await Notification.requestPermission();
-            setNotifyPerm(perm);
-          }
-
-          setActiveTab('home');
-          Toast.fire({ title: '✅ Checked in! Wait for approval.' });
+          if ('Notification' in window && Notification.permission === 'default') { const perm = await Notification.requestPermission(); setNotifyPerm(perm); }
+          setActiveTab('home'); Toast.fire({ title: '✅ Checked in! Wait for approval.' });
           setTimeout(() => window.location.reload(), 1500);
         } else { Toast.fire({ title: `❌ ${res?.message || 'Error checking in'}` }); }
       }
@@ -1198,20 +874,13 @@ export default function Home() {
         <input id="soSearch" class="w-full p-2 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none" placeholder="Name or ID" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : myProfile?.name || ''}">
       `,
       showCancelButton: true, confirmButtonText: 'Sign Out', confirmButtonColor: '#ef4444',
-      preConfirm: async () => {
-        const val = (document.getElementById('soSearch') as HTMLInputElement).value;
-        if(!val) return Swal.showValidationMessage('Please enter Name or ID');
-        return { id: val } 
-      }
+      preConfirm: async () => { const val = (document.getElementById('soSearch') as HTMLInputElement).value; if(!val) return Swal.showValidationMessage('Please enter Name or ID'); return { id: val } }
     }).then(async (r) => {
       if(r.isConfirmed) {
         Toast.fire({ title: 'ℹ️ Signing out...' });
-        fetch('/api/checkout', {
-          method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(r.value)
-        }).then(() => refresh(false));
+        fetch('/api/checkout', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(r.value) }).then(() => refresh(false));
         localStorage.removeItem('myProfile'); setMyProfile(null);
-        Toast.fire({ title: '✅ Signed Out Successfully' });
-        setTimeout(() => window.location.reload(), 1500);
+        Toast.fire({ title: '✅ Signed Out Successfully' }); setTimeout(() => window.location.reload(), 1500);
       }
     })
   }
@@ -1221,7 +890,7 @@ export default function Home() {
       title: '➕ เพิ่มสมาชิกเข้าคิวทันที',
       html: `
         <div class="flex flex-col gap-3 text-left">
-          <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No.</label><input id="amID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="12345"></div>
+          <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No.</label><input id="amID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="12345 (ทิ้งว่างเพื่อสุ่มตัวเลข Guest)"></div>
           <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name</label><input id="amName" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Name"></div>
           <div><label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Skill Level</label>
             <select id="amSkill" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none">
@@ -1238,9 +907,9 @@ export default function Home() {
       preConfirm: () => {
         let id = (document.getElementById('amID') as HTMLInputElement).value.trim().replace(/^0+/, '');
         const name = (document.getElementById('amName') as HTMLInputElement).value.trim();
-        if(!id) { Swal.showValidationMessage('Enter Employee No.'); return false; }
         if(!name) { Swal.showValidationMessage('Enter Name'); return false; }
-        return { id, name, skill: Number((document.getElementById('amSkill') as HTMLSelectElement).value), isGuest: false }
+        const finalId = id ? id : Math.floor(100000 + Math.random() * 900000).toString(); 
+        return { id: finalId, name, skill: Number((document.getElementById('amSkill') as HTMLSelectElement).value), isGuest: !id }
       }
     }).then(async (r) => {
       if(r.isConfirmed) {
@@ -1262,8 +931,7 @@ export default function Home() {
         setState(prev => prev ? { ...prev, playing: (prev.playing || []).filter((c: any) => c.court !== court) } : prev); 
         Toast.fire({ title: '✅ Match Finished' });
         await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
-        refresh(false);
-        fetchProfileHistory(); 
+        refresh(false); fetchProfileHistory(); 
       } 
     }) 
   }
@@ -1292,33 +960,18 @@ export default function Home() {
     }).then(async r => { if(r.isConfirmed) { await runApi('/api/update-player', r.value, false); Toast.fire({ title: '✅ บันทึกการแก้ไขแล้ว' }); } })
   }
 
-  // 🌟 ฟังก์ชันส่งแจ้งเตือนกลุ่ม (Broadcast) สำหรับ Admin
   const openBroadcastModal = () => {
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-    const defaultDate = oneMonthAgo.toISOString().split('T')[0];
-
+    const oneMonthAgo = new Date(); oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1); const defaultDate = oneMonthAgo.toISOString().split('T')[0];
     Swal.fire({
       title: '📢 ส่งแจ้งเตือนกลุ่ม (Broadcast)',
       html: `
         <div class="flex flex-col gap-3 text-left">
-          <div>
-            <label class="text-[10px] font-bold text-slate-500 uppercase">วันที่เริ่มดึงข้อมูล (วันที่เปิดสิทธิ์แจ้งเตือน)</label>
-            <input type="date" id="bcDate" value="${defaultDate}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-          </div>
-          <div>
-            <label class="text-[10px] font-bold text-slate-500 uppercase">หัวข้อการแจ้งเตือน</label>
-            <input type="text" id="bcTitle" placeholder="เช่น ประกาศสำคัญจากคลับ" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-          </div>
-          <div>
-            <label class="text-[10px] font-bold text-slate-500 uppercase">เนื้อหาการแจ้งเตือน</label>
-            <textarea id="bcMessage" rows="3" placeholder="พิมพ์ข้อความที่ต้องการส่ง..." class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-          </div>
+          <div><label class="text-[10px] font-bold text-slate-500 uppercase">วันที่เริ่มดึงข้อมูล (วันที่เปิดสิทธิ์แจ้งเตือน)</label><input type="date" id="bcDate" value="${defaultDate}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
+          <div><label class="text-[10px] font-bold text-slate-500 uppercase">หัวข้อการแจ้งเตือน</label><input type="text" id="bcTitle" placeholder="เช่น ประกาศสำคัญจากคลับ" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
+          <div><label class="text-[10px] font-bold text-slate-500 uppercase">เนื้อหาการแจ้งเตือน</label><textarea id="bcMessage" rows="3" placeholder="พิมพ์ข้อความที่ต้องการส่ง..." class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>
         </div>
       `,
-      showCancelButton: true,
-      confirmButtonText: 'ส่งการแจ้งเตือน',
-      confirmButtonColor: '#2563eb',
+      showCancelButton: true, confirmButtonText: 'ส่งการแจ้งเตือน', confirmButtonColor: '#2563eb',
       preConfirm: () => {
         const date = (document.getElementById('bcDate') as HTMLInputElement).value;
         const title = (document.getElementById('bcTitle') as HTMLInputElement).value.trim();
@@ -1330,35 +983,16 @@ export default function Home() {
     }).then(async (r) => {
       if (r.isConfirmed) {
         Swal.fire({ title: 'กำลังสั่งรัน Broadcast...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-        
         try {
-          // ✅ เปลี่ยนมาเรียก API Webpush ของเราตรงๆ ให้ Server จัดการ
-          const res = await fetch('/api/webpush', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'broadcast',
-              date: r.value.date,
-              title: r.value.title,
-              message: r.value.message
-            })
-          });
-          
+          const res = await fetch('/api/webpush', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'broadcast', date: r.value.date, title: r.value.title, message: r.value.message }) });
           const data = await res.json();
-
-          if (!res.ok) {
-            Swal.fire('ไม่พบข้อมูล', data.error || 'ไม่พบผู้ลงทะเบียนในช่วงเวลานี้', 'info');
-          } else {
-            Swal.fire('✅ ส่งสำเร็จ', `ยิงแจ้งเตือนถึงอุปกรณ์ที่พร้อมรับ ${data.count} จากทั้งหมด ${data.total} เครื่อง`, 'success');
-          }
-        } catch (e: any) {
-          Swal.fire('❌ ผิดพลาด', e.message, 'error');
-        }
+          if (!res.ok) Swal.fire('ไม่พบข้อมูล', data.error || 'ไม่พบผู้ลงทะเบียนในช่วงเวลานี้', 'info');
+          else Swal.fire('✅ ส่งสำเร็จ', `ยิงแจ้งเตือนถึงอุปกรณ์ที่พร้อมรับ ${data.count} จากทั้งหมด ${data.total} เครื่อง`, 'success');
+        } catch (e: any) { Swal.fire('❌ ผิดพลาด', e.message, 'error'); }
       }
     });
   }
 
-  // 🌟 Daily Report Menu (พรีวิวก่อนโหลด + เลือกวันได้)
   const showDailyReportMenu = () => {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
     Swal.fire({
@@ -1395,9 +1029,7 @@ export default function Home() {
               ${tableHtml}
               <a href="${url}" download="badminton_report_${date}.csv" class="w-full mt-4 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold shadow-md transition active:scale-95"><Download className="w-4 h-4"/> Download CSV</a>
             `;
-          } catch (e) {
-            document.getElementById('reportContent')!.innerHTML = '<div class="py-5 text-red-500 font-bold">❌ Error loading report</div>';
-          }
+          } catch (e) { document.getElementById('reportContent')!.innerHTML = '<div class="py-5 text-red-500 font-bold">❌ Error loading report</div>'; }
         };
         const dateInput = document.getElementById('reportDate') as HTMLInputElement;
         dateInput.addEventListener('change', (e) => fetchReport((e.target as HTMLInputElement).value));
@@ -1408,7 +1040,6 @@ export default function Home() {
 
   const showAnalyticsMenu = () => window.open('/analytics', '_blank');
 
-  // 🌟 ฟังก์ชันดาวน์โหลดรายงานคนลงทะเบียนรายวัน
   const exportRegisteredToday = () => {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
     Swal.fire({
@@ -1428,7 +1059,6 @@ export default function Home() {
             const res = await fetch('/api/player'); 
             const data = await res.json();
             const list = Array.isArray(data) ? data : (data.list || data.data || []);
-            
             const targetList = list.filter((p: any) => p.timestamp && p.timestamp.startsWith(date));
             
             let csv = '\uFEFFEmployee ID,Name,Skill,Type,Timestamp\n';
@@ -1455,9 +1085,7 @@ export default function Home() {
               ${tableHtml}
               <a href="${url}" download="registered_players_${date}.csv" class="w-full mt-4 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl text-sm font-bold shadow-md transition active:scale-95"><Download className="w-4 h-4"/> Download CSV</a>
             `;
-          } catch(e) {
-            document.getElementById('regContent')!.innerHTML = '<div class="py-5 text-red-500 font-bold">❌ Error loading report</div>';
-          }
+          } catch(e) { document.getElementById('regContent')!.innerHTML = '<div class="py-5 text-red-500 font-bold">❌ Error loading report</div>'; }
         }
         const dateInput = document.getElementById('regDate') as HTMLInputElement;
         dateInput.addEventListener('change', (e) => fetchRegReport((e.target as HTMLInputElement).value));
@@ -1498,12 +1126,8 @@ export default function Home() {
     openAdminEditPlayer, openBroadcastModal, showDailyReportMenu, showAnalyticsMenu, exportRegisteredToday, resetDay, APP_VERSION
   };
 
-  // ==========================================
-  // 🌟 FULLSCREEN FOCUS MODE (Adaptive Theme)
-  // ==========================================
   if (fullscreen) return <FocusMode {...tabProps} />
 
-  // Loading State
   if (isLoading && !state) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
       <div className="flex flex-col items-center gap-4">
@@ -1513,13 +1137,9 @@ export default function Home() {
     </div>
   )
 
-  // ==========================================
-  // 🌟 MAIN RENDER 
-  // ==========================================
   return (
     <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-24 transition-all duration-300 ${state?.announcement ? 'pt-24' : 'pt-16'}`}>
       
-      {/* 🌟 Custom In-App Capsule Notification (ลอยด้านบน ไม่บัง UI และกดเด้งไปหน้าแรกได้) */}
       <div className={`fixed top-14 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 cursor-pointer ${capsuleAlert.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-10 scale-95 pointer-events-none'}`} onClick={() => { if(capsuleAlert.onClick) capsuleAlert.onClick(); setCapsuleAlert(prev => ({...prev, visible: false})); }}>
         <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 w-max max-w-[90vw]">
           <div className="bg-blue-500/20 text-blue-400 p-2 rounded-full"><Bell className="w-5 h-5 animate-pulse" /></div>
@@ -1538,7 +1158,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 🌟 Header */}
       <nav className={`fixed ${state?.announcement ? 'top-10' : 'top-0'} w-full bg-white/90 dark:bg-slate-900/90 border-b border-gray-200 dark:border-slate-800 px-4 py-3 backdrop-blur-lg z-50 shadow-sm transition-transform duration-300 ${showNav ? 'translate-y-0' : '-translate-y-full'}`}>
         <div className="max-w-7xl mx-auto flex justify-between items-center">
             <div className="flex items-center gap-3">
@@ -1559,7 +1178,6 @@ export default function Home() {
         <ProfileTab {...tabProps} />
       </div>
 
-      {/* 🌟 Custom Court Manager Modal */}
       {isCourtManagerOpen && (
          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95">
@@ -1586,7 +1204,6 @@ export default function Home() {
          </div>
       )}
 
-      {/* 🌟 Bottom Navigation */}
       <div className={`fixed bottom-0 w-full bg-white/95 dark:bg-slate-900/95 border-t border-gray-200 dark:border-slate-800 px-6 py-3 backdrop-blur-xl z-50 transition-transform duration-300 pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)] ${showNav ? 'translate-y-0' : 'translate-y-full'}`}>
          <div className="max-w-md mx-auto flex justify-between items-center relative">
             <button onClick={()=>handleTabClick('home')} className={`flex flex-col items-center gap-1 transition-all ${activeTab==='home'?'text-blue-600 scale-110':'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}>
