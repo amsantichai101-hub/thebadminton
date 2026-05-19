@@ -372,11 +372,11 @@ export default function Home() {
         if (elapsedMins >= avgMatchDuration + 7) { 
           if (!loadingCourts.includes(m.court)) {
             setLoadingCourts(prev => [...prev, m.court]);
-            await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court: m.court }) });
-            refresh(false);
-            setLoadingCourts(prev => prev.filter(c => c !== m.court));
-            addNotification(`ระบบจบแมตช์อัตโนมัติ`, `คอร์ท ${m.court} ใช้เวลาเกินค่าเฉลี่ย`);
-            if (state?.autoMatch) executeAutoMatch();
+            //await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court: m.court }) });
+            //refresh(false);
+            //setLoadingCourts(prev => prev.filter(c => c !== m.court));
+            //addNotification(`ระบบจบแมตช์อัตโนมัติ`, `คอร์ท ${m.court} ใช้เวลาเกินค่าเฉลี่ย`);
+            //if (state?.autoMatch) executeAutoMatch();
           }
         }
       });
@@ -932,6 +932,7 @@ export default function Home() {
         Toast.fire({ title: '✅ Match Finished' });
         await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
         refresh(false); fetchProfileHistory(); 
+        if (state?.autoMatch) executeAutoMatch();
       } 
     }) 
   }
