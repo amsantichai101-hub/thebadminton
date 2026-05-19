@@ -6,6 +6,12 @@ import type { AppState, WaitingPlayer as Player } from '@/lib/types'
 import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
 import { Home as HomeIcon, Users, Bell, User, Sun, Moon, Maximize, Trash2, BellOff, Search, Play, Pause, CheckCircle2, AlertCircle, BarChart2, PieChart, Settings, Edit3, X, Check, Monitor, Plus, CalendarX, LogOut, Clock, Activity, MapPin, Swords, Smartphone, UserPlus, UserCheck, Download, RefreshCw, Megaphone } from 'lucide-react'
 
+import HomeTab from '@/components/tabs/HomeTab'
+import QueueTab from '@/components/tabs/QueueTab'
+import AlertsTab from '@/components/tabs/AlertsTab'
+import ProfileTab from '@/components/tabs/ProfileTab'
+import FocusMode from '@/components/tabs/FocusMode'
+
 // 🌟 เวอร์ชันของแอป (ระบบจะเคลียร์แคช 100% อัตโนมัติเมื่อค่านี้เปลี่ยน)
 const APP_VERSION = "2.1.5";
 
@@ -1253,7 +1259,7 @@ export default function Home() {
   const finish = (court: string) => { 
     Swal.fire({title: `Finish Match at ${court}?`, showCancelButton: true}).then(async r => { 
       if(r.isConfirmed) { 
-        setState(prev => prev ? { ...prev, playing: (prev.playing || []).filter(c => c.court !== court) } : prev); 
+        setState(prev => prev ? { ...prev, playing: (prev.playing || []).filter((c: any) => c.court !== court) } : prev); 
         Toast.fire({ title: '✅ Match Finished' });
         await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
         refresh(false);
@@ -1472,125 +1478,30 @@ export default function Home() {
     })
   }
 
+  const tabProps = {
+    state, setState, admin, setAdmin, selected, setSelected, fullscreen, setFullscreen, theme, setTheme,
+    isLoading, setIsLoading, loadingCourts, setLoadingCourts, myProfile, setMyProfile,
+    searchPending, setSearchPending, searchQueue, setSearchQueue, selectedPending, setSelectedPending,
+    matchMode, setMatchMode, globalPreview, setGlobalPreview, playStartTime, setPlayStartTime, playEndTime, setPlayEndTime,
+    matchHistory, setMatchHistory, manualPreviews, setManualPreviews, activeTab, setActiveTab, queueSubTab, setQueueSubTab,
+    showNav, setShowNav, notifyHistory, setNotifyHistory, myPlayHistory, setMyPlayHistory,
+    capsuleAlert, setCapsuleAlert, isCourtManagerOpen, setIsCourtManagerOpen, newCourtName, setNewCourtName,
+    isAwake, setIsAwake, notifyPerm, setNotifyPerm, activeWaiting, myWaitIndex, myPending, myQueueData,
+    myActiveCourt, amIPlaying, playDurationMs, courtsCount, avgMatchDuration, pausedIds, setPausedIds,
+    estWaitMins, getSkillColor, getMySkillLevel, getSkillName, isSimilarSkillGroup, getAutoNextMatches,
+    availableCourts, manualIdsList, availableWaitingView, remainingSlots, autoMatches, allPreviews,
+    myStartLogs, realPlayCount, realPlayTime, playAlertSound, addNotification, requestNotify, triggerNotification,
+    toggleWakeLock, fetchProfileHistory, refresh, handleTabClick, recordMatchToHistory, clearBrowserData,
+    toggleGlobalPreviewState, savePlayTime, runApi, openCourtManager, handleAddCourt, handleRemoveCourt,
+    handleApproveProcess, handleBulkApprove, handleRejectPlayer, togglePause, executeAutoMatch, confirmSpecificMatch,
+    toggleSelect, handleMatchSelected, openCheckIn, openSignOut, openAddMember, auth, logout, finish,
+    openAdminEditPlayer, openBroadcastModal, showDailyReportMenu, showAnalyticsMenu, exportRegisteredToday, resetDay, APP_VERSION
+  };
+
   // ==========================================
   // 🌟 FULLSCREEN FOCUS MODE (Adaptive Theme)
   // ==========================================
-  if (fullscreen) {
-    return (
-      <div className="fixed inset-0 bg-slate-100 dark:bg-slate-950 z-[100] overflow-y-auto p-3 sm:p-6 flex flex-col">
-        <div className="flex justify-between items-center mb-6 pt-2 pb-4 border-b border-slate-300 dark:border-slate-800">
-            <div className="flex flex-col">
-              <h1 className="text-xl sm:text-3xl font-black text-slate-800 dark:text-white tracking-widest flex items-center gap-3">
-                <Monitor className="w-8 h-8 text-blue-600" /> LIVE FOCUS
-              </h1>
-              <span className="text-xs sm:text-sm text-slate-500 font-medium">Play Time: {playStartTime} - {playEndTime}</span>
-            </div>
-            <button onClick={()=>setFullscreen(false)} className="bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 px-4 sm:px-6 py-2 rounded-lg font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition shadow-md text-sm sm:text-base flex items-center gap-2">
-              <Maximize className="w-4 h-4" /> EXIT
-            </button>
-        </div>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5 flex-1 pb-10">
-          {(state?.courtNames || []).map(cn => {
-          const m = (state?.playing || []).find(p => p.court === cn);
-          if (loadingCourts.includes(cn)) return <div key={cn} className="bg-slate-900 border border-slate-700 rounded-2xl flex flex-col items-center justify-center min-h-[140px] sm:min-h-[180px] animate-pulse"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div><span className="text-xs font-bold text-slate-400 tracking-widest uppercase">กำลังเตรียมคอร์ท...</span></div>;
-          if (m) {
-              const min = Math.floor((Date.now()-new Date(m.startTime).getTime())/60000); const isLate = min >= avgMatchDuration;
-              return (
-                <div key={cn} className={`bg-white dark:bg-slate-900 border ${isLate ? 'border-red-400 ring-2 ring-red-400/30' : 'border-slate-200 dark:border-slate-800'} rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all`}>
-                  
-                  <div className="absolute top-2 right-2 z-20">
-                     <div className="bg-slate-100/90 dark:bg-slate-950/80 backdrop-blur border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">
-                        {cn}
-                     </div>
-                  </div>
-                  
-                  <div className="absolute top-2 left-2 z-20">
-                     <div className={`px-2.5 py-1 rounded-lg text-xs font-black shadow-sm flex items-center gap-1 ${isLate?'bg-red-600 text-white animate-pulse':'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                        <Clock className="w-3.5 h-3.5"/> {min}m
-                     </div>
-                  </div>
-
-                  <div className="flex-1 flex flex-col justify-center gap-1.5 p-3 pt-12 z-10">
-                    <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-blue-500">
-                      <div className="text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold truncate w-[45%]">{m.p1Name}</div>
-                      <div className="text-blue-500 dark:text-blue-400 font-black text-[10px]">&</div>
-                      <div className="text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p2Name}</div>
-                    </div>
-                    <div className="flex justify-center -my-3 z-20">
-                      <span className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-400 px-2 py-1 rounded-full font-black text-[9px] shadow-sm flex items-center gap-1"><Swords className="w-3.5 h-3.5"/></span>
-                    </div>
-                    <div className="bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-red-500">
-                      <div className="text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold truncate w-[45%]">{m.p3Name}</div>
-                      <div className="text-red-500 dark:text-red-400 font-black text-[10px]">&</div>
-                      <div className="text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p4Name}</div>
-                    </div>
-                  </div>
-                  {admin && (
-                    <button onClick={() => finish(m.court)} className="mx-3 mb-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-black transition active:scale-95 shadow-md flex items-center justify-center gap-2">
-                      <Check className="w-4 h-4"/> Finish Match
-                    </button>
-                  )}
-                </div>
-              )
-            } else {
-              const availIndex = availableCourts.indexOf(cn); const prepMatch = allPreviews[availIndex];
-              if (prepMatch) {
-                return (
-                  <div key={cn} className="bg-emerald-50 dark:bg-slate-900 border border-dashed border-emerald-400 dark:border-emerald-500/50 rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all">
-                    
-                    <div className="absolute top-2 right-2 z-20">
-                       <div className="bg-white/90 dark:bg-slate-950/80 backdrop-blur border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">
-                          {cn}
-                       </div>
-                    </div>
-
-                    <div className="absolute top-2 left-2 z-20">
-                       <div className={`px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm uppercase tracking-widest ${prepMatch.isManual ? 'bg-blue-200 text-blue-800 dark:bg-blue-400 dark:text-blue-900' : 'bg-emerald-200 text-emerald-800 dark:bg-emerald-400 dark:text-emerald-900 animate-pulse'}`}>
-                          {prepMatch.isManual ? 'MANUAL' : 'UP NEXT'}
-                       </div>
-                    </div>
-
-                    <div className="flex-1 flex flex-col justify-center gap-1.5 p-3 pt-12 z-10">
-                      <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-slate-400 dark:border-l-slate-500 shadow-sm">
-                        <div className="text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[0][0].name}</div>
-                        <div className="text-slate-400 dark:text-slate-500 font-black text-[10px]">&</div>
-                        <div className="text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[0][1].name}</div>
-                      </div>
-                      <div className="flex justify-center -my-3 z-20">
-                        <span className="bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-400 px-2 py-1 rounded-full font-black text-[9px] shadow-sm flex items-center gap-1"><Swords className="w-3.5 h-3.5"/></span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-slate-400 dark:border-l-slate-500 shadow-sm">
-                        <div className="text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[1][0].name}</div>
-                        <div className="text-slate-400 dark:text-slate-500 font-black text-[10px]">&</div>
-                        <div className="text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[1][1].name}</div>
-                      </div>
-                    </div>
-                    {admin && (
-                      <div className="flex gap-2 mx-3 mb-3 z-20 mt-4">
-                        <button onClick={()=>confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg shadow-sm active:scale-95 transition flex items-center justify-center gap-1.5"><CheckCircle2 className="w-4 h-4"/> Confirm</button>
-                        {prepMatch.isManual && (
-                          <button onClick={() => setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-2 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-200 rounded-lg text-xs font-black transition active:scale-95 shadow-md">✕</button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              } else {
-                return (
-                  <div key={cn} className="bg-slate-100 dark:bg-slate-900 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center p-4 relative overflow-hidden min-h-[140px] sm:min-h-[180px]">
-                    <div className="z-10 bg-white/80 dark:bg-slate-800/80 px-4 py-2 rounded-xl backdrop-blur-sm shadow-sm border border-slate-200 dark:border-slate-700">
-                       <h3 className="text-sm sm:text-base font-black text-slate-500 dark:text-slate-400 tracking-widest">{cn}</h3>
-                    </div>
-                  </div>
-                )
-              }
-            }
-          })}
-        </div>
-      </div>
-    )
-  }
+  if (fullscreen) return <FocusMode {...tabProps} />
 
   // Loading State
   if (isLoading && !state) return (
@@ -1623,7 +1534,7 @@ export default function Home() {
         <div className="fixed top-0 w-full bg-blue-600 text-white text-xs py-2.5 px-4 shadow-md flex items-center z-[60]">
             <AlertCircle className="w-4 h-4 mr-2 text-white" />
             <div className="flex-1 font-medium tracking-wide truncate">{state.announcement}</div>
-            {admin && <button onClick={async() => { const txt = prompt('Edit Announcement', state.announcement); if(txt!==null){ await fetch('/api/config', {method:'POST', headers: {'content-type':'application/json'}, body:JSON.stringify({action:'set', key:'Announcement', value:txt})}); refresh(false); Toast.fire({ title: '✅ Announcement Updated' }); } }} className="ml-4 pl-2 border-l border-blue-400 text-blue-100 hover:text-white"><Edit3 className="w-3.5 h-3.5"/></button>}
+            {admin && <button onClick={async() => { const txt = prompt('Edit Announcement', state.announcement); if(txt!==null){ await fetch('/api/config', {method:'POST', headers: {'content-type':'application/json'}, body:JSON.stringify({action:'set', key:'Announcement', value:txt})}); refresh(false); Swal.fire({ title: '✅ Announcement Updated', toast: true, position: 'top', showConfirmButton: false, timer: 1500 }); } }} className="ml-4 pl-2 border-l border-blue-400 text-blue-100 hover:text-white"><Edit3 className="w-3.5 h-3.5"/></button>}
         </div>
       )}
 
@@ -1642,390 +1553,10 @@ export default function Home() {
       </nav>
 
       <div className="max-w-3xl mx-auto px-4 w-full h-full relative">
-        
-        {/* ===================== TAB 1: HOME ===================== */}
-        <div className={activeTab === 'home' ? 'block animate-in fade-in slide-in-from-bottom-4 duration-300 pt-4' : 'hidden'}>
-          
-          {!myProfile ? (
-            <div className="mb-6 p-6 rounded-3xl shadow-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-center gap-4">
-              <div className="w-16 h-16 bg-blue-50 dark:bg-slate-700 rounded-full flex items-center justify-center text-blue-500 mb-2 shadow-inner"><User className="w-8 h-8" /></div>
-              <div><h3 className="font-black text-lg text-slate-800 dark:text-white">ยินดีต้อนรับสู่ระบบคิว</h3><p className="text-xs text-slate-500 mt-1">กรุณา Check In เพื่อรับคิวลงสนาม หรือกู้คืนโปรไฟล์</p></div>
-              <button onClick={openCheckIn} className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl active:scale-95 transition shadow-lg flex items-center justify-center gap-2"><CheckCircle2 className="w-5 h-5" /> Check In เข้าคิว</button>
-            </div>
-          ) : (
-            <div className={`mb-6 p-4 rounded-2xl shadow-sm border flex items-center justify-between transition-all ${amIPlaying ? 'bg-blue-600 text-white border-blue-700' : myPending ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-yellow-900/30 dark:border-yellow-700/50 dark:text-yellow-200' : (myWaitIndex !== -1) ? 'bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-700/50 dark:text-emerald-200' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-white border-slate-200 dark:border-slate-700'}`}>
-              <div className="flex items-center gap-3">
-                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-black shadow-lg ${getSkillColor(getMySkillLevel())}`}>{myProfile.name.charAt(0)}</div>
-                 <div>
-                    <div className="font-black text-base leading-tight">{myProfile.name}</div>
-                    <div className="text-[10px] font-bold opacity-70 uppercase tracking-wide mt-0.5 flex items-center gap-1.5">
-                      <span className={`w-1.5 h-1.5 rounded-full ${getSkillColor(getMySkillLevel()).split(' ')[0]}`}></span>
-                      Lv {getMySkillLevel()} • {getSkillName(getMySkillLevel())}
-                    </div>
-                 </div>
-              </div>
-              <div className="text-right">
-                {amIPlaying ? ( <div className="text-sm font-black bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-inner"><Play className="w-4 h-4"/> Playing!</div>) 
-                : myPending ? ( <div className="font-bold text-xs bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-inner"><Clock className="w-3.5 h-3.5"/> Pending...</div>) 
-                : myWaitIndex !== -1 ? (
-                   <div className="flex flex-col items-end gap-1">
-                      <div className="text-xl font-black leading-none text-emerald-700 dark:text-emerald-400">คิว {myWaitIndex + 1}</div>
-                      <div className="text-[10px] font-bold bg-emerald-200/50 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full shadow-sm">รอ ~{estWaitMins} นาที</div>
-                   </div>
-                ) : ( <div className="font-bold text-xs bg-black/5 px-3 py-1.5 rounded-lg opacity-50 shadow-inner">ว่าง</div> )}
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-between items-center mb-4"><h2 className="font-black text-lg text-slate-800 dark:text-white">Active Courts</h2><span className="text-xs font-bold bg-slate-200 dark:bg-slate-800 px-3 py-1 rounded-full text-slate-600 dark:text-slate-400 shadow-sm">{(state?.playing || []).length}/{state?.courtCount}</span></div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-10">
-            {(state?.courtNames || []).map(cn => {
-              const isLoadingCourt = loadingCourts.includes(cn);
-              const m = (state?.playing || []).find(p=>p.court === cn);
-              const prepMatch = allPreviews.find(p => allPreviews.indexOf(p) === availableCourts.indexOf(cn));
-
-              if (isLoadingCourt) {
-                return (
-                  <div key={cn} className="bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm relative flex flex-col items-center justify-center min-h-[160px] animate-pulse">
-                     <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
-                     <span className="text-xs font-bold text-slate-400 tracking-widest uppercase">กำลังเตรียมคอร์ท...</span>
-                  </div>
-                )
-              }
-
-              if (m) {
-                const min = Math.floor((Date.now()-new Date(m.startTime).getTime())/60000);
-                const isLate = min >= avgMatchDuration; 
-                return (
-                  <div key={cn} className={`bg-white dark:bg-slate-800 rounded-2xl border ${isLate ? 'border-red-400 ring-2 ring-red-400/30' : 'border-slate-200 dark:border-slate-700'} p-4 shadow-sm relative`}>
-                    <div className="flex justify-between items-center mb-3">
-                        <span className={`text-[10px] font-black px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm ${isLate ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}><Clock className="w-3 h-3"/> {min}m</span>
-                        <span className="text-xs font-black text-slate-400 uppercase tracking-widest">{m.court}</span>
-                    </div>
-                    <div className="space-y-1.5 text-sm font-bold">
-                      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 rounded-lg p-2.5 flex justify-between items-center shadow-sm"><span className="text-slate-700 dark:text-slate-200">{m.p1Name}</span><span className="text-slate-700 dark:text-slate-200">{m.p2Name}</span></div>
-                      <div className="flex justify-center -my-3 z-10 relative"><span className="bg-white dark:bg-slate-800 text-[9px] px-1.5 rounded-full text-slate-400 border border-slate-100 dark:border-slate-700 flex items-center gap-1 shadow-sm"><Swords className="w-3.5 h-3.5"/></span></div>
-                      <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 rounded-lg p-2.5 flex justify-between items-center shadow-sm"><span className="text-slate-700 dark:text-slate-200">{m.p3Name}</span><span className="text-slate-700 dark:text-slate-200">{m.p4Name}</span></div>
-                    </div>
-                    {admin && <button onClick={async() => { setLoadingCourts([...loadingCourts, m.court]); await fetch('/api/finish', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({court:m.court})}); refresh(false); setLoadingCourts(prev=>prev.filter(c=>c!==m.court)); if(state?.autoMatch) executeAutoMatch(); fetchProfileHistory(); }} className="mt-4 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-bold rounded-lg active:scale-95 transition flex items-center justify-center gap-1.5 shadow-md"><Check className="w-4 h-4"/> Finish Match</button>}
-                  </div>
-                )
-              } else if (prepMatch) {
-                return (
-                  <div key={cn} className="bg-emerald-50 dark:bg-emerald-900/10 border-2 border-dashed border-emerald-300 dark:border-emerald-700/50 rounded-2xl p-4 shadow-sm">
-                    <div className="flex justify-between items-center mb-3"><span className="text-[10px] font-bold bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 rounded shadow-sm">{prepMatch.isManual?'MANUAL':'UP NEXT'}</span><span className="text-xs font-black text-slate-400">{cn}</span></div>
-                    <div className="text-sm font-bold text-slate-700 dark:text-slate-300 space-y-1.5 opacity-80">
-                      <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg flex justify-between shadow-sm border border-slate-100 dark:border-slate-700"><span>{prepMatch.teams[0][0].name}</span><span>{prepMatch.teams[0][1].name}</span></div>
-                      <div className="flex justify-center -my-3 z-10 relative"><span className="bg-emerald-50 dark:bg-emerald-900/10 text-[9px] px-1.5 rounded-full text-slate-400 flex items-center gap-1"><Swords className="w-3.5 h-3.5"/></span></div>
-                      <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg flex justify-between shadow-sm border border-slate-100 dark:border-slate-700"><span>{prepMatch.teams[1][0].name}</span><span>{prepMatch.teams[1][1].name}</span></div>
-                    </div>
-                    {admin && (
-                      <div className="flex gap-2 mx-3 mb-3 z-20 mt-4">
-                        <button onClick={()=>confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg shadow-sm active:scale-95 transition flex items-center justify-center gap-1.5"><CheckCircle2 className="w-4 h-4"/> Confirm</button>
-                        {prepMatch.isManual && (
-                          <button onClick={() => setManualPreviews(prev => prev.filter(m => m !== prepMatch))} className="px-3 py-2 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-200 rounded-lg text-xs font-black transition active:scale-95 shadow-md">✕</button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              } else {
-                return <div key={cn} className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col items-center justify-center min-h-[160px]"><span className="text-xs font-bold text-slate-400">{cn}</span><span className="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-full mt-1 font-bold shadow-inner">ว่าง</span></div>
-              }
-            })}
-          </div>
-        </div>
-
-        {/* ===================== TAB 2: QUEUE & APPROVAL ===================== */}
-        <div className={activeTab === 'queue' ? 'block animate-in fade-in slide-in-from-bottom-4 duration-300' : 'hidden'}>
-          <div className={`sticky ${showNav && !state?.announcement ? 'top-[56px]' : state?.announcement && showNav ? 'top-[92px]' : state?.announcement && !showNav ? 'top-[36px]' : 'top-0'} bg-slate-100/95 dark:bg-slate-950/95 backdrop-blur-md pt-3 pb-2 z-40 transition-all duration-300 border-b border-slate-200/50 dark:border-slate-800/50`}>
-             
-             {/* 🌟 Tab สลับ คิวรอ / รออนุมัติ */}
-             <div className="flex p-1 bg-slate-200/50 dark:bg-slate-800/50 rounded-xl mb-3 gap-1 shadow-inner max-w-sm mx-auto">
-                <button onClick={()=>setQueueSubTab('waiting')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${queueSubTab==='waiting' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Users className="w-4 h-4"/> คิวรอเล่น ({(state?.waiting||[]).length})</button>
-                <button onClick={()=>setQueueSubTab('pending')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all relative flex items-center justify-center gap-1.5 ${queueSubTab==='pending' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                  <UserPlus className="w-4 h-4"/> รออนุมัติ 
-                  {(state?.pending||[]).length > 0 && <span className="bg-red-500 text-white text-[8px] px-1.5 py-0.5 rounded-full ml-1 animate-pulse shadow-sm">{(state?.pending||[]).length}</span>}
-                </button>
-             </div>
-
-             <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input type="text" placeholder="ค้นหาชื่อ..." value={queueSubTab === 'waiting' ? searchQueue : searchPending} onChange={(e) => queueSubTab === 'waiting' ? setSearchQueue(e.target.value) : setSearchPending(e.target.value)} className="w-full pl-9 pr-3 py-3 border border-slate-300 dark:border-slate-700 rounded-xl text-sm shadow-sm outline-none bg-white dark:bg-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500 transition-all"/>
-             </div>
-             
-             {admin && selected.length > 0 && queueSubTab === 'waiting' && (
-                <button onClick={handleMatchSelected} className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
-                  <Users className="w-4 h-4"/> จัดทีมลงสนาม ({selected.length}/4)
-                </button>
-             )}
-
-             {admin && selectedPending.length > 0 && queueSubTab === 'pending' && (
-                <button onClick={handleBulkApprove} className="w-full mt-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-sm font-bold py-3 rounded-xl shadow-md active:scale-95 transition flex items-center justify-center gap-2 animate-in slide-in-from-top-2">
-                  <CheckCircle2 className="w-4 h-4"/> อนุมัติที่เลือก ({selectedPending.length} รายการ)
-                </button>
-             )}
-          </div>
-
-          <div className="space-y-2 pb-10 pt-2">
-            {queueSubTab === 'waiting' ? (
-              (state?.waiting || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><Users className="w-10 h-10 opacity-30"/> ไม่มีคิวรอ</div> 
-              : (state?.waiting || []).filter(p => p.name.toLowerCase().includes(searchQueue.toLowerCase())).map((p, i) => {
-                const isSel = selected.includes(p.id); const isMe = p.id === myProfile?.id; const isPaused = p.name.includes('(พัก)'); const selIndex = selected.indexOf(p.id); const teamBadge = selIndex !== -1 ? (selIndex < 2 ? <span className="bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team A</span> : <span className="bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded shadow-sm">Team B</span>) : null;
-                
-                const isManualPrev = manualPreviews.flatMap(m => m.teams.flat().map((ap: any) => ap.id)).includes(p.id);
-                const isAutoPrev = autoMatches.flatMap(m => m.teams.flat().map((ap: any) => ap.id)).includes(p.id);
-                const inPreviewStatus = isManualPrev ? 'MANUAL' : isAutoPrev ? 'UP NEXT' : null;
-
-                return (
-                  <div key={p.id} onClick={() => toggleSelect(p.id)} className={`cursor-pointer p-3.5 rounded-2xl border ${isSel ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md ring-1 ring-blue-400/50' : isPaused ? 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 opacity-60' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm'} flex items-center justify-between transition-all hover:shadow-md`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md ${getSkillColor(p.skill)}`}>{p.name.charAt(0)}</div>
-                      <div>
-                        <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
-                          <span className={isPaused ? 'line-through' : ''}>{p.name}</span>
-                          {teamBadge}
-                          {p.playCount > 0 && <span className="bg-slate-200 dark:bg-slate-700 text-[9px] px-1.5 py-0.5 rounded-md text-slate-600 dark:text-slate-300 font-mono shadow-inner">{p.playCount}P</span>}
-                          {isMe && <span className="text-[9px] bg-amber-400 text-white font-bold px-1.5 py-0.5 rounded shadow-sm">YOU</span>}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[10px] text-slate-400 font-mono font-bold">คิวที่ {i+1} • Lv {p.skill}</span>
-                          {inPreviewStatus && <span className={`text-[9px] px-1.5 py-0.5 rounded shadow-sm font-bold ${inPreviewStatus === 'MANUAL' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'}`}>{inPreviewStatus}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
-                      {(isMe || admin) && <button onClick={()=>togglePause(p)} className="w-8 h-8 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-amber-100 dark:border-amber-800">{isPaused ? <Play className="w-4 h-4"/> : <Pause className="w-4 h-4"/>}</button>}
-                      {admin && <button onClick={()=>openAdminEditPlayer(p)} className="w-8 h-8 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-blue-100 dark:border-blue-800"><Edit3 className="w-4 h-4"/></button>}
-                      {admin && <button onClick={async()=>{ await fetch('/api/checkout',{method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id:p.id})}); refresh(false); }} className="w-8 h-8 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-red-100 dark:border-red-800"><X className="w-4 h-4"/></button>}
-                    </div>
-                  </div>
-                )
-              })
-            ) : (
-              (state?.pending || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><UserCheck className="w-10 h-10 opacity-30"/> ไม่มีรายการรออนุมัติ</div> 
-              : (state?.pending || []).filter(p => p.name.toLowerCase().includes(searchPending.toLowerCase())).map((p, i) => (
-                  <div key={p.id} className={`p-3.5 rounded-2xl border ${selectedPending.includes(p.id) ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} shadow-sm flex items-center justify-between transition-all animate-in slide-in-from-right-4 mb-2`}>
-                    <div className="flex items-center gap-3">
-                      {admin && (
-                         <input type="checkbox" checked={selectedPending.includes(p.id)} onChange={(e) => {
-                           if(e.target.checked) setSelectedPending(prev => [...prev, p.id]);
-                           else setSelectedPending(prev => prev.filter(id => id !== p.id));
-                         }} className="w-5 h-5 rounded text-green-600" />
-                      )}
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md ${getSkillColor(p.skill)}`}>{p.name.charAt(0)}</div>
-                      <div>
-                        <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">{p.name} {(!p.playCount || p.playCount === 0 || String(p.id).startsWith('G')) && <span className="bg-amber-100 text-amber-600 text-[8px] px-1 rounded uppercase font-bold shadow-sm">New</span>}</div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 font-bold">Lv {p.skill} • ID: {p.id}</div>
-                      </div>
-                    </div>
-                    {admin && (
-                      <div className="flex gap-2">
-                         <button onClick={()=>handleApproveProcess(p)} className="bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-md active:scale-95 transition flex items-center gap-1"><Check className="w-3.5 h-3.5"/> Approve</button>
-                         <button onClick={()=>handleRejectPlayer(p.id)} className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-xl text-xs font-bold active:scale-95 transition shadow-sm border border-red-100"><X className="w-3.5 h-3.5"/></button>
-                      </div>
-                    )}
-                  </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* ===================== TAB 3: NOTIFICATIONS ===================== */}
-        <div className={activeTab === 'notifications' ? 'block animate-in fade-in slide-in-from-bottom-4 duration-300 pt-4' : 'hidden'}>
-           <div className="flex justify-between items-center mb-4"><h2 className="font-black text-lg text-slate-800 dark:text-white">การแจ้งเตือน</h2>{notifyHistory.length > 0 && <button onClick={()=>setNotifyHistory([])} className="text-xs text-slate-500 font-bold bg-slate-200 dark:bg-slate-800 px-3 py-1 rounded-full shadow-sm hover:bg-slate-300 transition">Clear All</button>}</div>
-           
-           <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                 <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-inner ${notifyPerm === 'granted' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}><Bell className="w-6 h-6"/></div>
-                 <div>
-                    <h4 className="font-black text-sm text-slate-800 dark:text-white">การแจ้งเตือนแอป</h4>
-                    <p className="text-[10px] text-slate-500 font-bold">แจ้งเตือนจะทำงานได้ครบถ้วนเมื่อ เปิดตั้งค่า และอนุญาตการแจ้งเตือน</p>
-                 </div>
-              </div>
-              
-              {notifyPerm !== 'granted' ? (
-                 <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2"><Bell className="w-4 h-4"/> เปิดตั้งค่าการแจ้งเตือน</button>
-              ) : (
-                 <button onClick={requestNotify} className="w-full sm:w-auto text-xs font-black text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-4 py-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/50 shadow-inner transition active:scale-95 flex items-center justify-center gap-2">
-                    <CheckCircle2 className="w-4 h-4"/> อัปเดตสิทธิ์บนอุปกรณ์
-                 </button>
-              )}
-           </div>
-
-           <button onClick={async () => {
-              try {
-                  const res = await fetch('/api/webpush', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ 
-                          action: 'send', 
-                          userId: myProfile?.id, 
-                          title: 'Test Debug', 
-                          message: 'กำลังทดสอบยิงจาก Backend' 
-                      })
-                  });
-                  const data = await res.json();
-                  if (!res.ok) {
-                      alert('❌ Backend Error: ' + JSON.stringify(data));
-                  } else {
-                      alert('✅ Backend ยิงสำเร็จ! (ถ้ามือถือยังไม่เด้ง แปลว่าใบอนุญาตในมือถือหลุดให้กดอัปเดตสิทธิ์ใหม่)');
-                  }
-              } catch (e: any) {
-                  alert('❌ Network Error: ' + e.message);
-              }
-           }} className="w-full mb-3 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800/50 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl font-bold shadow-sm active:scale-95 transition flex items-center justify-center gap-2 text-xs">
-              <Search className="w-4 h-4"/> ปุ่มเช็ค Error ระบบ Push (Debug BE)
-           </button>
-
-           {/* Test Noti Button */}
-           <button onClick={() => {
-              let msg = `คุณ ${myProfile?.name || 'ไม่ทราบ'} ระดับมือ: ${getSkillName(getMySkillLevel())}`;
-              if (myWaitIndex !== -1) msg += ` และอยู่คิวที่: ${myWaitIndex + 1}`;
-              else if (amIPlaying) msg += ` และกำลังลงสนามอยู่`;
-              else msg += ` และยังไม่ได้เข้าคิว`;
-              
-              triggerNotification('🧪 ทดสอบการแจ้งเตือน (FE)', msg, [200, 100, 200], 'home', false);
-           }} className="w-full mb-5 text-xs font-bold bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white px-4 py-3 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-2">
-             <Bell className="w-4 h-4"/> ทดสอบระบบแจ้งเตือนภายในเครื่อง
-           </button>
-
-           {notifyPerm !== 'granted' && (
-             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-100 dark:border-blue-800/50 p-4 rounded-2xl mb-5 shadow-sm">
-                <h4 className="font-black text-blue-800 dark:text-blue-300 text-xs flex items-center gap-1.5 mb-1.5"><Smartphone className="w-4 h-4"/> แนะนำเพิ่มเติมเพื่อความเสถียร</h4>
-                <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold leading-relaxed">กรุณากดเมนู <b>Share (แชร์)</b> ในเบราว์เซอร์แล้วเลือก <b>"Add to Home Screen"</b> เพื่อให้ระบบแจ้งเตือนทำงานได้ดีแม้ปิดหน้าจอ</p>
-             </div>
-           )}
-
-           <div className="space-y-3 pb-10">
-              {notifyHistory.length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><BellOff className="w-10 h-10 opacity-30"/> ไม่มีประวัติการแจ้งเตือน</div> 
-              : notifyHistory.map((n, i) => (
-                <div key={n.id} className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex gap-3 relative overflow-hidden">
-                  <div className="w-1.5 bg-blue-500 absolute left-0 top-0 bottom-0"></div>
-                  <div className="flex-1 pl-2">
-                    <div className="flex justify-between items-start mb-1"><h4 className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-1.5"><Bell className="w-3.5 h-3.5 text-blue-500"/> {n.title}</h4><span className="text-[10px] font-bold text-slate-400">{n.time}</span></div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{n.body}</p>
-                  </div>
-                </div>
-              ))}
-           </div>
-        </div>
-
-        {/* ===================== TAB 4: PROFILE & ADMIN ===================== */}
-        <div className={activeTab === 'profile' ? 'block animate-in fade-in slide-in-from-bottom-4 duration-300 pt-4' : 'hidden'}>
-           <h2 className="font-black text-lg text-slate-800 dark:text-white mb-4">โปรไฟล์ส่วนตัว</h2>
-           
-           {!myProfile ? (
-             <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 text-center shadow-sm mb-6 flex flex-col items-center gap-3">
-                <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-400 mx-auto mb-2 shadow-inner"><User className="w-8 h-8"/></div>
-                <h3 className="font-bold text-slate-700 dark:text-slate-200">คุณยังไม่ได้เข้าสู่ระบบคิว</h3>
-                <button onClick={openCheckIn} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl active:scale-95 transition shadow-md flex items-center justify-center gap-2"><CheckCircle2 className="w-5 h-5"/> Check In เพื่อเข้าคิว</button>
-             </div>
-           ) : (
-             <>
-               <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm mb-6 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
-                  <div className="flex items-center gap-4 mb-6 relative z-10">
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black shadow-lg ${getSkillColor(getMySkillLevel())}`}>{myProfile.name.charAt(0)}</div>
-                    <div>
-                      <h3 className="font-black text-xl text-slate-800 dark:text-white">{myProfile.name}</h3>
-                      <div className="text-xs font-mono text-slate-500 mt-0.5">ID: {myProfile.id}</div>
-                      <div className="mt-1.5"><span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 shadow-sm">{getSkillName(getMySkillLevel())}</span></div>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-3 mb-6 relative z-10">
-                    <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-xl text-center shadow-sm"><div className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-center gap-1 mb-1 tracking-widest"><Play className="w-3 h-3"/> เล่นไปแล้ว</div><div className="text-2xl font-black text-blue-600 dark:text-blue-400">{realPlayCount} <span className="text-sm font-bold opacity-70">เกม</span></div></div>
-                    <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-xl text-center shadow-sm"><div className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-center gap-1 mb-1 tracking-widest"><Clock className="w-3 h-3"/> เวลาโดยประมาณ</div><div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">~{realPlayTime} <span className="text-sm font-bold opacity-70">นาที</span></div></div>
-                  </div>
-                  
-                  <button onClick={openSignOut} className="w-full bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 font-bold py-3 rounded-xl transition active:scale-95 border border-red-100 dark:border-red-800/50 shadow-sm flex items-center justify-center gap-2"><LogOut className="w-4 h-4"/> Sign Out ออกจากระบบ</button>
-               </div>
-
-               {/* Profile History Section */}
-               <div className="mb-6">
-                 <h3 className="font-black text-sm uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-2"><Activity className="w-4 h-4"/> ประวัติการลงสนามวันนี้</h3>
-                 <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm">
-                   {myPlayHistory.length === 0 ? <div className="text-center text-xs text-slate-400 py-4">ยังไม่มีประวัติการลงสนามในวันนี้</div>
-                   : (
-                     <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
-                       {myPlayHistory.filter(h => h.action.includes('Start') || h.action.includes('Finish')).reverse().map((h, i) => (
-                         <div key={i} className="flex gap-3 text-sm items-start animate-in slide-in-from-top-1">
-                           <div className="text-[10px] font-bold text-slate-400 mt-1.5 w-10 text-right">{h.time}</div>
-                           <div className="flex-1 bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700 shadow-inner">
-                             <div className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1"><MapPin className="w-3 h-3 text-blue-500"/> {h.court || 'Court'}</div>
-                             <div className="text-[10px] text-slate-500 mt-0.5">{h.action}</div>
-                           </div>
-                         </div>
-                       ))}
-                     </div>
-                   )}
-                 </div>
-               </div>
-             </>
-           )}
-
-           {/* ADMIN SECTION IN PROFILE */}
-           <div className="bg-slate-800 dark:bg-slate-900 text-slate-200 rounded-2xl p-5 shadow-lg mb-10 pb-6 border border-slate-700">
-              <div className="flex items-center justify-between mb-4"><h3 className="font-black text-sm uppercase tracking-widest flex items-center gap-2"><Settings className="w-5 h-5"/> Admin Console</h3>{!admin ? <button onClick={auth} className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm transition">Login</button> : <button onClick={logout} className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm transition">Logout</button>}</div>
-              {admin && (
-                <div className="space-y-4">
-                   <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner space-y-3">
-                     <div className="flex justify-between items-center"><span className="text-xs font-bold">Auto Match</span><input type="checkbox" checked={state?.autoMatch||false} onChange={async(e)=>{await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'AutoMatch',value:e.target.checked.toString()})}); Toast.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว' }); refresh(false);}} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
-                     <div className="flex justify-between items-center"><span className="text-xs font-bold">Show Pre-Match (Global)</span><input type="checkbox" checked={globalPreview} onChange={async(e)=>{setGlobalPreview(e.target.checked); await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'GlobalShowPreview',value:e.target.checked.toString()})}); Toast.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว' }); refresh(false);}} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
-                   </div>
-
-                   <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <span className="text-xs font-bold tracking-widest uppercase">Play Time:</span>
-                      <div className="flex items-center gap-2">
-                        <input type="time" value={playStartTime} onChange={e=>setPlayStartTime(e.target.value)} className="bg-slate-800 text-white text-xs p-1.5 rounded-lg border border-slate-600 w-24 outline-none focus:ring-1 focus:ring-blue-500"/>
-                        <span className="text-slate-500">-</span>
-                        <input type="time" value={playEndTime} onChange={e=>setPlayEndTime(e.target.value)} className="bg-slate-800 text-white text-xs p-1.5 rounded-lg border border-slate-600 w-24 outline-none focus:ring-1 focus:ring-blue-500"/>
-                        <button onClick={savePlayTime} className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded-lg shadow-sm font-bold active:scale-95 transition">Save</button>
-                      </div>
-                   </div>
-
-                   <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner">
-                      <label className="text-xs font-bold mb-2 block tracking-widest uppercase">Match Mode</label>
-                      <select value={matchMode} onChange={e => { setMatchMode(e.target.value as any); refresh(false); }} className="w-full p-2.5 border border-slate-600 rounded-lg text-xs bg-slate-800 text-white outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
-                        <option value="smart">Smart (ในทีมห่าง≤3, ระหว่างทีมห่าง≤1)</option>
-                        <option value="balanced">Balanced (สมดุล/ใกล้เคียงที่สุด)</option>
-                        <option value="random">Random (สุ่ม)</option>
-                        <option value="skill-gap">Skill Gap (คู่ฝีมือใกล้เคียง)</option>
-                        <option value="similar-skill">Similar Skill (ฝีมือเดียวกัน/ใกล้กัน)</option>
-                        <option value="manual">Manual (ตามลำดับที่เลือกไว้เป๊ะๆ)</option>
-                      </select>
-                   </div>
-
-                   <div className="grid grid-cols-2 gap-2 mt-2">
-                     <button onClick={executeAutoMatch} className="col-span-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold py-3.5 rounded-xl active:scale-95 flex items-center justify-center gap-2 shadow-md"><Play className="w-4 h-4"/> ปล่อยคิวอัตโนมัติทันที</button>
-                     
-                     <button onClick={openBroadcastModal} className="col-span-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-md transition mt-1"><Megaphone className="w-4 h-4"/> ส่งการแจ้งเตือนกลุ่ม (Broadcast)</button>
-
-                     <button onClick={openAddMember} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Plus className="w-4 h-4"/> เพิ่มสมาชิก</button>
-                     <button onClick={openCourtManager} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Settings className="w-4 h-4"/> จัดการคอร์ท</button>
-                     <button onClick={()=>setFullscreen(true)} className="col-span-2 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Monitor className="w-4 h-4"/> เข้าสู่โหมด Live Focus</button>
-                     
-                     <button onClick={exportRegisteredToday} className="col-span-2 bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Download className="w-4 h-4"/> รายงานผู้ลงทะเบียนวันนี้ (มีรหัสพนักงาน)</button>
-
-                     <button onClick={showAnalyticsMenu} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><PieChart className="w-4 h-4"/> Analytics</button>
-                     <button onClick={showDailyReportMenu} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><BarChart2 className="w-4 h-4"/> Daily Report</button>
-                     <button onClick={resetDay} className="col-span-2 bg-red-900/50 text-red-400 border border-red-800 text-xs font-bold py-3 rounded-xl mt-2 active:scale-95 flex items-center justify-center gap-1.5 shadow-sm hover:bg-red-900/80 transition"><CalendarX className="w-4 h-4"/> รีเซ็ตระบบรายวัน</button>
-                   </div>
-                </div>
-              )}
-           </div>
-           
-           <div className="text-center pb-8 flex flex-col items-center gap-3">
-             <div className="flex gap-2 w-full max-w-[200px] mx-auto">
-               <button onClick={clearBrowserData} className="flex-1 bg-slate-200 dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-[10px] font-bold py-2 rounded-lg transition shadow-sm border border-slate-300 dark:border-slate-700 flex items-center justify-center gap-1.5"><Trash2 className="w-3 h-3"/> ล้างแคช</button>
-               <button onClick={() => window.location.reload()} className="flex-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 text-[10px] font-bold py-2 rounded-lg transition shadow-sm border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1.5"><RefreshCw className="w-3 h-3"/> รีเฟรชแอป</button>
-             </div>
-             <span className="text-[9px] text-slate-300 font-mono tracking-widest mt-2">v {APP_VERSION}</span>
-           </div>
-        </div>
-
+        <HomeTab {...tabProps} />
+        <QueueTab {...tabProps} />
+        <AlertsTab {...tabProps} />
+        <ProfileTab {...tabProps} />
       </div>
 
       {/* 🌟 Custom Court Manager Modal */}
@@ -2043,7 +1574,7 @@ export default function Home() {
                  </div>
                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                     {(state?.courtNames || []).length === 0 ? <div className="text-center text-xs text-slate-400 py-4">ไม่มีคอร์ทในระบบ</div> : null}
-                    {(state?.courtNames || []).map(c => (
+                    {(state?.courtNames || []).map((c: any) => (
                       <div key={c} className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
                          <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2"><MapPin className="w-4 h-4 text-emerald-500"/> {c}</span>
                          <button onClick={()=>handleRemoveCourt(c)} className="bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-2 rounded-lg hover:bg-red-200 transition active:scale-90"><Trash2 className="w-4 h-4"/></button>
@@ -2067,7 +1598,7 @@ export default function Home() {
             </button>
             <button onClick={()=>handleTabClick('notifications')} className={`flex flex-col items-center gap-1 transition-all relative ${activeTab==='notifications'?'text-blue-600 scale-110':'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}>
                <Bell className={activeTab==='notifications'?'w-6 h-6':'w-5 h-5'} strokeWidth={activeTab==='notifications'?2.5:2} /><span className="text-[9px] font-black uppercase tracking-wider">Alerts</span>
-               {notifyHistory.filter(n=>!n.isRead).length>0 && <span className="absolute top-0 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 shadow-sm"></span>}
+               {notifyHistory.filter((n: any)=>!n.isRead).length>0 && <span className="absolute top-0 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 shadow-sm"></span>}
             </button>
             <button onClick={()=>handleTabClick('profile')} className={`flex flex-col items-center gap-1 transition-all ${activeTab==='profile'?'text-blue-600 scale-110':'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}>
                <User className={activeTab==='profile'?'w-6 h-6':'w-5 h-5'} strokeWidth={activeTab==='profile'?2.5:2} /><span className="text-[9px] font-black uppercase tracking-wider">Profile</span>
