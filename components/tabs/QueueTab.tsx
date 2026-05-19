@@ -3,7 +3,7 @@ import { Users, UserPlus, Search, CheckCircle2, UserCheck, Play, Pause, Edit3, X
 export default function QueueTab(props: any) {
   const {
     activeTab, showNav, state, queueSubTab, setQueueSubTab, searchQueue, setSearchQueue,
-    searchPending, setSearchPending, admin, selected, handleMatchSelected, selectedPending,
+    searchPending, setSearchPending, admin, selected, handleMatchSelected, selectedPending, setSelectedPending,
     handleBulkApprove, getSkillColor, myProfile, manualPreviews, autoMatches, toggleSelect,
     togglePause, openAdminEditPlayer, refresh, handleApproveProcess, handleRejectPlayer, runApi
   } = props;
