@@ -1,4 +1,4 @@
-import { Users, UserPlus, Search, ChevronUp, ChevronDown, Play, Pause, Edit3, X, Check, CheckCircle2 } from 'lucide-react';
+import { Users, UserPlus, Search, ChevronUp, ChevronDown, Play, Pause, Edit3, X, Check, CheckCircle2 } from 'lucide-react'
 
 export default function QueueTab(props: any) {
    const {
@@ -61,7 +61,6 @@ export default function QueueTab(props: any) {
               <div key={p.id} className={`p-3.5 rounded-2xl border ${isSel ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md ring-1 ring-blue-400/50' : isPaused ? 'opacity-60 bg-slate-100 dark:bg-slate-800' : 'bg-white dark:bg-slate-800 shadow-sm'} flex items-center justify-between transition-all`}>
                 <div className="flex items-center gap-3 w-full cursor-pointer" onClick={() => toggleSelect(p.id)}>
                   
-                  {/* 🌟 ปุ่มเลื่อนคิวขึ้น-ลง สำหรับมือถือ */}
                   {admin && !isPaused && (
                     <div className="flex flex-col items-center mr-1 bg-slate-100 dark:bg-slate-700 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-600" onClick={e=>e.stopPropagation()}>
                        <button disabled={isFirst} onClick={() => handleMoveQueue(p.id, 'up')} className={`p-1 transition ${isFirst ? 'opacity-30' : 'hover:bg-slate-300 dark:hover:bg-slate-600 active:scale-90'} text-slate-500 dark:text-slate-300`}><ChevronUp className="w-4 h-4"/></button>
