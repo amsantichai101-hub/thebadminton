@@ -15,7 +15,6 @@ export default function ProfileTab(props: any) {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 pt-4">
        <h2 className="font-black text-lg text-slate-800 dark:text-white mb-4">โปรไฟล์ส่วนตัว</h2>
-       
        {!myProfile ? (
          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 text-center shadow-sm mb-6 flex flex-col items-center gap-3">
             <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-400 mx-auto mb-2 shadow-inner"><User className="w-8 h-8"/></div>
@@ -34,12 +33,10 @@ export default function ProfileTab(props: any) {
                   <div className="mt-1.5"><span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 shadow-sm">{getSkillName(getMySkillLevel())}</span></div>
                 </div>
               </div>
-              
               <div className="grid grid-cols-2 gap-3 mb-6 relative z-10">
                 <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-xl text-center shadow-sm"><div className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-center gap-1 mb-1 tracking-widest"><Play className="w-3 h-3"/> เล่นไปแล้ว</div><div className="text-2xl font-black text-blue-600 dark:text-blue-400">{realPlayCount} <span className="text-sm font-bold opacity-70">เกม</span></div></div>
                 <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-xl text-center shadow-sm"><div className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-center gap-1 mb-1 tracking-widest"><Clock className="w-3 h-3"/> เวลาโดยประมาณ</div><div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">~{realPlayTime} <span className="text-sm font-bold opacity-70">นาที</span></div></div>
               </div>
-              
               <button onClick={openSignOut} className="w-full bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 font-bold py-3 rounded-xl transition active:scale-95 border border-red-100 dark:border-red-800/50 shadow-sm flex items-center justify-center gap-2"><LogOut className="w-4 h-4"/> Sign Out ออกจากระบบ</button>
            </div>
 
@@ -114,8 +111,6 @@ export default function ProfileTab(props: any) {
                </div>
 
                <div className="grid grid-cols-2 gap-2 mt-2">
-                 <button onClick={executeAutoMatch} className="col-span-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold py-3.5 rounded-xl active:scale-95 flex items-center justify-center gap-2 shadow-md"><Play className="w-4 h-4"/> ปล่อยคิวอัตโนมัติทันที</button>
-                 
                  <button onClick={openBroadcastModal} className="col-span-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-md transition mt-1"><Megaphone className="w-4 h-4"/> ส่งการแจ้งเตือนกลุ่ม (Broadcast)</button>
 
                  <button onClick={openAddMember} className="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition mt-1"><Plus className="w-4 h-4"/> เพิ่มสมาชิก</button>
@@ -137,7 +132,6 @@ export default function ProfileTab(props: any) {
            <button onClick={clearBrowserData} className="flex-1 bg-slate-200 dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-[10px] font-bold py-2 rounded-lg transition shadow-sm border border-slate-300 dark:border-slate-700 flex items-center justify-center gap-1.5"><Trash2 className="w-3 h-3"/> ล้างแคช</button>
            <button onClick={() => window.location.reload()} className="flex-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 text-[10px] font-bold py-2 rounded-lg transition shadow-sm border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1.5"><RefreshCw className="w-3 h-3"/> รีเฟรชแอป</button>
          </div>
-         <span className="text-[9px] text-slate-300 font-mono tracking-widest mt-2">v {APP_VERSION}</span>
        </div>
     </div>
   )

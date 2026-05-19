@@ -5,7 +5,7 @@ export default function HomeTab(props: any) {
     myProfile, openCheckIn, amIPlaying, myPending, myWaitIndex, estWaitMins,
     getSkillColor, getMySkillLevel, getSkillName,
     state, loadingCourts, allPreviews = [], availableCourts = [], upNextPreviews = [], avgMatchDuration,
-    confirmSpecificMatch, rejectPreviewMatch, finish, admin, setLoadingCourts 
+    confirmSpecificMatch, rejectPreviewMatch, finish, admin 
   } = props;
 
   return (
