@@ -286,10 +286,10 @@ export function PreviewQueueStrip({
             PREVIEW MODE
           </div>
           <div className="text-sm font-black text-slate-800 dark:text-white">
-            🧩 คิวถัดไปที่จะลงสนาม (FIFO)
+            🧩 คิวถัดไปที่จะลงสนาม (เกียมตัวนะจร๊ะ)
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
-            Manual ก่อน → Auto ต่อท้าย • แสดง {list.length} รายการ
+            คิวอาจมีการเปลียนแปลงตามความเหมาะสม • แสดง {list.length} รายการ
           </div>
         </div>
 
@@ -357,7 +357,7 @@ export function PreviewQueueStrip({
       </div>
 
       <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">
-        * เมื่อคอร์ทว่างและเปิด Auto ระบบจะหยิบ <b>Next #1</b> ลงคอร์ททันที แล้วคิวจะเลื่อนอัตโนมัติ
+        * ระบบจำรันตามคิวนะจร๊ะ อาจมีการเปลี่ยนแปลงคิวตามความสะดวกใจของแอดมินจร้า
       </div>
     </section>
   );
@@ -377,7 +377,7 @@ export default function HomeTab(props: any) {
           {!myProfile ? (
             <div className="mb-6 p-6 rounded-3xl shadow-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-center gap-4">
               <div className="w-16 h-16 bg-blue-50 dark:bg-slate-700 rounded-full flex items-center justify-center text-blue-500 mb-2 shadow-inner"><User className="w-8 h-8" /></div>
-              <div><h3 className="font-black text-lg text-slate-800 dark:text-white">ยินดีต้อนรับสู่ระบบคิว</h3><p className="text-xs text-slate-500 mt-1">กรุณา Check In เพื่อรับคิวลงสนาม หรือกู้คืนโปรไฟล์</p><p>และยืนยันตัวต้นกับแอดมิน</p></div>
+              <div><h3 className="font-black text-lg text-slate-800 dark:text-white">ยินดีต้อนรับสู่ระบบคิว กรุณาอ่านด้วยจ๊าาาา</h3><p className="text-xs text-slate-500 mt-1">กรุณา Check In เพื่อรับคิวลงสนาม หรือกู้คืนโปรไฟล์</p><p>และยืนยันตัวตนกับแอดมิน</p><p className="text-xs text-slate-500 mt-1">เคยมาแล้วก็กรอกชื่อแล้วเช็คอินซะ ถ้ามาครั้งแรก ก็เลือกว่ามาครั้งแรก แล้วใส่ข้อมูล จำเลขไม่ได้ให้กด Guest แล้วครั้งหน้าก็หาเลขมาซะ แล้วแจ้งแอดมินให้ปรับให้ ถ้าชื่อหลุดไปหรือเคลียข้อมูลไปก็กู้คืนโปรไฟล์ซะนะ อิอิ</p></div>
               <button onClick={openCheckIn} className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl active:scale-95 transition shadow-lg flex items-center justify-center gap-2"><CheckCircle2 className="w-5 h-5" /> Check In เข้าคิว</button>
             </div>
           ) : (
