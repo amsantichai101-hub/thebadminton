@@ -71,7 +71,7 @@ export default function ProfileTab(props: any) {
                    <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-700 shadow-inner space-y-4">
                      
                      <div className="flex justify-between items-center">
-                        <div className="flex flex-col"><span className="text-xs font-bold text-white">Auto Match (ปล่อยคิวอัตโนมัติ)</span><span className="text-[9px] text-slate-400">ระบบจะจับคู่ให้อัตโนมัติเมื่อคอร์ทว่าง</span></div>
+                        <div className="flex flex-col"><span className="text-xs font-bold text-white">Auto Match (ปล่อยคิวอัตโนมัติ)</span><span className="text-[9px] text-slate-400">ระบบจะจับคู่ให้อัตโนมัติเมื่อคอร์ทว่างและเปิดโหมดโชว์คิวถัดไป</span></div>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input type="checkbox" className="sr-only peer" checked={state?.autoMatch||false} onChange={async(e)=>{await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'set',key:'AutoMatch',value:e.target.checked.toString()})}); Swal.fire({ title: '✅ อัปเดตการตั้งค่าแล้ว', toast: true, position: 'top', showConfirmButton: false, timer: 1500 }); refresh(false);}} />
                           <div className="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
