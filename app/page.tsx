@@ -28,7 +28,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.3.4";
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -304,41 +304,74 @@ const previewQueue = useMemo(() => {
     }
   }, []);
 
-  const requestNotify = async () => {
+
+const requestNotify = async () => {
+  try {
     if (!myProfile) return Toast.fire({ title: '⚠️ กรุณา Check in ก่อนเปิดแจ้งเตือน' });
     if (!('Notification' in window)) return Toast.fire({ title: '❌ เบราว์เซอร์ไม่รองรับแจ้งเตือน' });
 
-    const perm = await Notification.requestPermission();
+    let perm = Notification.permission;
+    if (perm === 'default') perm = await Notification.requestPermission();
     setNotifyPerm(perm);
 
-    if (perm === 'granted') {
-      try {
-        const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-        if (!vapidPublicKey) return Toast.fire({ title: '⚠️ ลืมตั้งค่า VAPID Key ใน .env' });
+    if (perm !== 'granted') return Toast.fire({ title: '⚠️ คุณปฏิเสธการแจ้งเตือน' });
 
-        const reg = await navigator.serviceWorker.ready;
-        const subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-        });
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) return Toast.fire({ title: '⚠️ ลืมตั้งค่า VAPID Key ใน .env' });
 
-        const res = await fetch('/api/webpush', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'subscribe', subscription, userId: myProfile.id })
-        });
+    Swal.fire({ title: 'กำลังอัปเดตการแจ้งเตือน...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
 
-        if (!res.ok) throw new Error('Failed to subscribe on backend');
+    const reg = await navigator.serviceWorker.ready;
 
-        Toast.fire({ title: '✅ เปิดระบบอนุญาตแจ้งเตือนสมบูรณ์!' });
-      } catch (error) {
-        Toast.fire({ title: '⚠️ ไม่สามารถบันทึก Token ได้ (ใช้แจ้งเตือนในแอปแทน)' });
-      }
-    } else {
-      Toast.fire({ title: '⚠️ คุณปฏิเสธการแจ้งเตือน' });
+    let subscription = await reg.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      });
     }
-  };
 
+    // ✅ ส่ง subscribe ไป backend ทุกครั้ง (update/add)
+    const res = await fetch('/api/webpush', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'subscribe', subscription, userId: myProfile.id })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    Swal.close();
+
+    if (!res.ok) return Toast.fire({ title: `❌ อัปเดตไม่สำเร็จ: ${data?.error || res.status}` });
+
+    Toast.fire({ title: '✅ อัปเดต/แอดเพิ่ม Token แจ้งเตือนเรียบร้อย!' });
+  } catch (e: any) {
+    Swal.close();
+    Toast.fire({ title: `❌ ทำรายการไม่สำเร็จ: ${e?.message || 'Unknown error'}` });
+  }
+};
+
+
+const resetNotifySubscription = async () => {
+  try {
+    if (!myProfile) return Toast.fire({ title: '⚠️ กรุณา Check in ก่อน' });
+    if (!('serviceWorker' in navigator)) return Toast.fire({ title: '❌ ไม่รองรับ Service Worker' });
+
+    Swal.fire({ title: 'กำลังรีเซ็ตการแจ้งเตือน...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
+
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+
+    if (sub) {
+      await sub.unsubscribe();
+    }
+
+    Swal.close();
+    Toast.fire({ title: '✅ รีเซ็ตสำเร็จ กด “อัปเดตการแจ้งเตือน” อีกครั้ง' });
+  } catch (err: any) {
+    Swal.close();
+    Toast.fire({ title: `❌ รีเซ็ตไม่สำเร็จ: ${err?.message || 'Unknown error'}` });
+  }
+};
   const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue') => {
     playAlertSound();
     addNotification(title, body);
