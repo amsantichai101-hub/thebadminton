@@ -264,30 +264,6 @@ const previewQueue = useMemo(() => {
 
   // ✅ NEW: Guard กันการปล่อยลงคอร์ทซ้อนกัน (Auto Fill)
   const autoFillingRef = useRef(false);
-
-  
-
-  
-
-  const playAlertSound = () => {
-    try {
-      const audio = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock_2.ogg');
-      audio.play().catch(() => { });
-    } catch (e) { }
-  };
-
-  const addNotification = (title: string, body: string) => {
-    setNotifyHistory(prev => [{ id: Date.now(), title, body, time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }), isRead: false }, ...prev].slice(0, 50));
-  };
-
-  
-
-  
-
-
-
-
-// ✅ ensure SW registered (กัน serviceWorker.ready ค้าง)
 const withTimeout = async <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
   let t: any;
   const timeout = new Promise<T>((_, reject) => {
@@ -310,78 +286,128 @@ const fetchWithTimeout = async (url: string, options: RequestInit, ms: number) =
   }
 };
 
-const requestNotify = async () => {
-  Swal.fire({
-    title: 'กำลังอัปเดตการแจ้งเตือน...',
-    toast: true,
-    position: 'top',
-    showConfirmButton: false,
-    allowOutsideClick: false,
-    didOpen: () => Swal.showLoading(),
-  });
-
-  try {
+  const requestNotify = async () => {
+    // Guard
     if (!myProfile) return Toast.fire({ title: '⚠️ กรุณา Check in ก่อนเปิดแจ้งเตือน' });
     if (!('Notification' in window)) return Toast.fire({ title: '❌ เบราว์เซอร์ไม่รองรับแจ้งเตือน' });
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      return Toast.fire({ title: '❌ ไม่รองรับ Push (ต้อง https + Service Worker)' });
-    }
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return Toast.fire({ title: '❌ ไม่รองรับ Push (ต้อง https + Service Worker)' });
 
-    let perm = Notification.permission;
-    if (perm === 'default') perm = await withTimeout(Notification.requestPermission(), 15000, 'Notification.requestPermission');
-    setNotifyPerm(perm);
-    if (perm !== 'granted') return Toast.fire({ title: '⚠️ ยังไม่ได้รับอนุญาตแจ้งเตือน' });
+    Swal.fire({
+      title: 'กำลังอัปเดตการแจ้งเตือน...',
+      toast: true,
+      position: 'top',
+      showConfirmButton: false,
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading(),
+    });
 
-    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    if (!vapidPublicKey) return Toast.fire({ title: '⚠️ ลืมตั้งค่า VAPID Key ใน .env' });
+    try {
+      // 1) Permission
+      let perm = Notification.permission;
+      if (perm === 'default') {
+        perm = await withTimeout(Notification.requestPermission(), 15000, 'Notification.requestPermission');
+      }
+      setNotifyPerm(perm);
+      if (perm !== 'granted') {
+        Toast.fire({ title: '⚠️ ยังไม่ได้รับอนุญาตแจ้งเตือน' });
+        return;
+      }
 
-    // ✅ รอ SW ready แบบมี timeout
-    const reg = await withTimeout(navigator.serviceWorker.ready, 15000, 'serviceWorker.ready');
+      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey) {
+        Toast.fire({ title: '⚠️ ลืมตั้งค่า VAPID Key ใน .env' });
+        return;
+      }
 
-    let sub = await withTimeout(reg.pushManager.getSubscription(), 10000, 'pushManager.getSubscription');
-    if (!sub) {
-      sub = await withTimeout(
-        reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-        }),
-        20000,
-        'pushManager.subscribe'
+      // 2) Get registration or register (do NOT reload)
+      const reg = await withTimeout(
+        (async () => {
+          const existing = await navigator.serviceWorker.getRegistration('/');
+          return existing || (await navigator.serviceWorker.register('/sw.js', { scope: '/' }));
+        })(),
+        15000,
+        'serviceWorker.getRegistration/register'
       );
+
+      // 3) Subscription
+      let sub = await withTimeout(reg.pushManager.getSubscription(), 10000, 'pushManager.getSubscription');
+      if (!sub) {
+        sub = await withTimeout(
+          reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+          }),
+          20000,
+          'pushManager.subscribe'
+        );
+      }
+
+      // 4) Save / update on backend (always)
+      const res = await fetchWithTimeout(
+        '/api/webpush',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'subscribe', subscription: sub, userId: myProfile.id }),
+        },
+        15000
+      );
+
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        Toast.fire({ title: `❌ อัปเดตไม่สำเร็จ: ${data?.error || res.status}` });
+        return;
+      }
+
+      Toast.fire({ title: '✅ อัปเดต/แอดเพิ่ม Token แจ้งเตือนเรียบร้อย!' });
+    } catch (e: any) {
+      Toast.fire({ title: `❌ ทำรายการไม่สำเร็จ: ${e?.message || 'Unknown error'}` });
+    } finally {
+      Swal.close();
     }
+  };
 
-    // ✅ ส่ง update ไป backend ทุกครั้ง (ไม่เงียบ)
-    const res = await fetchWithTimeout(
-      '/api/webpush',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'subscribe', subscription: sub, userId: myProfile.id })
-      },
-      15000
-    );
+  const resetNotifySubscription = async () => {
+    try {
+      if (!('serviceWorker' in navigator)) return Toast.fire({ title: '❌ Service Worker ไม่พร้อม' });
+      const reg = await withTimeout(
+        (async () => {
+          const existing = await navigator.serviceWorker.getRegistration('/');
+          return existing || (await navigator.serviceWorker.register('/sw.js', { scope: '/' }));
+        })(),
+        15000,
+        'serviceWorker.getRegistration/register'
+      );
+      const sub = await withTimeout(reg.pushManager.getSubscription(), 10000, 'pushManager.getSubscription');
+      if (sub) await sub.unsubscribe();
+      Toast.fire({ title: '✅ รีเซ็ตแล้ว กดอัปเดตการแจ้งเตือนอีกครั้ง' });
+    } catch (e: any) {
+      Toast.fire({ title: `❌ รีเซ็ตไม่สำเร็จ: ${e?.message || 'Unknown error'}` });
+    }
+  };
 
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) return Toast.fire({ title: `❌ อัปเดตไม่สำเร็จ: ${data?.error || res.status}` });
-
-    Toast.fire({ title: '✅ อัปเดต/แอดเพิ่ม Token แจ้งเตือนเรียบร้อย!' });
-  } catch (e: any) {
-    Toast.fire({ title: `❌ ทำรายการไม่สำเร็จ: ${e?.message || 'Unknown error'}` });
-  } finally {
-    Swal.close();
-  }
-};
-
-const resetNotifySubscription = async () => {
+const playAlertSound = () => {
   try {
-    const reg = await withTimeout(navigator.serviceWorker.ready, 15000, 'serviceWorker.ready');
-    const sub = await withTimeout(reg.pushManager.getSubscription(), 10000, 'getSubscription');
-    if (sub) await sub.unsubscribe();
-    Toast.fire({ title: '✅ รีเซ็ตแล้ว กดอัปเดตการแจ้งเตือนอีกครั้ง' });
-  } catch (e: any) {
-    Toast.fire({ title: `❌ รีเซ็ตไม่สำเร็จ: ${e?.message || 'Unknown error'}` });
-  }
+    const audio = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock_2.ogg');
+    audio.play().catch(() => {});
+  } catch (e) {}
+};
+const addNotification = (title: string, body: string) => {
+  setNotifyHistory((prev) =>
+    [
+      {
+        id: Date.now(),
+        title,
+        body,
+        time: new Date().toLocaleTimeString("th-TH", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        isRead: false,
+      },
+      ...prev,
+    ].slice(0, 50),
+  );
 };
 
 

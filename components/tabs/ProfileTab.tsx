@@ -10,7 +10,8 @@ export default function ProfileTab(props: any) {
     openBroadcastModal, openAddMember, openCourtManager, setFullscreen, exportRegisteredToday,
     showAnalyticsMenu, showDailyReportMenu, resetDay, clearBrowserData, APP_VERSION, toggleGlobalPreviewState,
     requestNotify,
-    notifyPerm} = props;
+    notifyPerm,
+    resetNotifySubscription} = props;
 
   return (
         <div className={activeTab === 'profile' ? 'block animate-in fade-in slide-in-from-bottom-4 duration-300 pt-4' : 'hidden'}>
@@ -26,24 +27,28 @@ export default function ProfileTab(props: any) {
              <>
 
                {/* Notifications */}
-               <div className="bg-white/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm mb-4">
+               <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm mb-4">
                  <div className="flex items-start justify-between gap-3">
                    <div className="min-w-0">
                      <div className="text-[10px] font-black tracking-widest uppercase text-slate-500 dark:text-slate-400">Notifications</div>
                      <div className="font-black text-slate-800 dark:text-white">การแจ้งเตือน (Push)</div>
-                     <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                       สถานะสิทธิ: <b>{notifyPerm}</b>{myProfile ? <> • User: <b>{myProfile.id}</b></> : null}
-                     </div>
-                     <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                       กดเพื่อเปิดสิทธิ์/อัปเดต Token บนระบบ (รองรับหลายอุปกรณ์)
-                     </div>
+                     <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">สถานะสิทธิ: <b>{notifyPerm}</b></div>
+                     <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">กดอัปเดตเพื่อบันทึก/อัปเดต Token บนระบบ</div>
                    </div>
-                   <button
-                     onClick={requestNotify}
-                     className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-black shadow active:scale-95 transition"
-                   >
-                     อัปเดตสิทธิ/Token
-                   </button>
+                   <div className="flex flex-col gap-2 shrink-0">
+                     <button
+                       onClick={requestNotify}
+                       className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-black shadow active:scale-95 transition"
+                     >
+                       อัปเดตสิทธิ/Token
+                     </button>
+                     <button
+                       onClick={resetNotifySubscription}
+                       className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-[11px] font-black shadow active:scale-95 transition"
+                     >
+                       รีเซ็ต Token
+                     </button>
+                   </div>
                  </div>
                </div>
 
