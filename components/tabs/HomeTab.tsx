@@ -357,7 +357,7 @@ export function PreviewQueueStrip({
       </div>
 
       <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">
-        * ระบบจำรันตามคิวนะจร๊ะ อาจมีการเปลี่ยนแปลงคิวตามความสะดวกใจของแอดมินจร้า
+        * ระบบรันตามคิวนะจร๊ะ อาจมีการเปลี่ยนแปลงคิวตามความสะดวกใจของแอดมินจร้า
       </div>
     </section>
   );
@@ -387,21 +387,36 @@ export default function HomeTab(props: any) {
           <div className="w-16 h-16 bg-blue-50 dark:bg-slate-700 rounded-full flex items-center justify-center text-blue-500 mb-2 shadow-inner">
             <User className="w-8 h-8" />
           </div>
-          <div>
+
+          <div className="text-center space-y-2">
             <h3 className="font-black text-lg text-slate-800 dark:text-white">
-              ยินดีต้อนรับสู่ระบบคิว กรุณาอ่านด้วยจ๊าาาา
+              🏸 ระบบคิวสนามแบดมินตัน
             </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              กรุณา Check In เพื่อรับคิวลงสนาม หรือกู้คืนโปรไฟล์
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed text-left">
+              กรุณา{" "}
+              <span className="font-semibold text-blue-600">Check-in</span>{" "}
+              เพื่อรับคิว และ{" "}
+              <span className="font-semibold text-blue-600">Sign Out</span>{" "}
+              หลังเล่นเสร็จทุกครั้ง
             </p>
-            <p>และยืนยันตัวตนกับแอดมิน</p>
-            <p className="text-xs text-slate-500 mt-1">
-              เคยมาแล้วก็กรอกชื่อแล้วเช็คอินซะ ถ้ามาครั้งแรก
-              ก็เลือกว่ามาครั้งแรก แล้วใส่ข้อมูล จำเลขไม่ได้ให้กด Guest
-              แล้วครั้งหน้าก็หาเลขมาซะ แล้วแจ้งแอดมินให้ปรับให้
-              ถ้าชื่อหลุดไปหรือเคลียข้อมูลไปก็กู้คืนโปรไฟล์ซะนะ อิอิ
+
+            <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600 text-left leading-relaxed">
+              ⚠️ หากมีสถานะ <span className="font-semibold">Check-in ค้าง</span>{" "}
+              แต่ไม่อยู่ในคิว กรุณา{" "}
+              <span className="font-semibold underline">Sign Out ก่อน</span>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed text-left">
+              • <span className="font-semibold">ผู้ใช้ใหม่:</span>{" "}
+              สร้างโปรไฟล์ก่อนใช้งาน <br />•{" "}
+              <span className="font-semibold">ผู้ใช้เดิม:</span> ใส่ชื่อแล้ว
+              Check-in ได้ทันที <br />• ไม่พบข้อมูลใช้{" "}
+              <span className="font-semibold text-blue-600">Guest</span>{" "}
+              ชั่วคราว และแจ้งแอดมินภายหลัง
             </p>
           </div>
+
           <button
             onClick={openCheckIn}
             className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl active:scale-95 transition shadow-lg flex items-center justify-center gap-2"
@@ -621,7 +636,7 @@ export default function HomeTab(props: any) {
         myProfile={myProfile}
         getSkillColor={getSkillColor}
       />
-
+      <div></div>
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4">
         <div className="flex items-start justify-between gap-3">
           <div>

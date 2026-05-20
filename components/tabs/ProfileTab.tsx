@@ -27,7 +27,7 @@ export default function ProfileTab(props: any) {
              <>
 
                {/* Notifications */}
-               <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm mb-4">
+               {/* <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm mb-4">
                  <div className="flex items-start justify-between gap-3">
                    <div className="min-w-0">
                      <div className="text-[10px] font-black tracking-widest uppercase text-slate-500 dark:text-slate-400">Notifications</div>
@@ -50,7 +50,7 @@ export default function ProfileTab(props: any) {
                      </button>
                    </div>
                  </div>
-               </div>
+               </div> */}
 
                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm mb-6 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
