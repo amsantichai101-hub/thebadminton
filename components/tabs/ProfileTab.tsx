@@ -8,8 +8,9 @@ export default function ProfileTab(props: any) {
     state, refresh, globalPreview, setGlobalPreview, playStartTime, setPlayStartTime,
     playEndTime, setPlayEndTime, savePlayTime, matchMode, setMatchMode, executeAutoMatch,
     openBroadcastModal, openAddMember, openCourtManager, setFullscreen, exportRegisteredToday,
-    showAnalyticsMenu, showDailyReportMenu, resetDay, clearBrowserData, APP_VERSION, toggleGlobalPreviewState
-  } = props;
+    showAnalyticsMenu, showDailyReportMenu, resetDay, clearBrowserData, APP_VERSION, toggleGlobalPreviewState,
+    requestNotify,
+    notifyPerm} = props;
 
   return (
         <div className={activeTab === 'profile' ? 'block animate-in fade-in slide-in-from-bottom-4 duration-300 pt-4' : 'hidden'}>
@@ -23,6 +24,29 @@ export default function ProfileTab(props: any) {
              </div>
            ) : (
              <>
+
+               {/* Notifications */}
+               <div className="bg-white/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm mb-4">
+                 <div className="flex items-start justify-between gap-3">
+                   <div className="min-w-0">
+                     <div className="text-[10px] font-black tracking-widest uppercase text-slate-500 dark:text-slate-400">Notifications</div>
+                     <div className="font-black text-slate-800 dark:text-white">การแจ้งเตือน (Push)</div>
+                     <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                       สถานะสิทธิ: <b>{notifyPerm}</b>{myProfile ? <> • User: <b>{myProfile.id}</b></> : null}
+                     </div>
+                     <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                       กดเพื่อเปิดสิทธิ์/อัปเดต Token บนระบบ (รองรับหลายอุปกรณ์)
+                     </div>
+                   </div>
+                   <button
+                     onClick={requestNotify}
+                     className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-black shadow active:scale-95 transition"
+                   >
+                     อัปเดตสิทธิ/Token
+                   </button>
+                 </div>
+               </div>
+
                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm mb-6 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
                   <div className="flex items-center gap-4 mb-6 relative z-10">

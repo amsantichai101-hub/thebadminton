@@ -1,18 +1,24 @@
+// app/api/webpush/route.ts
+export const runtime = 'nodejs';
+
 import { NextResponse } from 'next/server';
 import webpush from 'web-push';
 import { supabaseAdmin } from '@/lib/supabaseClient';
-
-// ✅ Node crypto ใช้ได้ใน Next.js route handler
 import crypto from 'crypto';
+
+function requireEnv(name: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env: ${name}`);
+  return v;
+}
 
 webpush.setVapidDetails(
   'mailto:admin@badminton.com',
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY as string,
-  process.env.VAPID_PRIVATE_KEY as string
+  requireEnv('NEXT_PUBLIC_VAPID_PUBLIC_KEY'),
+  requireEnv('VAPID_PRIVATE_KEY')
 );
 
 function makeDeviceKey(endpoint: string) {
-  // เอา hash สั้น ๆ พอ (กันชนกันยากมากในงานนี้)
   return crypto.createHash('sha256').update(endpoint).digest('hex').slice(0, 16);
 }
 
@@ -25,9 +31,9 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // ==========================================
-    // 1) Subscribe / Update / Add ใหม่ (ไม่ต้องแก้ schema)
-    // ==========================================
+    // =========================
+    // 1) Subscribe (Update/Add)
+    // =========================
     if (body.action === 'subscribe') {
       const userId = body.userId;
       const subscription = body.subscription;
@@ -39,39 +45,24 @@ export async function POST(req: Request) {
       const deviceKey = makeDeviceKey(subscription.endpoint);
       const userIdDevice = `${userId}::${deviceKey}`;
 
-      // ✅ upsert เฉพาะ device นี้ (ทำให้แอดเพิ่มได้หลายอุปกรณ์)
       const { error } = await supabaseAdmin
         .from('push_subscriptions')
         .upsert(
-          {
-            user_id: userIdDevice,
-            subscription,
-            // created_at มีอยู่แล้ว ไม่แตะก็ได้
-            // ถ้ามี updated_at ใน table ก็ใส่ได้ แต่คุณบอกไม่อยากแก้ schema จึงไม่บังคับ
-          },
+          { user_id: userIdDevice, subscription },
           { onConflict: 'user_id' }
         );
 
       if (error) throw error;
-
-      // (Optional) เพื่อรองรับของเก่าที่เคยเก็บเป็น user_id ตรง ๆ
-      // ถ้าอยาก “ย้าย/อัปเดต” record เดิมให้เป็น device-based ก็ทำได้ แต่ไม่จำเป็น
-
-      return NextResponse.json({
-        success: true,
-        mode: 'upsert_by_user_device',
-        user_id: userIdDevice,
-      });
+      return NextResponse.json({ success: true, user_id: userIdDevice });
     }
 
-    // ==========================================
-    // 2) Send รายบุคคล (ส่งทุก device ของ user)
-    // ==========================================
+    // =========================
+    // 2) Send (รายบุคคล)
+    // =========================
     if (body.action === 'send') {
       const userId = body.userId;
       if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
 
-      // ✅ ดึงทั้งแบบใหม่ (userId::%) และแบบเก่า (userId ตรง ๆ)
       const { data: subs, error } = await supabaseAdmin
         .from('push_subscriptions')
         .select('user_id, subscription')
@@ -101,13 +92,8 @@ export async function POST(req: Request) {
           successCount++;
         } catch (err: any) {
           failCount++;
-
-          // ✅ ถ้า subscription หมดอายุ/โดน revoke → ลบทิ้ง ไม่ให้ค้าง
           if (isExpiredSubscriptionError(err)) {
-            await supabaseAdmin
-              .from('push_subscriptions')
-              .delete()
-              .eq('user_id', sub.user_id);
+            await supabaseAdmin.from('push_subscriptions').delete().eq('user_id', sub.user_id);
             deletedCount++;
           } else {
             console.error(`Send failed for user_id ${sub.user_id}:`, err);
@@ -115,18 +101,12 @@ export async function POST(req: Request) {
         }
       }
 
-      return NextResponse.json({
-        success: true,
-        total: subs.length,
-        successCount,
-        failCount,
-        deletedCount
-      });
+      return NextResponse.json({ success: true, total: subs.length, successCount, failCount, deletedCount });
     }
 
-    // ==========================================
-    // 3) Broadcast (เหมือนเดิม + ลบตัวหมดอายุให้ด้วย)
-    // ==========================================
+    // =========================
+    // 3) Broadcast
+    // =========================
     if (body.action === 'broadcast') {
       const targetDate = new Date(body.date);
       targetDate.setHours(0, 0, 0, 0);
@@ -161,7 +141,6 @@ export async function POST(req: Request) {
           successCount++;
         } catch (err: any) {
           failCount++;
-
           if (isExpiredSubscriptionError(err)) {
             await supabaseAdmin.from('push_subscriptions').delete().eq('user_id', sub.user_id);
             deletedCount++;
@@ -171,17 +150,10 @@ export async function POST(req: Request) {
         }
       }
 
-      return NextResponse.json({
-        success: true,
-        total: subs.length,
-        count: successCount,
-        failCount,
-        deletedCount
-      });
+      return NextResponse.json({ success: true, total: subs.length, count: successCount, failCount, deletedCount });
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

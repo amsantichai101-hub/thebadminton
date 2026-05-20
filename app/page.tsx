@@ -265,27 +265,9 @@ const previewQueue = useMemo(() => {
   // ✅ NEW: Guard กันการปล่อยลงคอร์ทซ้อนกัน (Auto Fill)
   const autoFillingRef = useRef(false);
 
-  useEffect(() => {
-    const localVer = localStorage.getItem('appVersion');
-    if (localVer !== APP_VERSION) {
-      const adminAuth = localStorage.getItem('adminAuth');
-      localStorage.clear();
-      sessionStorage.clear();
-      if (adminAuth) localStorage.setItem('adminAuth', adminAuth);
-      localStorage.setItem('appVersion', APP_VERSION);
-      window.location.reload();
-    }
-  }, []);
+  
 
-  useEffect(() => {
-    const handleScroll = () => {
-      if (window.scrollY > lastScrollY.current && window.scrollY > 60) setShowNav(false);
-      else setShowNav(true);
-      lastScrollY.current = window.scrollY;
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  
 
   const playAlertSound = () => {
     try {
@@ -298,80 +280,111 @@ const previewQueue = useMemo(() => {
     setNotifyHistory(prev => [{ id: Date.now(), title, body, time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }), isRead: false }, ...prev].slice(0, 50));
   };
 
-  useEffect(() => {
-    if ('Notification' in window) {
-      setNotifyPerm(Notification.permission);
-    }
-  }, []);
+  
 
+  
+
+
+
+
+// ✅ ensure SW registered (กัน serviceWorker.ready ค้าง)
+const withTimeout = async <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
+  let t: any;
+  const timeout = new Promise<T>((_, reject) => {
+    t = setTimeout(() => reject(new Error(`Timeout: ${label} (${ms}ms)`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    clearTimeout(t);
+  }
+};
+
+const fetchWithTimeout = async (url: string, options: RequestInit, ms: number) => {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(t);
+  }
+};
 
 const requestNotify = async () => {
+  Swal.fire({
+    title: 'กำลังอัปเดตการแจ้งเตือน...',
+    toast: true,
+    position: 'top',
+    showConfirmButton: false,
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading(),
+  });
+
   try {
     if (!myProfile) return Toast.fire({ title: '⚠️ กรุณา Check in ก่อนเปิดแจ้งเตือน' });
     if (!('Notification' in window)) return Toast.fire({ title: '❌ เบราว์เซอร์ไม่รองรับแจ้งเตือน' });
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      return Toast.fire({ title: '❌ ไม่รองรับ Push (ต้อง https + Service Worker)' });
+    }
 
     let perm = Notification.permission;
-    if (perm === 'default') perm = await Notification.requestPermission();
+    if (perm === 'default') perm = await withTimeout(Notification.requestPermission(), 15000, 'Notification.requestPermission');
     setNotifyPerm(perm);
-
-    if (perm !== 'granted') return Toast.fire({ title: '⚠️ คุณปฏิเสธการแจ้งเตือน' });
+    if (perm !== 'granted') return Toast.fire({ title: '⚠️ ยังไม่ได้รับอนุญาตแจ้งเตือน' });
 
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     if (!vapidPublicKey) return Toast.fire({ title: '⚠️ ลืมตั้งค่า VAPID Key ใน .env' });
 
-    Swal.fire({ title: 'กำลังอัปเดตการแจ้งเตือน...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
+    // ✅ รอ SW ready แบบมี timeout
+    const reg = await withTimeout(navigator.serviceWorker.ready, 15000, 'serviceWorker.ready');
 
-    const reg = await navigator.serviceWorker.ready;
-
-    let subscription = await reg.pushManager.getSubscription();
-    if (!subscription) {
-      subscription = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-      });
+    let sub = await withTimeout(reg.pushManager.getSubscription(), 10000, 'pushManager.getSubscription');
+    if (!sub) {
+      sub = await withTimeout(
+        reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+        }),
+        20000,
+        'pushManager.subscribe'
+      );
     }
 
-    // ✅ ส่ง subscribe ไป backend ทุกครั้ง (update/add)
-    const res = await fetch('/api/webpush', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'subscribe', subscription, userId: myProfile.id })
-    });
+    // ✅ ส่ง update ไป backend ทุกครั้ง (ไม่เงียบ)
+    const res = await fetchWithTimeout(
+      '/api/webpush',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'subscribe', subscription: sub, userId: myProfile.id })
+      },
+      15000
+    );
 
     const data = await res.json().catch(() => ({}));
-    Swal.close();
 
     if (!res.ok) return Toast.fire({ title: `❌ อัปเดตไม่สำเร็จ: ${data?.error || res.status}` });
 
     Toast.fire({ title: '✅ อัปเดต/แอดเพิ่ม Token แจ้งเตือนเรียบร้อย!' });
   } catch (e: any) {
-    Swal.close();
     Toast.fire({ title: `❌ ทำรายการไม่สำเร็จ: ${e?.message || 'Unknown error'}` });
+  } finally {
+    Swal.close();
   }
 };
-
 
 const resetNotifySubscription = async () => {
   try {
-    if (!myProfile) return Toast.fire({ title: '⚠️ กรุณา Check in ก่อน' });
-    if (!('serviceWorker' in navigator)) return Toast.fire({ title: '❌ ไม่รองรับ Service Worker' });
-
-    Swal.fire({ title: 'กำลังรีเซ็ตการแจ้งเตือน...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-
-    if (sub) {
-      await sub.unsubscribe();
-    }
-
-    Swal.close();
-    Toast.fire({ title: '✅ รีเซ็ตสำเร็จ กด “อัปเดตการแจ้งเตือน” อีกครั้ง' });
-  } catch (err: any) {
-    Swal.close();
-    Toast.fire({ title: `❌ รีเซ็ตไม่สำเร็จ: ${err?.message || 'Unknown error'}` });
+    const reg = await withTimeout(navigator.serviceWorker.ready, 15000, 'serviceWorker.ready');
+    const sub = await withTimeout(reg.pushManager.getSubscription(), 10000, 'getSubscription');
+    if (sub) await sub.unsubscribe();
+    Toast.fire({ title: '✅ รีเซ็ตแล้ว กดอัปเดตการแจ้งเตือนอีกครั้ง' });
+  } catch (e: any) {
+    Toast.fire({ title: `❌ รีเซ็ตไม่สำเร็จ: ${e?.message || 'Unknown error'}` });
   }
 };
+
+
   const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue') => {
     playAlertSound();
     addNotification(title, body);
