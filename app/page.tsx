@@ -28,7 +28,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.3.4";
+const APP_VERSION = "2.3.6";
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -75,7 +75,6 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'home' | 'queue' | 'notifications' | 'profile'>('home');
   const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'pending'>('waiting');
   const [showNav, setShowNav] = useState(true);
-  const lastScrollY = useRef(0);
   const [notifyHistory, setNotifyHistory] = useState<{ id: number, title: string, body: string, time: string, isRead: boolean }[]>([]);
   const [myPlayHistory, setMyPlayHistory] = useState<any[]>([]);
 
@@ -178,8 +177,10 @@ export default function Home() {
       if (currentPlayers.length < 4) break;
 
       if (mode === 'smart') {
-        const match = extractBestMatch(currentPlayers, history);
-        if (!match) break;
+        let match = extractBestMatch(currentPlayers, history);
+        if (!match) { // Fallback ดึงตามคิว
+          match = { teams: [[currentPlayers[0], currentPlayers[1]], [currentPlayers[2], currentPlayers[3]]], diff: 0, indices: [0, 1, 2, 3] };
+        }
         matches.push({ matchNumber: i + 1, teams: match.teams, diff: match.diff });
         currentPlayers = currentPlayers.filter((_, index) => !match.indices.includes(index));
       } else {
@@ -200,60 +201,31 @@ export default function Home() {
     return matches;
   }
 
-  const availableCourts = (state?.courtNames || []).filter(cn => !(state?.playing || []).find(p => p.court === cn));
-  const manualIdsList = manualPreviews.flatMap(m => m.teams.flat().map((p: any) => p.id));
-  const availableWaitingView = activeWaiting.filter(p => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
-  const remainingSlots = availableCourts.length - manualPreviews.length;
+  // ==========================================
+  // 🌟 PREVIEW QUEUE CORE LOGIC (เรียงคิวรอโชว์ทั้งหมด)
+  // ==========================================
+  const previewQueue = useMemo(() => {
+    if (!globalPreview) return [];
 
-  const autoMatches = (globalPreview && availableWaitingView.length >= 4 && remainingSlots > 0 && matchMode !== 'manual')
-    ? (extractBestMatch(availableWaitingView, matchHistory) ? getAutoNextMatches(availableWaitingView, remainingSlots, matchMode, matchHistory) : [])
-    : [];
-
-  const allPreviews = [...manualPreviews, ...autoMatches];
-
-  // จำนวนรายการคิวที่จะโชว์ (ปรับได้)
-const PREVIEW_QUEUE_SIZE = 20;
-
-// helper: flatten ids จาก match
-const getMatchIds = (m: any) => (m?.teams || []).flat().map((p: any) => p?.id).filter(Boolean);
-
-// ✅ previewQueue = manualQueue (admin) + autoQueue (system)
-const previewQueue = useMemo(() => {
-  // 1) manualQueue (คงลำดับที่ admin กดเลือก)
-  const manualQueue = [...(manualPreviews || [])];
-
-  // 2) กันคนซ้ำ: เอา ids ที่ถูกใช้ใน manual ออกก่อน
-  const usedIds = new Set<string>(manualQueue.flatMap(getMatchIds));
-
-  // 3) base queue: คนรอจริงตามลำดับ FIFO (activeWaiting ของคุณจัดไว้แล้ว)
-  const candidates = activeWaiting
-    .filter(p => !pausedIds.includes(p.id))
-    .filter(p => !usedIds.has(p.id));
-
-  // 4) autoQueue: ใช้ระบบจับคู่เดิมของคุณ (smart/balanced/ฯลฯ)
-  //    สร้างให้ได้หลายชุดพอสำหรับโชว์ ไม่ผูกกับคอร์ทว่าง
-  const autoQueue = (matchMode === 'manual')
-    ? []
-    : getAutoNextMatches(candidates, PREVIEW_QUEUE_SIZE, matchMode, matchHistory)
-        .map((m: any, idx: number) => ({
-          ...m,
-          isManual: false,
-          // normalize shape ให้เหมือน manualPreviews ที่ render ง่าย
-          teams: m.teams,
-          matchNumber: m.matchNumber ?? (idx + 1),
+    // 1. นำคิวที่แอดมิน Confirm/Lock หรือจัดไว้แล้วมาวางเป็นคิวแรกๆ
+    const manualQueue = [...manualPreviews];
+    const usedIds = new Set(manualQueue.flatMap(m => m.teams.flat().map((p: any) => p.id)));
+    
+    // 2. กรองคนในคิวที่ว่างอยู่จริงๆ (ไม่ได้พัก และยังไม่ได้อยู่ในคิว Manual)
+    const candidates = activeWaiting.filter(p => !pausedIds.includes(p.id) && !usedIds.has(p.id));
+    
+    // 3. คำนวณว่าสามารถจัดทีม 4 คน ได้กี่คู่ จากคนที่เหลือ
+    const maxAuto = Math.max(0, Math.floor(candidates.length / 4));
+    
+    // 4. สุ่มจัดคิว Auto เท่าที่มีคนพอจัด
+    const autoQueue = (matchMode === 'manual') 
+      ? [] 
+      : getAutoNextMatches(candidates, maxAuto, matchMode, matchHistory).map((m: any, idx: number) => ({
+          ...m, isManual: false, matchNumber: m.matchNumber ?? (idx + 1), matchId: `auto-${idx}`
         }));
-
-  // 5) รวมเป็นคิวเดียว FIFO
-  return [...manualQueue, ...autoQueue];
-}, [
-  manualPreviews,
-  activeWaiting,
-  pausedIds,
-  matchMode,
-  matchHistory,
-  getAutoNextMatches,
-]);
-
+        
+    return [...manualQueue, ...autoQueue];
+  }, [manualPreviews, activeWaiting, pausedIds, matchMode, matchHistory, globalPreview]);
 
   const myStartLogs = myPlayHistory.filter(h => h.action.toLowerCase().includes('start') || h.action.includes('ลงสนาม'));
   const realPlayCount = myStartLogs.length;
@@ -261,33 +233,31 @@ const previewQueue = useMemo(() => {
 
   const notifiedStandby = useRef(false);
   const notifiedPlay = useRef(false);
-
-  // ✅ NEW: Guard กันการปล่อยลงคอร์ทซ้อนกัน (Auto Fill)
   const autoFillingRef = useRef(false);
-const withTimeout = async <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
-  let t: any;
-  const timeout = new Promise<T>((_, reject) => {
-    t = setTimeout(() => reject(new Error(`Timeout: ${label} (${ms}ms)`)), ms);
-  });
-  try {
-    return await Promise.race([p, timeout]);
-  } finally {
-    clearTimeout(t);
-  }
-};
 
-const fetchWithTimeout = async (url: string, options: RequestInit, ms: number) => {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), ms);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(t);
-  }
-};
+  const withTimeout = async <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
+    let t: any;
+    const timeout = new Promise<T>((_, reject) => {
+      t = setTimeout(() => reject(new Error(`Timeout: ${label} (${ms}ms)`)), ms);
+    });
+    try {
+      return await Promise.race([p, timeout]);
+    } finally {
+      clearTimeout(t);
+    }
+  };
+
+  const fetchWithTimeout = async (url: string, options: RequestInit, ms: number) => {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), ms);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(t);
+    }
+  };
 
   const requestNotify = async () => {
-    // Guard
     if (!myProfile) return Toast.fire({ title: '⚠️ กรุณา Check in ก่อนเปิดแจ้งเตือน' });
     if (!('Notification' in window)) return Toast.fire({ title: '❌ เบราว์เซอร์ไม่รองรับแจ้งเตือน' });
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return Toast.fire({ title: '❌ ไม่รองรับ Push (ต้อง https + Service Worker)' });
@@ -302,7 +272,6 @@ const fetchWithTimeout = async (url: string, options: RequestInit, ms: number) =
     });
 
     try {
-      // 1) Permission
       let perm = Notification.permission;
       if (perm === 'default') {
         perm = await withTimeout(Notification.requestPermission(), 15000, 'Notification.requestPermission');
@@ -319,7 +288,6 @@ const fetchWithTimeout = async (url: string, options: RequestInit, ms: number) =
         return;
       }
 
-      // 2) Get registration or register (do NOT reload)
       const reg = await withTimeout(
         (async () => {
           const existing = await navigator.serviceWorker.getRegistration('/');
@@ -329,7 +297,6 @@ const fetchWithTimeout = async (url: string, options: RequestInit, ms: number) =
         'serviceWorker.getRegistration/register'
       );
 
-      // 3) Subscription
       let sub = await withTimeout(reg.pushManager.getSubscription(), 10000, 'pushManager.getSubscription');
       if (!sub) {
         sub = await withTimeout(
@@ -342,7 +309,6 @@ const fetchWithTimeout = async (url: string, options: RequestInit, ms: number) =
         );
       }
 
-      // 4) Save / update on backend (always)
       const res = await fetchWithTimeout(
         '/api/webpush',
         {
@@ -367,49 +333,30 @@ const fetchWithTimeout = async (url: string, options: RequestInit, ms: number) =
     }
   };
 
-  const resetNotifySubscription = async () => {
+  const playAlertSound = () => {
     try {
-      if (!('serviceWorker' in navigator)) return Toast.fire({ title: '❌ Service Worker ไม่พร้อม' });
-      const reg = await withTimeout(
-        (async () => {
-          const existing = await navigator.serviceWorker.getRegistration('/');
-          return existing || (await navigator.serviceWorker.register('/sw.js', { scope: '/' }));
-        })(),
-        15000,
-        'serviceWorker.getRegistration/register'
-      );
-      const sub = await withTimeout(reg.pushManager.getSubscription(), 10000, 'pushManager.getSubscription');
-      if (sub) await sub.unsubscribe();
-      Toast.fire({ title: '✅ รีเซ็ตแล้ว กดอัปเดตการแจ้งเตือนอีกครั้ง' });
-    } catch (e: any) {
-      Toast.fire({ title: `❌ รีเซ็ตไม่สำเร็จ: ${e?.message || 'Unknown error'}` });
-    }
+      const audio = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock_2.ogg');
+      audio.play().catch(() => {});
+    } catch (e) {}
   };
 
-const playAlertSound = () => {
-  try {
-    const audio = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock_2.ogg');
-    audio.play().catch(() => {});
-  } catch (e) {}
-};
-const addNotification = (title: string, body: string) => {
-  setNotifyHistory((prev) =>
-    [
-      {
-        id: Date.now(),
-        title,
-        body,
-        time: new Date().toLocaleTimeString("th-TH", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        isRead: false,
-      },
-      ...prev,
-    ].slice(0, 50),
-  );
-};
-
+  const addNotification = (title: string, body: string) => {
+    setNotifyHistory((prev) =>
+      [
+        {
+          id: Date.now(),
+          title,
+          body,
+          time: new Date().toLocaleTimeString("th-TH", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          isRead: false,
+        },
+        ...prev,
+      ].slice(0, 50),
+    );
+  };
 
   const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue') => {
     playAlertSound();
@@ -475,6 +422,24 @@ const addNotification = (title: string, body: string) => {
       if (d.playStartTime) setPlayStartTime(d.playStartTime);
       if (d.playEndTime) setPlayEndTime(d.playEndTime);
       if (myProfile) { fetchProfileHistory(); }
+
+      // ✅ ดึงคิวที่ล็อคไว้จาก Backend มาแสดงในโซนพรีวิว
+      const manualRes = await fetch('/api/manual-queue', { cache: 'no-store' });
+      const manualData = await manualRes.json();
+      if (manualData?.data) {
+         const formattedManuals = manualData.data.map((m: any) => {
+            const p1 = d.waiting?.find((x:any)=>x.id === m.p1_id) || { id: m.p1_id, name: 'Unknown', skill: 0 };
+            const p2 = d.waiting?.find((x:any)=>x.id === m.p2_id) || { id: m.p2_id, name: 'Unknown', skill: 0 };
+            const p3 = d.waiting?.find((x:any)=>x.id === m.p3_id) || { id: m.p3_id, name: 'Unknown', skill: 0 };
+            const p4 = d.waiting?.find((x:any)=>x.id === m.p4_id) || { id: m.p4_id, name: 'Unknown', skill: 0 };
+            return {
+               matchId: m.id, 
+               isManual: true,
+               teams: [[p1, p2], [p3, p4]]
+            }
+         });
+         setManualPreviews(formattedManuals);
+      }
     } catch (e) { }
     finally { setIsLoading(false); }
   }
@@ -506,13 +471,6 @@ const addNotification = (title: string, body: string) => {
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // ======================================================================
-  // ✅ NEW FEATURE: AUTO FILL COURT (ไม่ใช่ auto finish)
-  // - เมื่อเปิดโหมด state.autoMatch
-  // - ถ้ามีคอร์ทว่าง => นำคู่ลงคอร์ททันที ไม่ต้องคอนเฟิร์ม
-  // - priority: manualPreviews ก่อน แล้วค่อย autoMatches
-  // ======================================================================
 
   const recordMatchToHistory = (ids: string[]) => {
     if (ids.length !== 4) return;
@@ -668,150 +626,223 @@ const addNotification = (title: string, body: string) => {
   }
 
   const executeAutoMatch = async () => {
-    const availableWaiters = activeWaiting.filter(p => !manualPreviews.flatMap(m => m.teams.flat().map((x: any) => x.id)).includes(p.id));
-    if (availableWaiters.length < 4) { Toast.fire({ title: '⚠️ คิวพร้อมเล่นไม่ถึง 4 คน' }); return; }
-
-    const availableCourtsCount = state?.courtNames.filter(cn => !state.playing.find(p => p.court === cn)).length || 0;
-    const matchTarget = Math.max(1, availableCourtsCount);
-    const matches = getAutoNextMatches(availableWaiters, matchTarget, matchMode, matchHistory);
-
-    if (matches.length === 0) { Toast.fire({ title: '⚠️ ระบบหาคู่ที่เหมาะสมไม่ได้' }); return; }
-    Toast.fire({ title: `⏳ กำลังปล่อยคิว...` });
-
-    for (const m of matches) {
-      const ids = [m.teams[0][0].id, m.teams[0][1].id, m.teams[1][0].id, m.teams[1][1].id];
-      recordMatchToHistory(ids);
-      await fetch('/api/manual-match', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }) });
-    }
-    refresh(false); Toast.fire({ title: '✅ ปล่อยคิวสำเร็จ!' });
+    // ให้เปิดใช้โหมด Auto แทนการกดทีละปุ่ม
+    Toast.fire({ title: '⚠️ กรุณาเปิดสวิตช์ Auto Match ด้านล่างแทนการกดปุ่มนี้' });
   }
-
-const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
-  const courtToLoad = targetCourtName || matchData.court || '';
-  if (courtToLoad) setLoadingCourts(prev => [...prev, courtToLoad]);
-
-  const ids = [
-    matchData.teams[0][0].id,
-    matchData.teams[0][1].id,
-    matchData.teams[1][0].id,
-    matchData.teams[1][1].id
-  ];
-
-  recordMatchToHistory(ids);
-
-  let ok = false;
-  try {
-    const res = await fetch('/api/manual-match', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ids, court: targetCourtName })
-    });
-
-    ok = res.ok;
-    if (!ok) {
-      const err = await res.json().catch(() => null);
-      Toast.fire({ title: `❌ ลงสนามไม่สำเร็จ: ${err?.message || res.status}` });
-      return;
-    }
-
-    // ✅ สำเร็จแล้วค่อยลบ manual ออก (เฉพาะ manual เท่านั้น)
-    if (matchData?.isManual && matchData?.matchId) {
-      setManualPreviews(prev => prev.filter(m => m.matchId !== matchData.matchId));
-    }
-
-    await refresh(false);
-    Toast.fire({ title: '✅ ลงสนามเรียบร้อย!' });
-  } catch (e) {
-    Toast.fire({ title: '❌ Network error ระหว่างลงสนาม' });
-  } finally {
-    if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
-  }
-};
-
-
-  // ✅ NEW: ปล่อยคู่ลงคอร์ทแบบอัตโนมัติ “ทันที” เมื่อคอร์ทว่างและเปิดโหมด autoMatch
-
-  const autoFillCourts = useCallback(async () => {
-  if (!state?.autoMatch) return;
-  if (autoFillingRef.current) return;
-
-  const freeCourts = (state?.courtNames || []).filter(
-    cn => !(state?.playing || []).some(p => p.court === cn)
-  );
-  if (freeCourts.length === 0) return;
-
-  // ✅ snapshot กันคิวเปลี่ยนระหว่างรัน
-  const queueSnapshot = [...(previewQueue || [])];
-  if (queueSnapshot.length === 0) return;
-
-  autoFillingRef.current = true;
-  try {
-    for (const court of freeCourts) {
-      if (loadingCourts.includes(court)) continue;
-
-      const next = queueSnapshot.shift();
-      if (!next) break;
-
-      // ✅ ลงคอร์ท FIFO
-      await confirmSpecificMatch(next, court);
-    }
-  } finally {
-    autoFillingRef.current = false;
-  }
-}, [state?.autoMatch, state?.courtNames, state?.playing, previewQueue, loadingCourts, confirmSpecificMatch]);
-
-  // ✅ Trigger: เมื่อ state เปลี่ยนแล้ว “คอร์ทว่าง” ให้ปล่อยคิวทันที (ไม่ต้อง confirm)
-
-  useEffect(() => {
-  if (!state?.autoMatch) return;
-
-  const freeCourts = (state?.courtNames || []).filter(
-    cn => !(state?.playing || []).some(p => p.court === cn)
-  );
-
-  if (freeCourts.length === 0) return;
-
-  autoFillCourts();
-}, [state?.autoMatch, state?.playing, state?.waiting, manualPreviews, previewQueue, state?.courtNames]);
-
-  const toggleSelect = (pId: string) => {
+const toggleSelect = (pId: string) => {
     if (!admin) return;
     setSelected(prev => {
       if (prev.includes(pId)) {
-        const newSel = prev.filter(x => x !== pId);
-        if (newSel.length === 0) refresh(true);
-        return newSel;
+        return prev.filter(x => x !== pId);
       } else {
         if (prev.length >= 4) return prev;
         return [...prev, pId];
       }
     });
   };
+  // ==========================================
+  // การควบคุมคอร์ท และ API 
+  // ==========================================
 
-const handleMatchSelected = async () => {
-  if (selected.length !== 4) return Toast.fire({ title: '⚠️ เลือก 4 คนให้พอดีเป๊ะครับ' });
+  // 1. จัดคนจากหน้าคิวแทรกเข้าคอร์ทจำลอง
+  const handleMatchSelected = async () => {
+    if (selected.length !== 4) return Toast.fire({ title: '⚠️ เลือก 4 คนให้พอดีเป๊ะครับ' });
 
-  const selectedPlayers = (selected.map(id => state?.waiting?.find(p => p.id === id)).filter(Boolean) as Player[]) || [];
-  if (selectedPlayers.length !== 4) return Toast.fire({ title: '⚠️ ดึงข้อมูลผู้เล่นไม่ครบ' });
+    const selectedPlayers = (selected.map(id => state?.waiting?.find(p => p.id === id)).filter(Boolean) as Player[]) || [];
+    if (selectedPlayers.length !== 4) return Toast.fire({ title: '⚠️ ดึงข้อมูลผู้เล่นไม่ครบ' });
 
-  const matchId = `M-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const matchId = `M-${Date.now()}`;
+    const matchData = {
+      matchId,
+      isManual: true,
+      teams: [[selectedPlayers[0], selectedPlayers[1]], [selectedPlayers[2], selectedPlayers[3]]],
+      diff: 0
+    };
 
-  const matchData = {
-    matchId,
-    isManual: true,
-    matchNumber: Date.now(),
-    teams: [[selectedPlayers[0], selectedPlayers[1]], [selectedPlayers[2], selectedPlayers[3]]],
-    diff: 0
+    setManualPreviews(prev => [...prev, matchData]); 
+    setSelected([]);
+    
+    await fetch('/api/manual-queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        court_name: matchId, // ใช้ matchId ไปก่อน
+        p1_id: selectedPlayers[0].id, p2_id: selectedPlayers[1].id,
+        p3_id: selectedPlayers[2].id, p4_id: selectedPlayers[3].id
+      })
+    });
+
+    Toast.fire({ title: '✅ จัดทีมแทรกคิวถัดไปสำเร็จ!' });
   };
 
-  setManualPreviews(prev => [...prev, matchData]); // FIFO
-  setSelected([]);
-  Toast.fire({ title: '✅ จัดทีมแทรกคิวถัดไปสำเร็จ (FIFO)!' });
-};
+  // 2. ยกเลิกคิว
+  const cancelManualMatch = async (prepMatch: any) => {
+    setManualPreviews(prev => prev.filter(m => m.matchId !== prepMatch.matchId));
+    await fetch('/api/manual-queue', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: prepMatch.matchId })
+    });
+    Toast.fire({ title: '🗑️ ยกเลิกคิวแล้ว' });
+  };
 
+  // 3. ยืนยันคิวลง Database
+  const lockQueue = async (prepMatch: any) => {
+    Swal.fire({ title: 'กำลังยืนยันคิว...', toast: true, position: 'top', showConfirmButton: false });
+    const matchId = `M-${Date.now()}`;
+    const newManual = { matchId, isManual: true, teams: prepMatch.teams };
+    
+    setManualPreviews(prev => [...prev, newManual]);
+    
+    await fetch('/api/manual-queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        court_name: matchId,
+        p1_id: prepMatch.teams[0][0].id, p2_id: prepMatch.teams[0][1].id,
+        p3_id: prepMatch.teams[1][0].id, p4_id: prepMatch.teams[1][1].id
+      })
+    });
+    Toast.fire({ title: '✅ ยืนยันผลการจัดคู่แล้ว!' });
+  };
+
+  // 4. สุ่มคิวใหม่ โดยไม่เอาคนโดนล็อคแล้วมาสุ่ม
+  const triggerReshuffle = async (matchData?: any) => {
+    // 1. หาคนที่ว่าง (ไม่โดนล็อคคิว Manual อยู่)
+    const otherManualIds = manualPreviews
+      .filter((m: any) => m.matchId !== matchData?.matchId)
+      .flatMap((m: any) => m.teams.flat().map((x: any) => x.id));
+    const availableWaiters = activeWaiting.filter(p => !otherManualIds.includes(p.id));
+
+    if (availableWaiters.length < 4) return Toast.fire({ title: '⚠️ คิวรอว่างไม่พอ 4 คน' });
+
+    // 2. สุ่มลำดับใหม่
+    const shuffled = [...availableWaiters].sort(() => 0.5 - Math.random());
+    let bestMatch = extractBestMatch(shuffled, matchHistory) || { teams: [[shuffled[0], shuffled[1]], [shuffled[2], shuffled[3]]] };
+
+    // 3. ปรับค่า isManual เป็น false เพื่อให้ระบบมองว่าเป็นแค่ "ข้อเสนอแนะ (Preview)"
+    const newPreviewMatch = { 
+      matchId: `P-${Date.now()}`, // ใช้ P- (Preview) แทน M- (Manual/Locked)
+      isManual: false, 
+      courtName: matchData?.courtName || '', // รักษาชื่อคอร์ทไว้
+      teams: bestMatch.teams 
+    };
+
+    // 4. อัปเดต State ให้โชว์คิวใหม่โดยยังไม่บันทึกลง Database ของคิวที่ยืนยันแล้ว
+    setManualPreviews(prev => {
+        const filtered = prev.filter(m => m.matchId !== matchData?.matchId);
+        return [...filtered, newPreviewMatch];
+    });
+
+    Toast.fire({ title: `✅ สุ่มคิวใหม่แล้ว (รอคุณกด ยืนยันผลจัดคู่)` });
+  };
+
+  // 5. ส่งลงสนาม (ส่งเข้าไป API Active Courts)
+  const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
+    const courtToLoad = targetCourtName || '';
+    if (courtToLoad) setLoadingCourts(prev => [...prev, courtToLoad]);
+
+    const ids = [
+      matchData.teams[0][0].id,
+      matchData.teams[0][1].id,
+      matchData.teams[1][0].id,
+      matchData.teams[1][1].id
+    ];
+
+    recordMatchToHistory(ids);
+
+    try {
+      const res = await fetch('/api/manual-match', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids, court: targetCourtName })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        Toast.fire({ title: `❌ ลงสนามไม่สำเร็จ: ${err?.message || res.status}` });
+        return;
+      }
+
+      if (matchData?.isManual && matchData?.matchId) {
+        setManualPreviews(prev => prev.filter(m => m.matchId !== matchData.matchId));
+        await fetch('/api/manual-queue', {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: matchData.matchId })
+        }).catch(()=>null);
+      }
+
+      await refresh(false);
+      Toast.fire({ title: '✅ ส่งลงสนามเรียบร้อย!' });
+    } catch (e) {
+      Toast.fire({ title: '❌ Network error ระหว่างลงสนาม' });
+    } finally {
+      if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
+    }
+  };
+
+  // 6. เริ่มเกม / จับเวลาใหม่
+  const startGame = async (courtName: string) => {
+    Swal.fire({ title: 'กำลังเริ่มเกม...', toast: true, position: 'top', showConfirmButton: false });
+    await fetch('/api/start-game', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ court: courtName })
+    });
+    await refresh(false);
+    Toast.fire({ title: '✅ เริ่มเกม (จับเวลาใหม่)!' });
+  };
+
+  // 7. จบเกม ออกจากสนาม
+  const finish = (court: string) => {
+    Swal.fire({title: `จบแมทช์ที่ ${court}?`, showCancelButton: true}).then(async r => {
+      if(!r.isConfirmed) return;
+      Toast.fire({ title: '✅ Match Finished' });
+      await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
+      await refresh(false);
+      fetchProfileHistory();
+    });
+  }
+
+  // 8. การทำงานของ Auto Fill เมื่อคอร์ทว่าง (ดูดคิวจาก Preview ลงมาอัตโนมัติ)
+  const autoFillCourts = useCallback(async () => {
+    if (!state?.autoMatch) return;
+    if (autoFillingRef.current) return;
+
+    const freeCourts = (state?.courtNames || []).filter(
+      cn => !(state?.playing || []).some(p => p.court === cn)
+    );
+    if (freeCourts.length === 0) return;
+
+    const queueSnapshot = [...(previewQueue || [])];
+    if (queueSnapshot.length === 0) return;
+
+    autoFillingRef.current = true;
+    try {
+      for (const court of freeCourts) {
+        if (loadingCourts.includes(court)) continue;
+
+        const next = queueSnapshot.shift();
+        if (!next) break;
+
+        await confirmSpecificMatch(next, court);
+      }
+    } finally {
+      autoFillingRef.current = false;
+    }
+  }, [state?.autoMatch, state?.courtNames, state?.playing, previewQueue, loadingCourts]);
+
+  useEffect(() => {
+    if (!state?.autoMatch) return;
+    const freeCourts = (state?.courtNames || []).filter(
+      cn => !(state?.playing || []).some(p => p.court === cn)
+    );
+    if (freeCourts.length === 0) return;
+
+    autoFillCourts();
+  }, [state?.autoMatch, state?.playing, state?.waiting, manualPreviews, previewQueue, state?.courtNames]);
+
+  // ==========================================
+  // Popups ของคุณ (ครบถ้วนไม่มีตัด)
+  // ==========================================
   const openCheckIn = () => {
-    // *** โค้ด openCheckIn ของคุณยาวมาก ผมคงไว้ครบตามเดิม ***
-    // NOTE: ผมไม่ตัดทอน logic เดิมออก (คัดลอกจากที่คุณส่งมา)
     Swal.fire({
       title: '📝 Check In',
       html: `
@@ -858,7 +889,7 @@ const handleMatchSelected = async () => {
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
                   <div>
                       <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Employee No. (รหัสพนักงาน)</label>
-                      <input id="swID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors" placeholder="e.g. 12345" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : ''}">
+                      <input id="swID" class="w-full p-2.5 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-colors" placeholder="e.g. 12345" value="${myProfile?.id && !myProfile.id.startsWith('9') ? myProfile.id : ''}">
                   </div>
                   <div>
                       <label class="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Display Name (ชื่อเล่น)</label>
@@ -1039,8 +1070,7 @@ const handleMatchSelected = async () => {
           const swSkill = document.getElementById('swSkill') as HTMLSelectElement;
           const isGuest = swGuest.checked;
 
-          // Random Number 6 digits for guest
-          const finalId = isGuest ? Math.floor(100000 + Math.random() * 900000).toString() : idVal;
+          const finalId = isGuest ? `9${Math.floor(10000 + Math.random() * 90000).toString()}` : idVal;
 
           if (!isGuest && !idVal) { Swal.showValidationMessage('กรุณากรอกรหัสพนักงาน หรือเลือกเป็น Guest'); return false; }
           if (!nameVal) { Swal.showValidationMessage('กรุณากรอกชื่อเล่นที่ต้องการแสดง'); return false; }
@@ -1091,7 +1121,7 @@ const handleMatchSelected = async () => {
       title: '👋 Sign Out',
       html: `
         <div class="text-left text-sm mb-2 text-slate-500 font-bold uppercase tracking-widest">Search your name or ID:</div>
-        <input id="soSearch" class="w-full p-2 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none" placeholder="Name or ID" value="${myProfile?.id && !myProfile.id.startsWith('G') ? myProfile.id : myProfile?.name || ''}">
+        <input id="soSearch" class="w-full p-2 border border-slate-300 rounded-lg shadow-inner text-sm focus:ring-2 focus:ring-red-500 outline-none" placeholder="Name or ID" value="${myProfile?.id && !myProfile.id.startsWith('9') ? myProfile.id : myProfile?.name || ''}">
       `,
       showCancelButton: true, confirmButtonText: 'Sign Out', confirmButtonColor: '#ef4444',
       preConfirm: async () => {
@@ -1132,7 +1162,7 @@ const handleMatchSelected = async () => {
         let id = (document.getElementById('amID') as HTMLInputElement).value.trim().replace(/^0+/, '');
         const name = (document.getElementById('amName') as HTMLInputElement).value.trim();
         if (!name) { Swal.showValidationMessage('Enter Name'); return false; }
-        const finalId = id ? id : Math.floor(100000 + Math.random() * 900000).toString();
+        const finalId = id ? id : `9${Math.floor(10000 + Math.random() * 90000).toString()}`;
         return { id: finalId, name, skill: Number((document.getElementById('amSkill') as HTMLSelectElement).value), isGuest: !id }
       }
     }).then(async (r) => {
@@ -1161,22 +1191,6 @@ const handleMatchSelected = async () => {
     Toast.fire({ title: 'ℹ️ Logged Out' });
     setTimeout(() => window.location.reload(), 1500);
   }
-
-
-  const finish = (court: string) => {
-  Swal.fire({title: `Finish Match at ${court}?`, showCancelButton: true}).then(async r => {
-    if(!r.isConfirmed) return;
-
-    Toast.fire({ title: '✅ Match Finished' });
-    await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
-
-    await refresh(false);
-    fetchProfileHistory();
-
-    // ❌ ไม่ต้องเรียก autoFillCourts ที่นี่
-    // ให้ useEffect จัดการเมื่อเห็นคอร์ทว่าง
-  });
-}
 
   const openAdminEditPlayer = (p: any) => {
     Swal.fire({
@@ -1356,6 +1370,15 @@ const handleMatchSelected = async () => {
       })
   }
 
+// ==========================================
+  // สร้างตัวแปรกลับคืนมาเพื่อไม่ให้หน้า QueueTab แจ้ง Error
+  // ==========================================
+  const availableCourts = (state?.courtNames || []).filter((cn: string) => !(state?.playing || []).some((p: any) => p.court === cn));
+  const manualIdsList = manualPreviews.flatMap((m: any) => m.teams.flat().map((p: any) => p.id));
+  const availableWaitingView = activeWaiting.filter((p: any) => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
+  const autoMatches = previewQueue ? previewQueue.filter((m: any) => !m.isManual) : [];
+  const allPreviews = previewQueue || [];
+
   const tabProps = {
     state, setState, admin, setAdmin, selected, setSelected, fullscreen, setFullscreen, theme, setTheme,
     isLoading, setIsLoading, loadingCourts, setLoadingCourts, myProfile, setMyProfile,
@@ -1367,13 +1390,17 @@ const handleMatchSelected = async () => {
     isAwake, setIsAwake, notifyPerm, setNotifyPerm, activeWaiting, myWaitIndex, myPending, myQueueData,
     myActiveCourt, amIPlaying, playDurationMs, courtsCount, avgMatchDuration, pausedIds, setPausedIds,
     estWaitMins, getSkillColor, getMySkillLevel, getSkillName, isSimilarSkillGroup, getAutoNextMatches,
-    availableCourts, manualIdsList, availableWaitingView, remainingSlots, autoMatches, allPreviews,
+    
+    // ✅ ส่งตัวแปรกลับไปให้ครบ เพื่อให้ QueueTab ทำงานได้ปกติ
+    availableCourts, manualIdsList, availableWaitingView, autoMatches, allPreviews, previewQueue, 
+
     myStartLogs, realPlayCount, realPlayTime, playAlertSound, addNotification, requestNotify, triggerNotification,
     toggleWakeLock, fetchProfileHistory, refresh, handleTabClick, recordMatchToHistory, clearBrowserData,
     toggleGlobalPreviewState, savePlayTime, runApi, openCourtManager, handleAddCourt, handleRemoveCourt,
     handleApproveProcess, handleBulkApprove, handleRejectPlayer, togglePause, executeAutoMatch, confirmSpecificMatch,
     toggleSelect, handleMatchSelected, openCheckIn, openSignOut, openAddMember, auth, logout, finish,
-    openAdminEditPlayer, openBroadcastModal, showDailyReportMenu, showAnalyticsMenu, exportRegisteredToday, resetDay, previewQueue,APP_VERSION
+    openAdminEditPlayer, openBroadcastModal, showDailyReportMenu, showAnalyticsMenu, exportRegisteredToday, resetDay,
+    cancelManualMatch, lockQueue, triggerReshuffle, startGame, APP_VERSION
   };
 
   if (fullscreen) return <FocusMode {...tabProps} />
@@ -1495,3 +1522,4 @@ const handleMatchSelected = async () => {
     </div>
   )
 }
+
