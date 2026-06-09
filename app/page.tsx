@@ -560,37 +560,55 @@ export default function Home() {
     refresh(false); Toast.fire({ title: '🗑️ ลบคอร์ทแล้ว' });
   }
 
-  const handleApproveProcess = async (p: any) => {
+const handleApproveProcess = async (p: any) => {
+    // ดึงข้อมูลล่าสุดจาก state เพื่อให้แน่ใจว่าได้รหัสล่าสุดจากฐานข้อมูล
+    const playerInDb = state?.pending?.find((pendingP: any) => pendingP.id === p.id) || p;
+    
     Swal.fire({
-      title: '✏️ ตรวจสอบก่อนอนุมัติ',
+      title: '✏️ ตรวจสอบข้อมูลก่อนอนุมัติ',
       html: `
         <div class="flex flex-col gap-3 text-left mt-2">
-          <div><label class="text-[10px] font-bold text-slate-500">Employee ID / Guest ID</label><input id="apId" value="${p.id}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
-          <div><label class="text-[10px] font-bold text-slate-500">Display Name</label><input id="apName" value="${p.name}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"></div>
-          <div><label class="text-[10px] font-bold text-slate-500">Skill Level</label>
+          <div>
+            <label class="text-[10px] font-bold text-slate-500">Employee ID</label>
+            <input id="apId" value="${playerInDb.id}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="text-[10px] font-bold text-slate-500">Display Name</label>
+            <input id="apName" value="${playerInDb.name}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="text-[10px] font-bold text-slate-500">Skill Level</label>
             <select id="apSkill" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="1" ${p.skill === 1 ? 'selected' : ''}>1 (มือใหม่)</option>
-              <option value="2" ${p.skill === 2 ? 'selected' : ''}>2 (เริ่มมีทรง)</option>
-              <option value="3" ${p.skill === 3 ? 'selected' : ''}>3 (พื้นฐาน)</option>
-              <option value="4" ${p.skill === 4 ? 'selected' : ''}>4 (สายคุม)</option>
-              <option value="5" ${p.skill === 5 ? 'selected' : ''}>5 (ปีศาจ)</option>
+              <option value="1" ${playerInDb.skill == 1 ? 'selected' : ''}>1 (มือใหม่)</option>
+              <option value="2" ${playerInDb.skill == 2 ? 'selected' : ''}>2 (เริ่มมีทรง)</option>
+              <option value="3" ${playerInDb.skill == 3 ? 'selected' : ''}>3 (พื้นฐาน)</option>
+              <option value="4" ${playerInDb.skill == 4 ? 'selected' : ''}>4 (สายคุม)</option>
+              <option value="5" ${playerInDb.skill == 5 ? 'selected' : ''}>5 (ปีศาจ)</option>
             </select>
           </div>
         </div>
       `,
-      showCancelButton: true, confirmButtonText: 'บันทึกและอนุมัติ', confirmButtonColor: '#2563eb',
+      showCancelButton: true,
+      confirmButtonText: 'บันทึกและอนุมัติ',
+      confirmButtonColor: '#2563eb',
       preConfirm: () => ({
-        oldId: p.id,
+        oldId: p.id, // ใช้ ID เดิมที่ส่งเข้ามาเพื่อไป update
         newId: (document.getElementById('apId') as HTMLInputElement).value,
         name: (document.getElementById('apName') as HTMLInputElement).value,
         skill: Number((document.getElementById('apSkill') as HTMLSelectElement).value)
       })
     }).then(async r => {
       if (r.isConfirmed) {
-        Swal.fire({ title: 'กำลังตรวจสอบข้อมูล...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-        await fetch('/api/update-player', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(r.value) });
-        await runApi('/api/approve', { id: r.value.newId }, true);
-        Toast.fire({ title: '✅ อนุมัติลงคิวเรียบร้อย' });
+        Swal.fire({ title: 'กำลังบันทึก...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
+        // 1. ส่งค่า ID จริงไปอัปเดต
+        await fetch('/api/update-player', { 
+            method: 'POST', 
+            headers: { 'content-type': 'application/json' }, 
+            body: JSON.stringify(r.value) 
+        });
+        // 2. อนุมัติด้วย ID ใหม่ที่แก้ไขแล้ว
+        await runApi('/api/approve', { id: r.value.newId }, false);
+        Toast.fire({ title: '✅ อนุมัติและบันทึกรหัสจริงเรียบร้อย' });
       }
     });
   }
@@ -1303,7 +1321,7 @@ const toggleSelect = (pId: string) => {
 
   const showAnalyticsMenu = () => window.open('/analytics', '_blank');
 
-  const exportRegisteredToday = () => {
+const exportRegisteredToday = () => {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
     Swal.fire({
       title: '📋 ผู้ลงทะเบียนรายวัน',
@@ -1322,13 +1340,24 @@ const toggleSelect = (pId: string) => {
             const res = await fetch('/api/player');
             const data = await res.json();
             const list = Array.isArray(data) ? data : (data.list || data.data || []);
-            const targetList = list.filter((p: any) => p.timestamp && p.timestamp.startsWith(date));
+            
+            // กรองผู้ลงทะเบียนของวันที่เลือก (ปรับเวลาเป็นไทยก่อนเทียบ)
+            const targetList = list.filter((p: any) => {
+               const pDate = p.timestamp || p.last_seen || p.created_at;
+               if (!pDate) return false;
+               const localDate = new Date(pDate).toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
+               return localDate === date;
+            });
 
-            let csv = '\uFEFFEmployee ID,Name,Skill,Type,Timestamp\n';
+            // Group ชื่อคน เพื่อไม่ให้นับซ้ำ
+            const uniquePlayers = Array.from(new Map(targetList.map((p: any) => [p.name?.trim().toLowerCase(), p])).values()) as any[];
+
+            let csv = '\uFEFFEmployee ID,Name,Skill,Type,Time\n';
             let tableHtml = `<div class="max-h-48 overflow-y-auto text-xs mt-4 border rounded-xl shadow-inner"><table class="w-full text-left"><thead class="bg-slate-100 sticky top-0 shadow-sm text-slate-600"><tr><th class="p-3">ID</th><th class="p-3">Name</th><th class="p-3 text-center">Lv</th><th class="p-3">Time</th></tr></thead><tbody>`;
 
-            targetList.forEach((p: any) => {
-              const timeStr = new Date(p.timestamp).toLocaleTimeString('th-TH');
+            uniquePlayers.forEach((p: any) => {
+              const pDate = p.timestamp || p.last_seen || p.created_at;
+              const timeStr = pDate ? new Date(pDate).toLocaleTimeString('th-TH') : '-';
               csv += `"${p.id}","${p.name}","${p.skill}","${p.type || 'Emp'}","${timeStr}"\n`;
               tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-2.5 font-mono text-slate-500">${p.id}</td><td class="p-2.5 font-bold text-slate-700">${p.name}</td><td class="p-2.5 text-center"><span class="bg-slate-200 px-2 py-0.5 rounded-md font-bold">${p.skill}</span></td><td class="p-2.5 text-slate-500">${timeStr}</td></tr>`;
             });
@@ -1341,7 +1370,7 @@ const toggleSelect = (pId: string) => {
               <div class="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 shadow-sm mb-3 text-left flex justify-between items-center">
                  <div>
                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Registered Players</div>
-                   <div class="text-3xl font-black text-indigo-600 leading-none mt-1">${targetList.length} <span class="text-sm">คน</span></div>
+                   <div class="text-3xl font-black text-indigo-600 leading-none mt-1">${uniquePlayers.length} <span class="text-sm">คน</span></div>
                  </div>
               </div>
               ${tableHtml}
@@ -1378,7 +1407,28 @@ const toggleSelect = (pId: string) => {
   const availableWaitingView = activeWaiting.filter((p: any) => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
   const autoMatches = previewQueue ? previewQueue.filter((m: any) => !m.isManual) : [];
   const allPreviews = previewQueue || [];
+// ==========================================
+  // Auto Sign-out (เตะออกถ้าไม่มีชื่อในคิวเมื่อเข้าแอป)
+  // ==========================================
+  useEffect(() => {
+    // ถ้าโหลดข้อมูลเสร็จแล้ว, ไม่ใช่แอดมิน, และล็อกอินอยู่
+    if (!isLoading && state && myProfile && !admin) {
+      const isInWaiting = state.waiting?.some((p: any) => p.id === myProfile.id);
+      const isInPending = state.pending?.some((p: any) => p.id === myProfile.id);
+      const isInPlaying = state.playing?.some((c: any) => 
+        c.p1Id === myProfile.id || c.p2Id === myProfile.id || 
+        c.p3Id === myProfile.id || c.p4Id === myProfile.id
+      );
 
+      // ถ้าไม่มีชื่อในระบบเลย (ออกระบบไปแล้ว แต่ค้างเซสชั่นไว้)
+      if (!isInWaiting && !isInPending && !isInPlaying) {
+        localStorage.removeItem('myProfile');
+        localStorage.removeItem('myProfileSkill');
+        setMyProfile(null);
+        Toast.fire({ title: '⚠️ คุณไม่มีชื่ออยู่ในคิว ระบบได้ Sign out อัตโนมัติ' });
+      }
+    }
+  }, [state, myProfile, isLoading, admin]);
   const tabProps = {
     state, setState, admin, setAdmin, selected, setSelected, fullscreen, setFullscreen, theme, setTheme,
     isLoading, setIsLoading, loadingCourts, setLoadingCourts, myProfile, setMyProfile,

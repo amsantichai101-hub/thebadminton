@@ -45,12 +45,14 @@ export async function GET(req: NextRequest) {
     })
 
     // ส่วนคำนวณ Analytics สถิติ
-    const matchesEnded = validLogs.filter(l => l.action?.toLowerCase().includes('end'))
-    const uniqueMatches = new Set(matchesEnded.map(l => `${l.court}_${l.ts}`))
-    const totalMatches = uniqueMatches.size
+    // นับจำนวนแมทช์ตามจริง (ยึดจากการกด Start/ลงสนาม) และ Group ด้วยเวลาเพื่อกันข้อมูลซ้ำ
+    const matchesStarted = validLogs.filter(l => l.action?.toLowerCase().includes('start') || l.action?.includes('ลงสนาม'));
+    const uniqueMatches = new Set(matchesStarted.map(l => `${l.court}_${l.ts.substring(0, 13)}`)); 
+    const totalMatches = uniqueMatches.size;
 
-    const playerIds = new Set(validLogs.map(l => l.player_id).filter(Boolean))
-    const totalPlayers = playerIds.size
+    // นับจำนวนคนที่เข้าร่วมตามจริง โดยทุกอย่างให้ทำการ group ด้วย "ชื่อคน" ไม่ว่าจะเข้าระบบหรือออกระบบ
+    const playerNames = new Set(validLogs.map(l => l.player_name?.trim()).filter(Boolean));
+    const totalPlayers = playerNames.size;
 
     return NextResponse.json({
       totalMatches,
