@@ -860,7 +860,7 @@ const toggleSelect = (pId: string) => {
   // ==========================================
   // Popups ของคุณ (ครบถ้วนไม่มีตัด)
   // ==========================================
-  const openCheckIn = () => {
+const openCheckIn = () => {
     Swal.fire({
       title: '📝 Check In',
       html: `
@@ -1058,6 +1058,8 @@ const toggleSelect = (pId: string) => {
                     const profileData = { id: p.id, name: p.name };
                     localStorage.setItem('myProfile', JSON.stringify(profileData));
                     localStorage.setItem('myProfileSkill', p.skill.toString());
+                    // 🌟 เพิ่ม Flag ตอนดึงคิวเดิมกลับมาป้องกันการโดนเตะออก
+                    sessionStorage.setItem('justCheckedIn', 'true');
                     setMyProfile(profileData);
                     Swal.close(); Toast.fire({ title: '✅ กู้คืนโปรไฟล์สำเร็จ!' }); setTimeout(() => window.location.reload(), 1000);
                   };
@@ -1114,6 +1116,8 @@ const toggleSelect = (pId: string) => {
           const newProfile = { id: r.value.id, name: r.value.name };
           localStorage.setItem('myProfile', JSON.stringify(newProfile));
           localStorage.setItem('myProfileSkill', r.value.skill.toString());
+          // 🌟 เพิ่ม Flag ตอนเข้าคิวที่แอคทีฟอยู่แล้ว
+          sessionStorage.setItem('justCheckedIn', 'true');
           setMyProfile(newProfile);
           if ('Notification' in window && Notification.permission === 'default') { const perm = await Notification.requestPermission(); setNotifyPerm(perm); }
           setActiveTab('home'); Swal.fire({ title: '✅ ซิงค์ข้อมูลสำเร็จ', text: 'คุณมีคิวอยู่ในระบบแล้ว ซิงค์โปรไฟล์ให้เรียบร้อยโดยไม่ต้องต่อคิวใหม่', icon: 'success' });
@@ -1125,6 +1129,8 @@ const toggleSelect = (pId: string) => {
           const newProfile = { id: r.value.id, name: r.value.name };
           localStorage.setItem('myProfile', JSON.stringify(newProfile));
           localStorage.setItem('myProfileSkill', r.value.skill.toString());
+          // 🌟 เพิ่ม Flag ตอนเช็คอินสำเร็จ เพื่อป้องกันการโดนเตะออกทันที
+          sessionStorage.setItem('justCheckedIn', 'true');
           setMyProfile(newProfile);
           if ('Notification' in window && Notification.permission === 'default') { const perm = await Notification.requestPermission(); setNotifyPerm(perm); }
           setActiveTab('home'); Toast.fire({ title: '✅ Checked in! Wait for approval.' });
@@ -1399,7 +1405,7 @@ const exportRegisteredToday = () => {
       })
   }
 
-// ==========================================
+  // ==========================================
   // สร้างตัวแปรกลับคืนมาเพื่อไม่ให้หน้า QueueTab แจ้ง Error
   // ==========================================
   const availableCourts = (state?.courtNames || []).filter((cn: string) => !(state?.playing || []).some((p: any) => p.court === cn));
@@ -1407,7 +1413,7 @@ const exportRegisteredToday = () => {
   const availableWaitingView = activeWaiting.filter((p: any) => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
   const autoMatches = previewQueue ? previewQueue.filter((m: any) => !m.isManual) : [];
   const allPreviews = previewQueue || [];
-// ==========================================
+  // ==========================================
   // Auto Sign-out (เตะออกถ้าไม่มีชื่อในคิวเมื่อเข้าแอป)
   // ==========================================
   useEffect(() => {
@@ -1420,8 +1426,19 @@ const exportRegisteredToday = () => {
         c.p3Id === myProfile.id || c.p4Id === myProfile.id
       );
 
-      // ถ้าไม่มีชื่อในระบบเลย (ออกระบบไปแล้ว แต่ค้างเซสชั่นไว้)
-      if (!isInWaiting && !isInPending && !isInPlaying) {
+      const isInSystem = isInWaiting || isInPending || isInPlaying;
+
+      // 🌟 เช็คว่าเพิ่งกด Check In หรือ Sync Profile เข้ามาหรือไม่
+      if (sessionStorage.getItem('justCheckedIn') === 'true') {
+        if (isInSystem) {
+          // ถ้าข้อมูลอัปเดตเข้ามาในระบบแล้ว ให้เคลียร์ Flag ทิ้ง
+          sessionStorage.removeItem('justCheckedIn');
+        }
+        return; // ข้ามการเตะออกไปก่อนในรอบนี้เพื่อรอข้อมูล Sync
+      }
+
+      // ถ้าไม่มีชื่อในระบบเลย (และไม่ได้อยู่ในช่วงเพิ่งเช็คอิน) ให้ทำการ Sign out อัตโนมัติ
+      if (!isInSystem) {
         localStorage.removeItem('myProfile');
         localStorage.removeItem('myProfileSkill');
         setMyProfile(null);
