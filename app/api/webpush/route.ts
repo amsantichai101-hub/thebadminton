@@ -1,4 +1,3 @@
-// app/api/webpush/route.ts
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
@@ -30,6 +29,20 @@ function isExpiredSubscriptionError(err: any) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+
+    // 🌟 1. ดึงค่าเช็คสถานะการแจ้งเตือนจาก Database (ทำเฉพาะตอนที่จะสั่งส่งแจ้งเตือนเท่านั้น)
+    if (body.action === 'send' || body.action === 'broadcast') {
+      const { data: notifyConfig } = await supabaseAdmin
+        .from('system_config')
+        .select('value')
+        .eq('key', 'EnableNotify')
+        .single();
+
+      // 🌟 2. ถ้าแอดมินสั่งปิดแจ้งเตือนไว้ (ค่าเป็น 'false') ให้เบรกการทำงาน ไม่ต้องส่ง Push ออกไปเลย
+      if (notifyConfig && notifyConfig.value === 'false') {
+        return NextResponse.json({ success: true, message: 'Notifications are globally disabled.' });
+      }
+    }
 
     // =========================
     // 1) Subscribe (Update/Add)
