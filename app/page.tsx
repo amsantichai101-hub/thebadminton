@@ -28,7 +28,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.3.6";
+const APP_VERSION = "3.5.0";
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -724,7 +724,7 @@ const toggleSelect = (pId: string) => {
     Toast.fire({ title: '✅ ยืนยันผลการจัดคู่แล้ว!' });
   };
 
-  // 4. สุ่มคิวใหม่ โดยไม่เอาคนโดนล็อคแล้วมาสุ่ม
+// 4. สุ่มคิวใหม่ โดยไม่เอาคนโดนล็อคแล้วมาสุ่ม
   const triggerReshuffle = async (matchData?: any) => {
     // 1. หาคนที่ว่าง (ไม่โดนล็อคคิว Manual อยู่)
     const otherManualIds = manualPreviews
@@ -738,21 +738,42 @@ const toggleSelect = (pId: string) => {
     const shuffled = [...availableWaiters].sort(() => 0.5 - Math.random());
     let bestMatch = extractBestMatch(shuffled, matchHistory) || { teams: [[shuffled[0], shuffled[1]], [shuffled[2], shuffled[3]]] };
 
-    // 3. ปรับค่า isManual เป็น false เพื่อให้ระบบมองว่าเป็นแค่ "ข้อเสนอแนะ (Preview)"
+    // 3. 🌟 ปรับให้บันทึกเป็นคิวที่ล็อคไว้เลย (isManual: true) เพื่อป้องกันการรีเฟรชแล้วหาย
+    const matchId = `M-${Date.now()}`;
     const newPreviewMatch = { 
-      matchId: `P-${Date.now()}`, // ใช้ P- (Preview) แทน M- (Manual/Locked)
-      isManual: false, 
-      courtName: matchData?.courtName || '', // รักษาชื่อคอร์ทไว้
+      matchId: matchId, 
+      isManual: true, 
+      courtName: matchData?.courtName || '', 
       teams: bestMatch.teams 
     };
 
-    // 4. อัปเดต State ให้โชว์คิวใหม่โดยยังไม่บันทึกลง Database ของคิวที่ยืนยันแล้ว
+    // 4. อัปเดต State บนหน้าจอทันทีเพื่อให้ UI ตอบสนองไว
     setManualPreviews(prev => {
         const filtered = prev.filter(m => m.matchId !== matchData?.matchId);
         return [...filtered, newPreviewMatch];
     });
 
-    Toast.fire({ title: `✅ สุ่มคิวใหม่แล้ว (รอคุณกด ยืนยันผลจัดคู่)` });
+    // 5. ลบของเก่าออกจากฐานข้อมูล (ถ้าเป็นการกดปุ่มรีเฟรชคิวเดิมที่เคยล็อคไว้)
+    if (matchData?.isManual && matchData?.matchId) {
+      await fetch('/api/manual-queue', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: matchData.matchId })
+      }).catch(()=>null);
+    }
+
+    // 6. 🌟 บันทึกคิวที่สุ่มใหม่ลง Database ทันที
+    await fetch('/api/manual-queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        court_name: matchId,
+        p1_id: bestMatch.teams[0][0].id, p2_id: bestMatch.teams[0][1].id,
+        p3_id: bestMatch.teams[1][0].id, p4_id: bestMatch.teams[1][1].id
+      })
+    });
+
+    Toast.fire({ title: `✅ สุ่มคิวใหม่และล็อคเข้าฐานข้อมูลสำเร็จ!` });
   };
 
   // 5. ส่งลงสนาม (ส่งเข้าไป API Active Courts)
