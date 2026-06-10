@@ -71,9 +71,9 @@ export default function Home() {
   const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
   const [manualPreviews, setManualPreviews] = useState<any[]>([]);
 
-  // 🌟 เพิ่ม State สำหรับเปิด/ปิดแจ้งเตือน (Global)
+  // 🌟 State สำหรับเปิด/ปิดแจ้งเตือน (Global)
   const [enableNotify, setEnableNotify] = useState(true);
-  const enableNotifyRef = useRef(true); // ใช้ Ref เพื่อป้องกันปัญหา Stale Closure ตอนโชว์ Alert
+  const enableNotifyRef = useRef(true); 
 
   const [activeTab, setActiveTab] = useState<'home' | 'queue' | 'notifications' | 'profile'>('home');
   const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'pending'>('waiting');
@@ -205,7 +205,7 @@ export default function Home() {
   }
 
   // ==========================================
-  // PREVIEW QUEUE CORE LOGIC (เรียงคิวรอโชว์ทั้งหมด)
+  // PREVIEW QUEUE CORE LOGIC
   // ==========================================
   const previewQueue = useMemo(() => {
     if (!globalPreview) return [];
@@ -423,9 +423,7 @@ export default function Home() {
       if (d.playStartTime) setPlayStartTime(d.playStartTime);
       if (d.playEndTime) setPlayEndTime(d.playEndTime);
       
-      // 🌟 ดึงค่าการตั้งค่าแจ้งเตือนจากฐานข้อมูล
-      const notifyVal = d.EnableNotify !== undefined ? (d.EnableNotify === 'true' || d.EnableNotify === true) : 
-                        d.enableNotify !== undefined ? (d.enableNotify === 'true' || d.enableNotify === true) : true;
+      const notifyVal = d.enableNotify !== undefined ? (d.enableNotify === 'true' || d.enableNotify === true) : true;
       setEnableNotify(notifyVal);
       enableNotifyRef.current = notifyVal;
 
@@ -554,7 +552,6 @@ export default function Home() {
     }
   }
 
-  // 🌟 ฟังก์ชันเปิด/ปิด แจ้งเตือนแบบ Global
   const toggleEnableNotify = async (checked: boolean) => {
     setEnableNotify(checked);
     enableNotifyRef.current = checked;
@@ -564,7 +561,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set', key: 'EnableNotify', value: checked.toString() })
       });
-      Toast.fire({ title: `✅ ${checked ? 'เปิด' : 'ปิด'}ระบบแจ้งเตือนและแถบสีฟ้าแล้ว` });
+      Toast.fire({ title: `✅ ${checked ? 'เปิด' : 'ปิด'}ระบบแจ้งเตือนและแถบประกาศแล้ว` });
       refresh(false);
     }
   }
@@ -835,7 +832,7 @@ const handleApproveProcess = async (p: any) => {
     Toast.fire({ title: '✅ สุ่มและบันทึกคิวใหม่ลงฐานข้อมูลแล้ว!' });
   };
 
-  const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
+const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
     const courtToLoad = targetCourtName || '';
     if (courtToLoad) setLoadingCourts(prev => [...prev, courtToLoad]);
 
@@ -861,14 +858,21 @@ const handleApproveProcess = async (p: any) => {
         return;
       }
 
-      setManualPreviews(prev => prev.filter(m => m.matchId !== matchData.matchId));
+      // 🌟 1. ลบออกจาก manualPreviews ทันที โดยเช็คจาก ID คนแรกในคิวเป็นหลักเพื่อความชัวร์
+      setManualPreviews(prev => prev.filter(m => 
+        m.teams[0][0].id !== matchData.teams[0][0].id 
+      ));
 
-      if (matchData?.isManual && matchData?.matchId && matchData.matchId.startsWith('M-')) {
+      // 🌟 2. ลบออกจาก Database (กรณีที่เป็นคิวแบบล็อคมา)
+      if (matchData?.isManual && matchData?.matchId) {
         await fetch('/api/manual-queue', {
-          method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: matchData.matchId })
+          method: 'DELETE', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ id: matchData.matchId })
         }).catch(()=>null);
       }
 
+      // รีเฟรช State ทั้งหมด
       await refresh(false);
       Toast.fire({ title: '✅ ส่งลงสนามเรียบร้อย!' });
     } catch (e) {
@@ -1496,7 +1500,6 @@ const exportRegisteredToday = () => {
     
     availableCourts, manualIdsList, availableWaitingView, autoMatches, allPreviews, previewQueue, 
 
-    // 🌟 ส่งฟังก์ชันและ State เกี่ยวกับการแจ้งเตือนไปให้ HomeTab ใช้งาน
     enableNotify, toggleEnableNotify,
 
     myStartLogs, realPlayCount, realPlayTime, playAlertSound, addNotification, requestNotify, triggerNotification,
@@ -1520,8 +1523,9 @@ const exportRegisteredToday = () => {
   )
 
   return (
-    <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-24 transition-all duration-300 ${state?.announcement ? 'pt-24' : 'pt-16'}`}>
-
+    
+    <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-24 transition-all duration-300 ${(state?.announcement && enableNotify) ? 'pt-24' : 'pt-16'}`}>
+    {/* 🌟 ปรับ padding ด้านบน ถ้าแถบสีฟ้าถูกแอดมินซ่อน หน้าจอจะหดชิดขอบพอดี */} 
       <div
         className={`fixed top-14 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 cursor-pointer ${capsuleAlert.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-10 scale-95 pointer-events-none'}`}
         onClick={() => { if (capsuleAlert.onClick) capsuleAlert.onClick(); setCapsuleAlert(prev => ({ ...prev, visible: false })); }}
@@ -1535,7 +1539,8 @@ const exportRegisteredToday = () => {
         </div>
       </div>
 
-      {state?.announcement && (
+      {/* 🌟 แถบประกาศสีฟ้า (Announcement) จะโชว์ก็ต่อเมื่อเปิดแจ้งเตือนไว้เท่านั้น */}
+      {state?.announcement && enableNotify && (
         <div className="fixed top-0 w-full bg-blue-600 text-white text-xs py-2.5 px-4 shadow-md flex items-center z-[60]">
           <AlertCircle className="w-4 h-4 mr-2 text-white" />
           <div className="flex-1 font-medium tracking-wide truncate">{state.announcement}</div>
@@ -1557,7 +1562,8 @@ const exportRegisteredToday = () => {
         </div>
       )}
 
-      <nav className={`fixed ${state?.announcement ? 'top-10' : 'top-0'} w-full bg-white/90 dark:bg-slate-900/90 border-b border-gray-200 dark:border-slate-800 px-4 py-3 backdrop-blur-lg z-50 shadow-sm transition-transform duration-300 ${showNav ? 'translate-y-0' : '-translate-y-full'}`}>
+      {/* 🌟 ปรับระยะขอบของเมนู Navigation ให้เลื่อนตามแถบประกาศที่หายไป */}
+      <nav className={`fixed ${(state?.announcement && enableNotify) ? 'top-10' : 'top-0'} w-full bg-white/90 dark:bg-slate-900/90 border-b border-gray-200 dark:border-slate-800 px-4 py-3 backdrop-blur-lg z-50 shadow-sm transition-transform duration-300 ${showNav ? 'translate-y-0' : '-translate-y-full'}`}>
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
             <img src="/icon.png" alt="Logo" className="w-8 h-8 rounded-lg shadow-sm bg-white" />
