@@ -71,6 +71,10 @@ export default function Home() {
   const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
   const [manualPreviews, setManualPreviews] = useState<any[]>([]);
 
+  // 🌟 เพิ่ม State สำหรับเปิด/ปิดแจ้งเตือน (Global)
+  const [enableNotify, setEnableNotify] = useState(true);
+  const enableNotifyRef = useRef(true); // ใช้ Ref เพื่อป้องกันปัญหา Stale Closure ตอนโชว์ Alert
+
   const [activeTab, setActiveTab] = useState<'home' | 'queue' | 'notifications' | 'profile'>('home');
   const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'pending'>('waiting');
   const [showNav, setShowNav] = useState(true);
@@ -201,7 +205,7 @@ export default function Home() {
   }
 
   // ==========================================
-  // 🌟 PREVIEW QUEUE CORE LOGIC (เรียงคิวรอโชว์ทั้งหมด)
+  // PREVIEW QUEUE CORE LOGIC (เรียงคิวรอโชว์ทั้งหมด)
   // ==========================================
   const previewQueue = useMemo(() => {
     if (!globalPreview) return [];
@@ -353,6 +357,9 @@ export default function Home() {
   };
 
   const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue') => {
+    // 🌟 ถ้าระบบแจ้งเตือนถูกแอดมินปิดไว้ ให้ข้ามฟังก์ชันนี้ไปเลย เพื่อไม่โชว์แถบสีฟ้าและไม่ส่งเสียง
+    if (!enableNotifyRef.current) return; 
+
     playAlertSound();
     addNotification(title, body);
 
@@ -415,9 +422,15 @@ export default function Home() {
       if (d.globalShowPreview !== undefined) setGlobalPreview(d.globalShowPreview);
       if (d.playStartTime) setPlayStartTime(d.playStartTime);
       if (d.playEndTime) setPlayEndTime(d.playEndTime);
+      
+      // 🌟 ดึงค่าการตั้งค่าแจ้งเตือนจากฐานข้อมูล
+      const notifyVal = d.EnableNotify !== undefined ? (d.EnableNotify === 'true' || d.EnableNotify === true) : 
+                        d.enableNotify !== undefined ? (d.enableNotify === 'true' || d.enableNotify === true) : true;
+      setEnableNotify(notifyVal);
+      enableNotifyRef.current = notifyVal;
+
       if (myProfile) { fetchProfileHistory(); }
 
-      // ✅ ดึงคิวที่ล็อคไว้จาก Backend มาแสดงในโซนพรีวิว
       const manualRes = await fetch('/api/manual-queue', { cache: 'no-store' });
       const manualData = await manualRes.json();
       if (manualData?.data) {
@@ -467,6 +480,32 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ==========================================
+  // ซ่อน/แสดง Header และ เมนูด้านล่าง เมื่อ Scroll หน้าจอ
+  // ==========================================
+  const lastScrollY = useRef(0);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      
+      if (currentScrollY < 10) {
+        setShowNav(true);
+      } 
+      else if (currentScrollY > lastScrollY.current) {
+        setShowNav(false);
+      } 
+      else {
+        setShowNav(true);
+      }
+      
+      lastScrollY.current = currentScrollY;
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   const recordMatchToHistory = (ids: string[]) => {
     if (ids.length !== 4) return;
     const newRecord = { t1: [ids[0], ids[1]], t2: [ids[2], ids[3]] };
@@ -511,6 +550,21 @@ export default function Home() {
         body: JSON.stringify({ action: 'set', key: 'GlobalShowPreview', value: checked.toString() })
       });
       Toast.fire({ title: '✅ อัปเดตการตั้งค่าโชว์คิวถัดไปแล้ว' });
+      refresh(false);
+    }
+  }
+
+  // 🌟 ฟังก์ชันเปิด/ปิด แจ้งเตือนแบบ Global
+  const toggleEnableNotify = async (checked: boolean) => {
+    setEnableNotify(checked);
+    enableNotifyRef.current = checked;
+    if (admin) {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set', key: 'EnableNotify', value: checked.toString() })
+      });
+      Toast.fire({ title: `✅ ${checked ? 'เปิด' : 'ปิด'}ระบบแจ้งเตือนและแถบสีฟ้าแล้ว` });
       refresh(false);
     }
   }
@@ -651,11 +705,6 @@ const handleApproveProcess = async (p: any) => {
     });
   };
 
-  // ==========================================
-  // การควบคุมคอร์ท และ API 
-  // ==========================================
-
-  // 1. จัดคนจากหน้าคิวแทรกเข้าคอร์ทจำลอง
   const handleMatchSelected = async () => {
     if (selected.length !== 4) return Toast.fire({ title: '⚠️ เลือก 4 คนให้พอดีเป๊ะครับ' });
 
@@ -686,7 +735,6 @@ const handleApproveProcess = async (p: any) => {
     Toast.fire({ title: '✅ จัดทีมแทรกคิวถัดไปสำเร็จ!' });
   };
 
-  // 2. ยกเลิกคิว
   const cancelManualMatch = async (prepMatch: any) => {
     setManualPreviews(prev => prev.filter(m => m.matchId !== prepMatch.matchId));
     await fetch('/api/manual-queue', {
@@ -697,14 +745,12 @@ const handleApproveProcess = async (p: any) => {
     Toast.fire({ title: '🗑️ ยกเลิกคิวแล้ว' });
   };
 
-  // 3. ยืนยันคิวลง Database
   const lockQueue = async (prepMatch: any) => {
     Swal.fire({ title: 'กำลังยืนยันคิว...', toast: true, position: 'top', showConfirmButton: false });
     const matchId = `M-${Date.now()}`;
     const newManual = { matchId, isManual: true, teams: prepMatch.teams };
     
     setManualPreviews(prev => {
-        // ลบตัวพรีวิวเดิมออก (ถ้ามี) แล้วแทนด้วยของใหม่ที่ยืนยันแล้ว
         const filtered = prev.filter(m => m.matchId !== prepMatch.matchId);
         return [...filtered, newManual];
     });
@@ -721,21 +767,14 @@ const handleApproveProcess = async (p: any) => {
     Toast.fire({ title: '✅ ยืนยันผลการจัดคู่แล้ว!' });
   };
 
-  // 🌟 4. สุ่มคิวใหม่ โดยรีเฟรชเฉพาะคิวที่กดเป็นต้นไป (คิวก่อนหน้าจะถูกแช่แข็งและบันทึกลงฐานข้อมูล)
   const triggerReshuffle = async (matchData?: any) => {
-    // หา index ของคิวที่ถูกกดรีเฟรช ใน previewQueue ปัจจุบัน
     const targetIndex = previewQueue.findIndex((m: any) => m.matchId === matchData?.matchId);
     if (targetIndex === -1) return;
 
-    // ดึงแมทช์ที่อยู่ "ก่อนหน้า" คิวนี้ทั้งหมดมา เพื่อแช่แข็งไว้ (Lock)
     const precedingMatches = previewQueue.slice(0, targetIndex);
-
-    // หา matchId ที่มีอยู่ใน manualPreviews (คิวที่ถูกล็อค/ยืนยันไปแล้ว จะได้ไม่เก็บซ้ำ)
     const existingManualIds = new Set(manualPreviews.map(m => m.matchId));
-
     const newLockedPreviews = [];
     
-    // 🌟 1. บันทึกคิวก่อนหน้าที่ยังเป็นแค่ Preview ลงฐานข้อมูลให้หมด (เพื่อแช่แข็งของจริง)
     for (let i = 0; i < precedingMatches.length; i++) {
       const m = precedingMatches[i];
       if (!existingManualIds.has(m.matchId)) {
@@ -755,29 +794,20 @@ const handleApproveProcess = async (p: any) => {
       }
     }
 
-    // เก็บ manualPreviews เดิมไว้ โดยหักตัวที่กำลังจะรีเฟรชทิ้งไป (ถ้ามี)
     const preservedManuals = manualPreviews.filter(m => m.matchId !== matchData.matchId);
-    
-    // รวมคิวล็อคทั้งหมด (ของเดิม + ของก่อนหน้าที่เพิ่งล็อคและลง DB ไปแล้ว)
     const combinedManuals = [...preservedManuals, ...newLockedPreviews];
-
-    // หาคนที่ถูกใช้งานไปแล้วจากคิวที่ถูกล็อคทั้งหมด
     const usedIds = new Set(combinedManuals.flatMap(m => m.teams.flat().map((x: any) => x.id)));
-    
-    // หาคนที่ยังว่างอยู่ เพื่อเอามาสุ่มใส่คิวที่ถูกกดรีเฟรช
     const availableWaiters = activeWaiting.filter(p => !usedIds.has(p.id));
 
     if (availableWaiters.length < 4) return Toast.fire({ title: '⚠️ คิวรอว่างไม่พอ 4 คน สำหรับจัดคิวใหม่' });
 
-    // สุ่มคนว่างที่เหลืออยู่ และจัดคู่ใหม่
     const shuffled = [...availableWaiters].sort(() => 0.5 - Math.random());
     let bestMatch = extractBestMatch(shuffled, matchHistory) || { teams: [[shuffled[0], shuffled[1]], [shuffled[2], shuffled[3]]] };
 
-    // 🌟 2. สร้างคิวที่สุ่มใหม่เป็น Manual และบันทึกลง DB ทันที
     const newReshuffledId = `M-reshuffle-${Date.now()}`;
     const newPreviewMatch = {
       matchId: newReshuffledId,
-      isManual: true, // ตั้งเป็น Manual เพื่อให้เป็นสีเขียวและไม่ถูกรีเฟรชทับ
+      isManual: true, 
       courtName: matchData?.courtName || '',
       teams: bestMatch.teams
     };
@@ -792,10 +822,8 @@ const handleApproveProcess = async (p: any) => {
       })
     });
 
-    // อัปเดตคิวเข้า State ปัจจุบันทันทีเพื่อความรวดเร็ว
     setManualPreviews([...combinedManuals, newPreviewMatch]);
 
-    // 🌟 3. ถ้าคิวที่กดมันเคยยืนยันผล (ลง DB ไปแล้ว) ให้ลบออกจาก DB ด้วยเพราะเราสุ่มแทนที่มันแล้ว
     if (matchData?.isManual && matchData?.matchId) {
       await fetch('/api/manual-queue', {
         method: 'DELETE',
@@ -807,7 +835,6 @@ const handleApproveProcess = async (p: any) => {
     Toast.fire({ title: '✅ สุ่มและบันทึกคิวใหม่ลงฐานข้อมูลแล้ว!' });
   };
 
-  // 5. ส่งลงสนาม (ส่งเข้าไป API Active Courts)
   const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
     const courtToLoad = targetCourtName || '';
     if (courtToLoad) setLoadingCourts(prev => [...prev, courtToLoad]);
@@ -834,10 +861,8 @@ const handleApproveProcess = async (p: any) => {
         return;
       }
 
-      // เอาออกจากหน้าจอก่อนเพื่อให้ไว
       setManualPreviews(prev => prev.filter(m => m.matchId !== matchData.matchId));
 
-      // ถ้าเป็นคิวที่มาจาก DB ให้สั่งลบใน DB ด้วย
       if (matchData?.isManual && matchData?.matchId && matchData.matchId.startsWith('M-')) {
         await fetch('/api/manual-queue', {
           method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: matchData.matchId })
@@ -853,7 +878,6 @@ const handleApproveProcess = async (p: any) => {
     }
   };
 
-  // 6. เริ่มเกม / จับเวลาใหม่
   const startGame = async (courtName: string) => {
     Swal.fire({ title: 'กำลังเริ่มเกม...', toast: true, position: 'top', showConfirmButton: false });
     await fetch('/api/start-game', {
@@ -863,7 +887,6 @@ const handleApproveProcess = async (p: any) => {
     Toast.fire({ title: '✅ เริ่มเกม (จับเวลาใหม่)!' });
   };
 
-  // 7. จบเกม ออกจากสนาม
   const finish = (court: string) => {
     Swal.fire({title: `จบแมทช์ที่ ${court}?`, showCancelButton: true}).then(async r => {
       if(!r.isConfirmed) return;
@@ -874,7 +897,6 @@ const handleApproveProcess = async (p: any) => {
     });
   }
 
-  // 8. การทำงานของ Auto Fill เมื่อคอร์ทว่าง (ดูดคิวจาก Preview ลงมาอัตโนมัติ)
   const autoFillCourts = useCallback(async () => {
     if (!state?.autoMatch) return;
     if (autoFillingRef.current) return;
@@ -912,9 +934,6 @@ const handleApproveProcess = async (p: any) => {
     autoFillCourts();
   }, [state?.autoMatch, state?.playing, state?.waiting, manualPreviews, previewQueue, state?.courtNames]);
 
-  // ==========================================
-  // Popups ของคุณ (ครบถ้วนไม่มีตัด)
-  // ==========================================
   const openCheckIn = () => {
     Swal.fire({
       title: '📝 Check In',
@@ -1113,7 +1132,6 @@ const handleApproveProcess = async (p: any) => {
                     const profileData = { id: p.id, name: p.name };
                     localStorage.setItem('myProfile', JSON.stringify(profileData));
                     localStorage.setItem('myProfileSkill', p.skill.toString());
-                    // 🌟 เพิ่ม Flag ตอนดึงคิวเดิมกลับมาป้องกันการโดนเตะออก
                     sessionStorage.setItem('justCheckedIn', 'true');
                     setMyProfile(profileData);
                     Swal.close(); Toast.fire({ title: '✅ กู้คืนโปรไฟล์สำเร็จ!' }); setTimeout(() => window.location.reload(), 1000);
@@ -1171,7 +1189,6 @@ const handleApproveProcess = async (p: any) => {
           const newProfile = { id: r.value.id, name: r.value.name };
           localStorage.setItem('myProfile', JSON.stringify(newProfile));
           localStorage.setItem('myProfileSkill', r.value.skill.toString());
-          // 🌟 เพิ่ม Flag ตอนเข้าคิวที่แอคทีฟอยู่แล้ว
           sessionStorage.setItem('justCheckedIn', 'true');
           setMyProfile(newProfile);
           if ('Notification' in window && Notification.permission === 'default') { const perm = await Notification.requestPermission(); setNotifyPerm(perm); }
@@ -1184,7 +1201,6 @@ const handleApproveProcess = async (p: any) => {
           const newProfile = { id: r.value.id, name: r.value.name };
           localStorage.setItem('myProfile', JSON.stringify(newProfile));
           localStorage.setItem('myProfileSkill', r.value.skill.toString());
-          // 🌟 เพิ่ม Flag ตอนเช็คอินสำเร็จ เพื่อป้องกันการโดนเตะออกทันที
           sessionStorage.setItem('justCheckedIn', 'true');
           setMyProfile(newProfile);
           if ('Notification' in window && Notification.permission === 'default') { const perm = await Notification.requestPermission(); setNotifyPerm(perm); }
@@ -1460,49 +1476,12 @@ const exportRegisteredToday = () => {
       })
   }
 
-  // ==========================================
-  // สร้างตัวแปรกลับคืนมาเพื่อไม่ให้หน้า QueueTab แจ้ง Error
-  // ==========================================
   const availableCourts = (state?.courtNames || []).filter((cn: string) => !(state?.playing || []).some((p: any) => p.court === cn));
   const manualIdsList = manualPreviews.flatMap((m: any) => m.teams.flat().map((p: any) => p.id));
   const availableWaitingView = activeWaiting.filter((p: any) => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
   const autoMatches = previewQueue ? previewQueue.filter((m: any) => !m.isManual) : [];
   const allPreviews = previewQueue || [];
   
-  // ==========================================
-  // Auto Sign-out (เตะออกถ้าไม่มีชื่อในคิวเมื่อเข้าแอป)
-  // ==========================================
-  useEffect(() => {
-    // ถ้าโหลดข้อมูลเสร็จแล้ว, ไม่ใช่แอดมิน, และล็อกอินอยู่
-    if (!isLoading && state && myProfile && !admin) {
-      const isInWaiting = state.waiting?.some((p: any) => p.id === myProfile.id);
-      const isInPending = state.pending?.some((p: any) => p.id === myProfile.id);
-      const isInPlaying = state.playing?.some((c: any) => 
-        c.p1Id === myProfile.id || c.p2Id === myProfile.id || 
-        c.p3Id === myProfile.id || c.p4Id === myProfile.id
-      );
-
-      const isInSystem = isInWaiting || isInPending || isInPlaying;
-
-      // 🌟 เช็คว่าเพิ่งกด Check In หรือ Sync Profile เข้ามาหรือไม่
-      if (sessionStorage.getItem('justCheckedIn') === 'true') {
-        if (isInSystem) {
-          // ถ้าข้อมูลอัปเดตเข้ามาในระบบแล้ว ให้เคลียร์ Flag ทิ้ง
-          sessionStorage.removeItem('justCheckedIn');
-        }
-        return; // ข้ามการเตะออกไปก่อนในรอบนี้เพื่อรอข้อมูล Sync
-      }
-
-      // ถ้าไม่มีชื่อในระบบเลย (และไม่ได้อยู่ในช่วงเพิ่งเช็คอิน) ให้ทำการ Sign out อัตโนมัติ
-      if (!isInSystem) {
-        localStorage.removeItem('myProfile');
-        localStorage.removeItem('myProfileSkill');
-        setMyProfile(null);
-        Toast.fire({ title: '⚠️ คุณไม่มีชื่ออยู่ในคิว ระบบได้ Sign out อัตโนมัติ' });
-      }
-    }
-  }, [state, myProfile, isLoading, admin]);
-
   const tabProps = {
     state, setState, admin, setAdmin, selected, setSelected, fullscreen, setFullscreen, theme, setTheme,
     isLoading, setIsLoading, loadingCourts, setLoadingCourts, myProfile, setMyProfile,
@@ -1515,8 +1494,10 @@ const exportRegisteredToday = () => {
     myActiveCourt, amIPlaying, playDurationMs, courtsCount, avgMatchDuration, pausedIds, setPausedIds,
     estWaitMins, getSkillColor, getMySkillLevel, getSkillName, isSimilarSkillGroup, getAutoNextMatches,
     
-    // ✅ ส่งตัวแปรกลับไปให้ครบ เพื่อให้ QueueTab ทำงานได้ปกติ
     availableCourts, manualIdsList, availableWaitingView, autoMatches, allPreviews, previewQueue, 
+
+    // 🌟 ส่งฟังก์ชันและ State เกี่ยวกับการแจ้งเตือนไปให้ HomeTab ใช้งาน
+    enableNotify, toggleEnableNotify,
 
     myStartLogs, realPlayCount, realPlayTime, playAlertSound, addNotification, requestNotify, triggerNotification,
     toggleWakeLock, fetchProfileHistory, refresh, handleTabClick, recordMatchToHistory, clearBrowserData,

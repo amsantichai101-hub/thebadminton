@@ -1,30 +1,26 @@
-import { Play, Check, Clock, Swords, Eye, RefreshCw, X, CheckCircle2, Share, Bell } from 'lucide-react';
+import { Play, Check, Clock, Swords, Eye, RefreshCw, X, CheckCircle2, Share, Bell, Settings } from 'lucide-react';
 import React, { useState, useEffect } from "react";
 
 export default function HomeTab(props: any) {
   const { activeTab, ...rest } = props; 
 
-  // หากไม่อยู่ในหน้า home ให้คืนค่า null หรือซ่อนไปเลย
   if (activeTab !== 'home') return null;
   const {
     state, admin, finish, startGame, previewQueue, globalPreview,
     getSkillColor, triggerReshuffle, lockQueue, confirmSpecificMatch, cancelManualMatch,
-    openCheckIn, openSignOut, myProfile, getMySkillLevel 
+    openCheckIn, openSignOut, myProfile, getMySkillLevel,
+    enableNotify, toggleEnableNotify // 🌟 ดึงค่าการตั้งค่าจาก props
   } = props;
 
   const [loadingId, setLoadingId] = useState<string | null>(null);
-
-  // 🌟 State สำหรับจัดการ PWA และ การแจ้งเตือน
-  const [isStandalone, setIsStandalone] = useState<boolean>(true); // ค่าเริ่มต้นเป็น true เพื่อกันแบนเนอร์กระพริบตอนโหลด
+  const [isStandalone, setIsStandalone] = useState<boolean>(true); 
   const [notifyPerm, setNotifyPerm] = useState<string>('granted');
 
   useEffect(() => {
-    // 1. เช็คว่าเป็น PWA (ติดตั้ง Add to Home Screen แล้วหรือยัง)
     const checkStandalone = window.matchMedia('(display-mode: standalone)').matches 
                          || ('standalone' in navigator && (navigator as any).standalone === true);
     setIsStandalone(checkStandalone);
 
-    // 2. เช็คสถานะการขออนุญาตแจ้งเตือน
     if ('Notification' in window) {
       setNotifyPerm(Notification.permission);
     }
@@ -34,9 +30,6 @@ export default function HomeTab(props: any) {
     if ('Notification' in window) {
       const perm = await Notification.requestPermission();
       setNotifyPerm(perm);
-      if (perm === 'granted') {
-        // หากใน props มีฟังก์ชัน subscribe webpush สามารถนำมาเรียกตรงนี้ได้
-      }
     }
   };
 
@@ -53,53 +46,55 @@ export default function HomeTab(props: any) {
   return (
     <div className="space-y-6 pt-4 pb-20">
 
-      {/* 🌟 1. Banner แนะนำให้ Add to Home Screen (โชว์เฉพาะตอนใช้บน Browser ปกติ) */}
-      {!isStandalone && (
-        <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-3 shadow-sm flex items-start gap-3 mx-1">
-          <div className="bg-amber-100 dark:bg-amber-800/50 p-2 rounded-lg text-amber-600 dark:text-amber-400 shrink-0">
-            <Share className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-amber-800 dark:text-amber-300 mb-1">ติดตั้งแอปเพื่อรับการแจ้งเตือน</p>
-            <p className="text-[10px] text-amber-700 dark:text-amber-400/80 leading-relaxed">
-              คุณกำลังใช้งานผ่านเบราว์เซอร์ แนะนำให้กดปุ่ม <b>Share (แชร์)</b> ด้านล่าง แล้วเลือก <b>Add to Home Screen (เพิ่มไปยังหน้าจอหลัก)</b> เพื่อใช้งานได้อย่างลื่นไหล
-            </p>
-          </div>
-        </div>
-      )}
+      {/* แบนเนอร์การแจ้งเตือนต่างๆ (จะซ่อนตัวเองถ้าระบบแจ้งเตือนถูกแอดมินปิดไว้) */}
+      {enableNotify && (
+        <>
+          {!isStandalone && (
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-3 shadow-sm flex items-start gap-3 mx-1">
+              <div className="bg-amber-100 dark:bg-amber-800/50 p-2 rounded-lg text-amber-600 dark:text-amber-400 shrink-0">
+                <Share className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-amber-800 dark:text-amber-300 mb-1">ติดตั้งแอปเพื่อรับการแจ้งเตือน</p>
+                <p className="text-[10px] text-amber-700 dark:text-amber-400/80 leading-relaxed">
+                  คุณกำลังใช้งานผ่านเบราว์เซอร์ แนะนำให้กดปุ่ม <b>Share (แชร์)</b> ด้านล่าง แล้วเลือก <b>Add to Home Screen (เพิ่มไปยังหน้าจอหลัก)</b> เพื่อใช้งานได้อย่างลื่นไหล
+                </p>
+              </div>
+            </div>
+          )}
 
-      {/* 🌟 2. Banner ขออนุญาตแจ้งเตือน (โชว์เฉพาะติดตั้งแอปแล้ว แต่ยังไม่เปิดแจ้งเตือน) */}
-      {isStandalone && notifyPerm === 'default' && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700/50 rounded-xl p-3 shadow-sm flex items-center justify-between gap-3 mx-1">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-100 dark:bg-blue-800/50 p-2 rounded-lg text-blue-600 dark:text-blue-400 shrink-0">
-              <Bell className="w-5 h-5" />
+          {isStandalone && notifyPerm === 'default' && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700/50 rounded-xl p-3 shadow-sm flex items-center justify-between gap-3 mx-1">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 dark:bg-blue-800/50 p-2 rounded-lg text-blue-600 dark:text-blue-400 shrink-0">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-blue-800 dark:text-blue-300">เปิดรับการแจ้งเตือน</p>
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400/80">ระบบจะแจ้งเตือนเมื่อถึงคิวของคุณ</p>
+                </div>
+              </div>
+              <button 
+                onClick={requestNotify}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-all shrink-0"
+              >
+                เปิดใช้งาน
+              </button>
             </div>
-            <div>
-              <p className="text-xs font-bold text-blue-800 dark:text-blue-300">เปิดรับการแจ้งเตือน</p>
-              <p className="text-[10px] text-blue-600 dark:text-blue-400/80">ระบบจะแจ้งเตือนเมื่อถึงคิวของคุณ</p>
-            </div>
-          </div>
-          <button 
-            onClick={requestNotify}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-all shrink-0"
-          >
-            เปิดใช้งาน
-          </button>
-        </div>
-      )}
+          )}
 
-      {/* 🌟 3. Banner แจ้งเตือนถูกบล็อก */}
-      {isStandalone && notifyPerm === 'denied' && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl p-3 shadow-sm flex items-start gap-3 mx-1">
-           <div className="bg-red-100 dark:bg-red-800/50 p-2 rounded-lg text-red-600 dark:text-red-400 shrink-0">
-              <Bell className="w-5 h-5" />
+          {isStandalone && notifyPerm === 'denied' && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl p-3 shadow-sm flex items-start gap-3 mx-1">
+               <div className="bg-red-100 dark:bg-red-800/50 p-2 rounded-lg text-red-600 dark:text-red-400 shrink-0">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-red-800 dark:text-red-300">การแจ้งเตือนถูกปิดกั้น</p>
+                  <p className="text-[10px] text-red-600 dark:text-red-400/80">โปรดไปที่การตั้งค่าอุปกรณ์เพื่ออนุญาตการแจ้งเตือน</p>
+                </div>
             </div>
-            <div>
-              <p className="text-xs font-bold text-red-800 dark:text-red-300">การแจ้งเตือนถูกปิดกั้น</p>
-              <p className="text-[10px] text-red-600 dark:text-red-400/80">โปรดไปที่การตั้งค่าอุปกรณ์เพื่ออนุญาตการแจ้งเตือน</p>
-            </div>
-        </div>
+          )}
+        </>
       )}
 
       {/* ส่วนเช็คสถานะ Check In / Check Out */}
@@ -140,7 +135,6 @@ export default function HomeTab(props: any) {
                 </div>
 
                 <div className="space-y-2 mb-4">
-                  {/* คู่ทีมที่ 1 */}
                   <div className="grid grid-cols-2 gap-2">
                     {m.teams[0]?.map((p: any) => (
                       <div key={p.id} className={`p-2 rounded-lg text-[10px] font-bold text-center border shadow-sm ${getSkillColor(p.skill)}`}>
@@ -149,14 +143,12 @@ export default function HomeTab(props: any) {
                     ))}
                   </div>
                   
-                  {/* เส้นคั่นกลาง VS */}
                   <div className="text-center font-black text-slate-400 dark:text-slate-500 text-[10px] flex items-center justify-center gap-2 my-1">
                     <div className="h-[1px] bg-slate-200 dark:bg-slate-700/60 flex-1"></div>
                     <span className="tracking-widest">VS</span>
                     <div className="h-[1px] bg-slate-200 dark:bg-slate-700/60 flex-1"></div>
                   </div>
 
-                  {/* คู่ทีมที่ 2 */}
                   <div className="grid grid-cols-2 gap-2">
                     {m.teams[1]?.map((p: any) => (
                       <div key={p.id} className={`p-2 rounded-lg text-[10px] font-bold text-center border shadow-sm ${getSkillColor(p.skill)}`}>
@@ -215,7 +207,7 @@ export default function HomeTab(props: any) {
         </section>
       )}
 
-      {/* 2. ส่วน Active Courts: สนามจริง (แสดงเวลา, ชื่อทีม, VS) */}
+      {/* 2. ส่วน Active Courts */}
       <h2 className="font-black text-slate-800 dark:text-white mb-4">Active Courts</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {(state?.courtNames || []).map((cn: string) => {
@@ -283,6 +275,28 @@ export default function HomeTab(props: any) {
           );
         })}
       </div>
+
+      {/* 🌟 3. Admin Settings (ส่วนของแอดมินสำหรับเปิด/ปิด ระบบแจ้งเตือน) */}
+      {admin && (
+        <div className="mt-8 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+          <h3 className="font-black text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+            <Settings className="w-4 h-4 text-slate-500" /> Admin Controls
+          </h3>
+          <div className="flex items-center justify-between bg-white dark:bg-slate-800 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+            <div className="flex flex-col pr-4">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200">ระบบการแจ้งเตือน (Notifications)</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-tight">
+                เปิด/ปิด การแจ้งเตือน หากปิดไว้ผู้เล่นทุกคนจะไม่ได้รับการแจ้งเตือนใดๆ
+              </span>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" className="sr-only peer" checked={enableNotify} onChange={(e) => toggleEnableNotify(e.target.checked)} />
+              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

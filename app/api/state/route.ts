@@ -43,6 +43,7 @@ export async function GET() {
       announcement: getConfig('Announcement') || '',
       autoMatch: getConfig('AutoMatch') === 'true',
       globalShowPreview: getConfig('GlobalShowPreview') !== 'false', 
+      enableNotify: getConfig('EnableNotify') !== 'false', // 🌟 เพิ่มบรรทัดนี้ เพื่อดึงค่ากลับไปให้ Frontend
       playStartTime: getConfig('PlayStartTime') || '20:00',
       playEndTime: getConfig('PlayEndTime') || '22:30',
       courtCount: courtNames.length,
