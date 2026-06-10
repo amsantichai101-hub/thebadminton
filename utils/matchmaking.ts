@@ -17,31 +17,30 @@ function checkHistoryPenalty(t1: Player[], t2: Player[], history: MatchHistory[]
   const t1Ids = [t1[0].id, t1[1].id];
   const t2Ids = [t2[0].id, t2[1].id];
   
-  // ให้เช็คย้อนหลังแค่ประมาณ 15 แมทช์ล่าสุด (ถ้าคนน้อยแล้วบังคับไม่ซ้ำเลย คิวจะล๊อคและเดินไม่ได้)
+  // ให้เช็คย้อนหลังแค่ประมาณ 15 แมทช์ล่าสุด
   const recentHistory = history.slice(0, 15); 
 
   for (const h of recentHistory) {
-    // 1. ซ้ำทีมเดิม (คู่เดิมที่เคยเล่นด้วยกัน) -> โดนหักคะแนนหนัก
+    // 1. ซ้ำทีมเดิม (คู่เดิมที่เคยเล่นด้วยกัน) -> หักคะแนน
     if (isSameTeam(h.t1, t1Ids) || isSameTeam(h.t2, t1Ids)) penalty += 100; 
     if (isSameTeam(h.t1, t2Ids) || isSameTeam(h.t2, t2Ids)) penalty += 100; 
     
-    // 2. ซ้ำแมทช์เดิมเป๊ะ (4 คนนี้เพิ่งเจอกันมาในคอร์ท) -> โดนหักหนักมาก
+    // 2. ซ้ำแมทช์เดิมเป๊ะ (4 คนนี้เพิ่งเจอกันมาในคอร์ท) -> หักคะแนนหนัก
     if ((isSameTeam(h.t1, t1Ids) && isSameTeam(h.t2, t2Ids)) || 
         (isSameTeam(h.t1, t2Ids) && isSameTeam(h.t2, t1Ids))) {
       penalty += 500; 
     }
 
-    // 3. หักคะแนนยิบย่อยถ้าเคยลงคอร์ทพร้อมกัน (เพื่อให้วนเจอคนแปลกหน้า/คนใหม่ๆ มากที่สุด)
+    // 3. หักคะแนนยิบย่อยถ้าเคยลงคอร์ทพร้อมกัน
     const currentMatchPlayers = [...t1Ids, ...t2Ids];
     let togetherCount = 0;
     for (let i = 0; i < currentMatchPlayers.length; i++) {
        for (let j = i + 1; j < currentMatchPlayers.length; j++) {
-          if (playedTogether(currentMatchPlayers[i].id, currentMatchPlayers[j].id, h)) {
+          if (playedTogether(currentMatchPlayers[i], currentMatchPlayers[j], h)) {
              togetherCount++;
           }
        }
     }
-    // ยิ่งมีกลุ่มคนที่เคยเจอกันในคอร์ทเดียวกันมาแล้ว ระบบจะยิ่งพยายามดันให้ไปเจอคนอื่นแทน
     penalty += (togetherCount * 15);
   }
   return penalty;
@@ -57,7 +56,10 @@ export function balanceTeams(players: Player[], history: MatchHistory[] = []) {
     const team2 = [players[c.t2[0]], players[c.t2[1]]];
     const diff = Math.abs((Number(team1[0].skill) + Number(team1[1].skill)) - (Number(team2[0].skill) + Number(team2[1].skill)));
     const penalty = checkHistoryPenalty(team1, team2, history);
-    const totalScore = diff + penalty;
+    
+    // 🌟 1. ปรับค่าน้ำหนัก: บังคับให้ความสมดุล (diff) เป็นเรื่องคอขาดบาดตายอันดับ 1
+    // โดยการคูณ 10000 เข้าไป ส่วน Penalty หลักร้อยจะใช้ตอนที่ความสมดุลเท่ากันเท่านั้น
+    const totalScore = (diff * 10000) + penalty;
     
     if (totalScore < bestScore) {
       bestScore = totalScore;
@@ -104,9 +106,11 @@ export function extractBestMatch(queue: Player[], history: MatchHistory[] = []) 
               return { players: p, teams: [t1, t2], diff: matchDiff, indices: [i, j, k, l] };
             }
             
-            // กรณีหา Perfect Match ไม่ได้ จะเก็บอันที่คะแนนแย่น้อยที่สุดไว้เป็น Fallback
-            // เพิ่มการหักคะแนนหนักขึ้น(20) ถ้าฝีมือในทีมห่างเกิน 2 เพื่อบังคับให้ระบบพยายามรักษาความห่าง <= 2
-            const score = matchDiff + (d1 > 2 ? 20 : 0) + (d2 > 2 ? 20 : 0) + (i + j + k + l) + penalty;
+            // 🌟 2. ปรับค่าน้ำหนัก Fallback: 
+            // - คูณ matchDiff ด้วย 10000 เพื่อไม่ให้ทีม 2 ฝั่งฝีมือห่างเกิน 1
+            // - บวกคะแนน 2000 ถ้าคนในทีมเดียวกันฝีมือห่างเกิน 2
+            // - Penalty หลักร้อยจะถูกพิจารณาทีหลังสุดเพื่อหาคนที่เล่นไม่ซ้ำกัน
+            const score = (matchDiff * 10000) + (d1 > 2 ? 2000 : 0) + (d2 > 2 ? 2000 : 0) + penalty + (i + j + k + l);
             
             if (score < bestFallbackScore) {
               bestFallbackScore = score;

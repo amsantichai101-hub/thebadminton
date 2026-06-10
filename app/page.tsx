@@ -17,7 +17,6 @@ import {
   Edit3,
   X,
   Plus,
-  Download,
   MapPin,
   AlertCircle,
 } from 'lucide-react'
@@ -28,7 +27,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "3.5.0";
+const APP_VERSION = "2.3.6";
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -178,7 +177,7 @@ export default function Home() {
 
       if (mode === 'smart') {
         let match = extractBestMatch(currentPlayers, history);
-        if (!match) { // Fallback ดึงตามคิว
+        if (!match) { 
           match = { teams: [[currentPlayers[0], currentPlayers[1]], [currentPlayers[2], currentPlayers[3]]], diff: 0, indices: [0, 1, 2, 3] };
         }
         matches.push({ matchNumber: i + 1, teams: match.teams, diff: match.diff });
@@ -207,17 +206,12 @@ export default function Home() {
   const previewQueue = useMemo(() => {
     if (!globalPreview) return [];
 
-    // 1. นำคิวที่แอดมิน Confirm/Lock หรือจัดไว้แล้วมาวางเป็นคิวแรกๆ
     const manualQueue = [...manualPreviews];
     const usedIds = new Set(manualQueue.flatMap(m => m.teams.flat().map((p: any) => p.id)));
     
-    // 2. กรองคนในคิวที่ว่างอยู่จริงๆ (ไม่ได้พัก และยังไม่ได้อยู่ในคิว Manual)
     const candidates = activeWaiting.filter(p => !pausedIds.includes(p.id) && !usedIds.has(p.id));
-    
-    // 3. คำนวณว่าสามารถจัดทีม 4 คน ได้กี่คู่ จากคนที่เหลือ
     const maxAuto = Math.max(0, Math.floor(candidates.length / 4));
     
-    // 4. สุ่มจัดคิว Auto เท่าที่มีคนพอจัด
     const autoQueue = (matchMode === 'manual') 
       ? [] 
       : getAutoNextMatches(candidates, maxAuto, matchMode, matchHistory).map((m: any, idx: number) => ({
@@ -438,6 +432,7 @@ export default function Home() {
                teams: [[p1, p2], [p3, p4]]
             }
          });
+         
          setManualPreviews(formattedManuals);
       }
     } catch (e) { }
@@ -561,7 +556,6 @@ export default function Home() {
   }
 
 const handleApproveProcess = async (p: any) => {
-    // ดึงข้อมูลล่าสุดจาก state เพื่อให้แน่ใจว่าได้รหัสล่าสุดจากฐานข้อมูล
     const playerInDb = state?.pending?.find((pendingP: any) => pendingP.id === p.id) || p;
     
     Swal.fire({
@@ -592,7 +586,7 @@ const handleApproveProcess = async (p: any) => {
       confirmButtonText: 'บันทึกและอนุมัติ',
       confirmButtonColor: '#2563eb',
       preConfirm: () => ({
-        oldId: p.id, // ใช้ ID เดิมที่ส่งเข้ามาเพื่อไป update
+        oldId: p.id,
         newId: (document.getElementById('apId') as HTMLInputElement).value,
         name: (document.getElementById('apName') as HTMLInputElement).value,
         skill: Number((document.getElementById('apSkill') as HTMLSelectElement).value)
@@ -600,13 +594,11 @@ const handleApproveProcess = async (p: any) => {
     }).then(async r => {
       if (r.isConfirmed) {
         Swal.fire({ title: 'กำลังบันทึก...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-        // 1. ส่งค่า ID จริงไปอัปเดต
         await fetch('/api/update-player', { 
             method: 'POST', 
             headers: { 'content-type': 'application/json' }, 
             body: JSON.stringify(r.value) 
         });
-        // 2. อนุมัติด้วย ID ใหม่ที่แก้ไขแล้ว
         await runApi('/api/approve', { id: r.value.newId }, false);
         Toast.fire({ title: '✅ อนุมัติและบันทึกรหัสจริงเรียบร้อย' });
       }
@@ -644,10 +636,10 @@ const handleApproveProcess = async (p: any) => {
   }
 
   const executeAutoMatch = async () => {
-    // ให้เปิดใช้โหมด Auto แทนการกดทีละปุ่ม
     Toast.fire({ title: '⚠️ กรุณาเปิดสวิตช์ Auto Match ด้านล่างแทนการกดปุ่มนี้' });
   }
-const toggleSelect = (pId: string) => {
+
+  const toggleSelect = (pId: string) => {
     if (!admin) return;
     setSelected(prev => {
       if (prev.includes(pId)) {
@@ -658,6 +650,7 @@ const toggleSelect = (pId: string) => {
       }
     });
   };
+
   // ==========================================
   // การควบคุมคอร์ท และ API 
   // ==========================================
@@ -684,7 +677,7 @@ const toggleSelect = (pId: string) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        court_name: matchId, // ใช้ matchId ไปก่อน
+        court_name: matchId, 
         p1_id: selectedPlayers[0].id, p2_id: selectedPlayers[1].id,
         p3_id: selectedPlayers[2].id, p4_id: selectedPlayers[3].id
       })
@@ -700,7 +693,7 @@ const toggleSelect = (pId: string) => {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: prepMatch.matchId })
-    });
+    }).catch(()=>null);
     Toast.fire({ title: '🗑️ ยกเลิกคิวแล้ว' });
   };
 
@@ -710,7 +703,11 @@ const toggleSelect = (pId: string) => {
     const matchId = `M-${Date.now()}`;
     const newManual = { matchId, isManual: true, teams: prepMatch.teams };
     
-    setManualPreviews(prev => [...prev, newManual]);
+    setManualPreviews(prev => {
+        // ลบตัวพรีวิวเดิมออก (ถ้ามี) แล้วแทนด้วยของใหม่ที่ยืนยันแล้ว
+        const filtered = prev.filter(m => m.matchId !== prepMatch.matchId);
+        return [...filtered, newManual];
+    });
     
     await fetch('/api/manual-queue', {
       method: 'POST',
@@ -724,36 +721,81 @@ const toggleSelect = (pId: string) => {
     Toast.fire({ title: '✅ ยืนยันผลการจัดคู่แล้ว!' });
   };
 
-// 4. สุ่มคิวใหม่ โดยไม่เอาคนโดนล็อคแล้วมาสุ่ม
+  // 🌟 4. สุ่มคิวใหม่ โดยรีเฟรชเฉพาะคิวที่กดเป็นต้นไป (คิวก่อนหน้าจะถูกแช่แข็งและบันทึกลงฐานข้อมูล)
   const triggerReshuffle = async (matchData?: any) => {
-    // 1. หาคนที่ว่าง (ไม่โดนล็อคคิว Manual อยู่)
-    const otherManualIds = manualPreviews
-      .filter((m: any) => m.matchId !== matchData?.matchId)
-      .flatMap((m: any) => m.teams.flat().map((x: any) => x.id));
-    const availableWaiters = activeWaiting.filter(p => !otherManualIds.includes(p.id));
+    // หา index ของคิวที่ถูกกดรีเฟรช ใน previewQueue ปัจจุบัน
+    const targetIndex = previewQueue.findIndex((m: any) => m.matchId === matchData?.matchId);
+    if (targetIndex === -1) return;
 
-    if (availableWaiters.length < 4) return Toast.fire({ title: '⚠️ คิวรอว่างไม่พอ 4 คน' });
+    // ดึงแมทช์ที่อยู่ "ก่อนหน้า" คิวนี้ทั้งหมดมา เพื่อแช่แข็งไว้ (Lock)
+    const precedingMatches = previewQueue.slice(0, targetIndex);
 
-    // 2. สุ่มลำดับใหม่
+    // หา matchId ที่มีอยู่ใน manualPreviews (คิวที่ถูกล็อค/ยืนยันไปแล้ว จะได้ไม่เก็บซ้ำ)
+    const existingManualIds = new Set(manualPreviews.map(m => m.matchId));
+
+    const newLockedPreviews = [];
+    
+    // 🌟 1. บันทึกคิวก่อนหน้าที่ยังเป็นแค่ Preview ลงฐานข้อมูลให้หมด (เพื่อแช่แข็งของจริง)
+    for (let i = 0; i < precedingMatches.length; i++) {
+      const m = precedingMatches[i];
+      if (!existingManualIds.has(m.matchId)) {
+        const newMatchId = `M-locked-${Date.now()}-${i}`;
+        const lockedMatch = { ...m, matchId: newMatchId, isManual: true };
+        newLockedPreviews.push(lockedMatch);
+        
+        await fetch('/api/manual-queue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            court_name: newMatchId,
+            p1_id: m.teams[0][0].id, p2_id: m.teams[0][1].id,
+            p3_id: m.teams[1][0].id, p4_id: m.teams[1][1].id
+          })
+        });
+      }
+    }
+
+    // เก็บ manualPreviews เดิมไว้ โดยหักตัวที่กำลังจะรีเฟรชทิ้งไป (ถ้ามี)
+    const preservedManuals = manualPreviews.filter(m => m.matchId !== matchData.matchId);
+    
+    // รวมคิวล็อคทั้งหมด (ของเดิม + ของก่อนหน้าที่เพิ่งล็อคและลง DB ไปแล้ว)
+    const combinedManuals = [...preservedManuals, ...newLockedPreviews];
+
+    // หาคนที่ถูกใช้งานไปแล้วจากคิวที่ถูกล็อคทั้งหมด
+    const usedIds = new Set(combinedManuals.flatMap(m => m.teams.flat().map((x: any) => x.id)));
+    
+    // หาคนที่ยังว่างอยู่ เพื่อเอามาสุ่มใส่คิวที่ถูกกดรีเฟรช
+    const availableWaiters = activeWaiting.filter(p => !usedIds.has(p.id));
+
+    if (availableWaiters.length < 4) return Toast.fire({ title: '⚠️ คิวรอว่างไม่พอ 4 คน สำหรับจัดคิวใหม่' });
+
+    // สุ่มคนว่างที่เหลืออยู่ และจัดคู่ใหม่
     const shuffled = [...availableWaiters].sort(() => 0.5 - Math.random());
     let bestMatch = extractBestMatch(shuffled, matchHistory) || { teams: [[shuffled[0], shuffled[1]], [shuffled[2], shuffled[3]]] };
 
-    // 3. 🌟 ปรับให้บันทึกเป็นคิวที่ล็อคไว้เลย (isManual: true) เพื่อป้องกันการรีเฟรชแล้วหาย
-    const matchId = `M-${Date.now()}`;
-    const newPreviewMatch = { 
-      matchId: matchId, 
-      isManual: true, 
-      courtName: matchData?.courtName || '', 
-      teams: bestMatch.teams 
+    // 🌟 2. สร้างคิวที่สุ่มใหม่เป็น Manual และบันทึกลง DB ทันที
+    const newReshuffledId = `M-reshuffle-${Date.now()}`;
+    const newPreviewMatch = {
+      matchId: newReshuffledId,
+      isManual: true, // ตั้งเป็น Manual เพื่อให้เป็นสีเขียวและไม่ถูกรีเฟรชทับ
+      courtName: matchData?.courtName || '',
+      teams: bestMatch.teams
     };
 
-    // 4. อัปเดต State บนหน้าจอทันทีเพื่อให้ UI ตอบสนองไว
-    setManualPreviews(prev => {
-        const filtered = prev.filter(m => m.matchId !== matchData?.matchId);
-        return [...filtered, newPreviewMatch];
+    await fetch('/api/manual-queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        court_name: newReshuffledId,
+        p1_id: bestMatch.teams[0][0].id, p2_id: bestMatch.teams[0][1].id,
+        p3_id: bestMatch.teams[1][0].id, p4_id: bestMatch.teams[1][1].id
+      })
     });
 
-    // 5. ลบของเก่าออกจากฐานข้อมูล (ถ้าเป็นการกดปุ่มรีเฟรชคิวเดิมที่เคยล็อคไว้)
+    // อัปเดตคิวเข้า State ปัจจุบันทันทีเพื่อความรวดเร็ว
+    setManualPreviews([...combinedManuals, newPreviewMatch]);
+
+    // 🌟 3. ถ้าคิวที่กดมันเคยยืนยันผล (ลง DB ไปแล้ว) ให้ลบออกจาก DB ด้วยเพราะเราสุ่มแทนที่มันแล้ว
     if (matchData?.isManual && matchData?.matchId) {
       await fetch('/api/manual-queue', {
         method: 'DELETE',
@@ -762,18 +804,7 @@ const toggleSelect = (pId: string) => {
       }).catch(()=>null);
     }
 
-    // 6. 🌟 บันทึกคิวที่สุ่มใหม่ลง Database ทันที
-    await fetch('/api/manual-queue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        court_name: matchId,
-        p1_id: bestMatch.teams[0][0].id, p2_id: bestMatch.teams[0][1].id,
-        p3_id: bestMatch.teams[1][0].id, p4_id: bestMatch.teams[1][1].id
-      })
-    });
-
-    Toast.fire({ title: `✅ สุ่มคิวใหม่และล็อคเข้าฐานข้อมูลสำเร็จ!` });
+    Toast.fire({ title: '✅ สุ่มและบันทึกคิวใหม่ลงฐานข้อมูลแล้ว!' });
   };
 
   // 5. ส่งลงสนาม (ส่งเข้าไป API Active Courts)
@@ -803,8 +834,11 @@ const toggleSelect = (pId: string) => {
         return;
       }
 
-      if (matchData?.isManual && matchData?.matchId) {
-        setManualPreviews(prev => prev.filter(m => m.matchId !== matchData.matchId));
+      // เอาออกจากหน้าจอก่อนเพื่อให้ไว
+      setManualPreviews(prev => prev.filter(m => m.matchId !== matchData.matchId));
+
+      // ถ้าเป็นคิวที่มาจาก DB ให้สั่งลบใน DB ด้วย
+      if (matchData?.isManual && matchData?.matchId && matchData.matchId.startsWith('M-')) {
         await fetch('/api/manual-queue', {
           method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: matchData.matchId })
         }).catch(()=>null);
@@ -881,7 +915,7 @@ const toggleSelect = (pId: string) => {
   // ==========================================
   // Popups ของคุณ (ครบถ้วนไม่มีตัด)
   // ==========================================
-const openCheckIn = () => {
+  const openCheckIn = () => {
     Swal.fire({
       title: '📝 Check In',
       html: `
@@ -1434,6 +1468,7 @@ const exportRegisteredToday = () => {
   const availableWaitingView = activeWaiting.filter((p: any) => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
   const autoMatches = previewQueue ? previewQueue.filter((m: any) => !m.isManual) : [];
   const allPreviews = previewQueue || [];
+  
   // ==========================================
   // Auto Sign-out (เตะออกถ้าไม่มีชื่อในคิวเมื่อเข้าแอป)
   // ==========================================
@@ -1467,6 +1502,7 @@ const exportRegisteredToday = () => {
       }
     }
   }, [state, myProfile, isLoading, admin]);
+
   const tabProps = {
     state, setState, admin, setAdmin, selected, setSelected, fullscreen, setFullscreen, theme, setTheme,
     isLoading, setIsLoading, loadingCourts, setLoadingCourts, myProfile, setMyProfile,
@@ -1610,4 +1646,3 @@ const exportRegisteredToday = () => {
     </div>
   )
 }
-
