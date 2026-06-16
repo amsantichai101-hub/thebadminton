@@ -130,7 +130,7 @@ export default function ProfileTab(props: any) {
                    <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 shadow-inner">
                       <label className="text-xs font-bold mb-2 block tracking-widest uppercase text-slate-300">Match Mode (ระบบจัดคิว)</label>
                       <select value={matchMode} onChange={e => { setMatchMode(e.target.value as any); refresh(false); }} className="w-full p-2.5 border border-slate-600 rounded-lg text-xs bg-slate-800 text-white outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
-                        <option value="smart">Smart (ในทีมห่าง≤3, ระหว่างทีมห่าง≤1)</option>
+                        <option value="smart">Smart (ในทีมห่าง≤2, ระหว่างทีมห่าง≤1)</option>
                         <option value="balanced">Balanced (สมดุล/ใกล้เคียงที่สุด)</option>
                         <option value="random">Random (สุ่ม)</option>
                         <option value="skill-gap">Skill Gap (คู่ฝีมือใกล้เคียง)</option>

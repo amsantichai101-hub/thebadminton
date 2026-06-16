@@ -56,7 +56,7 @@ export async function POST(req: Request) {
           name: p.name,
           skill: p.skill,
           ts: new Date().toISOString(), // ⏰ อัปเดตเวลาปัจจุบัน เพื่อให้หล่นไปอยู่ "ท้ายคิว"
-          type: p.id.startsWith('G') ? 'Guest' : 'Emp',
+          type: p.id.startsWith('9') ? 'Guest' : 'Emp', // ✅ เปลี่ยนเงื่อนไขตรวจจับ Guest เป็นขึ้นต้นด้วย 9
           play_count: (count || 0) + 1 // รอบเดิม + รอบที่เพิ่งตีจบ
        });
 
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     // 5. เคลียร์คอร์ทให้ว่าง
     await supabaseAdmin.from('active_courts').delete().eq('court', court)
     
-// ========================================================
+    // ========================================================
     // 🌟 ระบบยิง Push ทะลุจอ แจ้งเตือน 4 คนแรกให้เตรียมวอร์ม เมื่อจบแมตช์
     // ========================================================
     try {
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
         .from('player_queue')
         .select('id, name')
         .not('name', 'like', '%(พัก)%')
-        .order('id', { ascending: true }) // *หมายเหตุ: ถ้าคิวคุณใช้ timestamp เรียง ให้แก้เป็น .order('timestamp', ...)
+        .order('id', { ascending: true }) 
         .limit(4);
 
       if (waitingPlayers && waitingPlayers.length > 0) {
@@ -97,7 +97,7 @@ export async function POST(req: Request) {
               title: '🔥 เตรียมตัววอร์ม!',
               message: `มีคอร์ทเพิ่งจบแมตช์! คุณ ${p.name} อยู่ใน 4 คิวแรก ลุกขึ้นยืดเส้นได้เลย`,
               url: '/?tab=queue',
-              vibrate: [200, 100, 200] // สั่นเป็นจังหวะเตือนสั้นๆ
+              vibrate: [200, 100, 200] 
             })
           }).catch(err => console.error('Push prepare error:', err));
         }
@@ -106,8 +106,6 @@ export async function POST(req: Request) {
       console.error('Error sending prepare push:', e);
     }
     // ========================================================
-
-    
 
     return NextResponse.json({ status: 'success' })
   } catch (error: any) {

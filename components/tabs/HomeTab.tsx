@@ -1,669 +1,302 @@
-import { User, CheckCircle2, Play, Clock, Swords, Check, Eye } from 'lucide-react'
-import React from "react";
+import { Play, Check, Clock, Swords, Eye, RefreshCw, X, CheckCircle2, Share, Bell, Settings } from 'lucide-react';
+import React, { useState, useEffect } from "react";
 
-type PreCourtPreviewProps = {
-  globalPreview: boolean;
-  state: any;
-  allPreviews: any[];                 // (คงไว้ได้)
-  activeWaiting: any[];               // ✅ เพิ่ม
-  pausedIds?: string[];               // ✅ เพิ่ม (optional)
-  myProfile: { id: string; name: string } | null;
-  myWaitIndex: number;
-  estWaitMins: number;
-  getSkillColor: (skill: number | undefined) => string;
-};
+export default function HomeTab(props: any) {
+  const { activeTab, ...rest } = props; 
 
-function buildQueueSimPreviews(queue: any[], slotCount: number) {
-  const previews: any[] = [];
-  for (let i = 0; i < slotCount; i++) {
-    const group = queue.slice(i * 4, i * 4 + 4);
-    if (group.length < 4) {
-      previews.push(null); // slot นี้ยังไม่พอ 4 คน
-      continue;
+  if (activeTab !== 'home') return null;
+  const {
+    state, admin, finish, startGame, previewQueue, globalPreview,
+    getSkillColor, triggerReshuffle, lockQueue, confirmSpecificMatch, cancelManualMatch,
+    openCheckIn, openSignOut, myProfile, getMySkillLevel,
+    enableNotify, toggleEnableNotify // 🌟 ดึงค่าการตั้งค่าจาก props
+  } = props;
+
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [isStandalone, setIsStandalone] = useState<boolean>(true); 
+  const [notifyPerm, setNotifyPerm] = useState<string>('granted');
+
+  useEffect(() => {
+    const checkStandalone = window.matchMedia('(display-mode: standalone)').matches 
+                         || ('standalone' in navigator && (navigator as any).standalone === true);
+    setIsStandalone(checkStandalone);
+
+    if ('Notification' in window) {
+      setNotifyPerm(Notification.permission);
     }
-    previews.push({
-      isManual: false,
-      matchNumber: i + 1,
-      // FIFO teams: 2 คนแรก vs 2 คนหลัง
-      teams: [
-        [group[0], group[1]],
-        [group[2], group[3]],
-      ],
-      diff: undefined,
-    });
-  }
-  return previews;
-}
+  }, []);
 
-export function PreCourtPreview({
-  globalPreview,
-  state,
-  allPreviews,
-  activeWaiting,
-  pausedIds = [],
-  myProfile,
-  myWaitIndex,
-  estWaitMins,
-  getSkillColor,
-}: PreCourtPreviewProps) {
-  if (!globalPreview) return null;
+  const requestNotify = async () => {
+    if ('Notification' in window) {
+      const perm = await Notification.requestPermission();
+      setNotifyPerm(perm);
+    }
+  };
 
-  const courtNames: string[] = state?.courtNames?.length ? state.courtNames : ["Court 1"];
-  const slotCount = courtNames.length; // ✅ A: เท่าจำนวนคอร์ททั้งหมด
-
-  // ✅ คิวที่ใช้จำลอง = คนที่รอจริง (ตัดพัก/paused)
-  const queueForPreview = (activeWaiting || []).filter(p => !pausedIds.includes(p.id));
-
-  // ✅ สร้าง Previews จากคิว FIFO เสมอ (ไม่พึ่ง matchmaking / ไม่พึ่งคอร์ทว่าง)
-  const queueSimPreviews = buildQueueSimPreviews(queueForPreview, slotCount);
-
-  // ✅ ถ้าคุณอยากให้ “manualPreviews มาก่อน” สามารถ merge ได้ในอนาคต
-  // ตอนนี้เน้น "จำลองจากคิวทั้งหมด" ตาม requirement
-
-  const myQueueNo = myWaitIndex >= 0 ? myWaitIndex + 1 : 0;
-
-  const isMeInAnyPreview = queueSimPreviews
-    .filter(Boolean)
-    .some((m: any) =>
-      (m?.teams || [])
-        .flat()
-        .some((p: any) => p?.id && myProfile?.id && p.id === myProfile.id)
-    );
+  const handleAction = async (id: string, actionFunc: () => Promise<void> | void) => {
+    if (loadingId) return; 
+    setLoadingId(id);
+    try {
+      await actionFunc();
+    } finally {
+      setLoadingId(null);
+    }
+  };
 
   return (
-    <section className="mt-4">
-      <div className="flex items-end justify-between gap-3 mb-2">
-        <div className="flex flex-col">
-          <div className="text-[10px] font-black tracking-widest uppercase text-slate-500 dark:text-slate-400">
-            PREVIEW MODE
-          </div>
-          <div className="text-sm font-black text-slate-800 dark:text-white">
-            🟦 คอร์ทคิวสำรอง 
-          </div>
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold mt-1">
-            Queue used: <b>{queueForPreview.length}</b> คน • Slots: <b>{slotCount}</b>
-            {allPreviews?.length === 0 ? (
-              <span className="ml-2 text-amber-600 dark:text-amber-400 font-black">
-                (Matchmaking preview ว่าง → ใช้ FIFO แทน)
-              </span>
-            ) : null}
-          </div>
-        </div>
+    <div className="space-y-6 pt-4 pb-20">
 
-        <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-          Slots: <span className="text-slate-800 dark:text-slate-200 font-black">{slotCount}</span>
-        </div>
-      </div>
-
-      {/* YOUR POSITION */}
-      <div className="mb-3">
-        {myProfile && myQueueNo > 0 ? (
-          <div className="flex items-center justify-between gap-3 bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl px-4 py-3 shadow-sm">
-            <div className="min-w-0">
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-black uppercase tracking-widest">
-                Your Position
+      {/* แบนเนอร์การแจ้งเตือนต่างๆ (จะซ่อนตัวเองถ้าระบบแจ้งเตือนถูกแอดมินปิดไว้) */}
+      {enableNotify && (
+        <>
+          {!isStandalone && (
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-3 shadow-sm flex items-start gap-3 mx-1">
+              <div className="bg-amber-100 dark:bg-amber-800/50 p-2 rounded-lg text-amber-600 dark:text-amber-400 shrink-0">
+                <Share className="w-5 h-5" />
               </div>
-              <div className="font-black text-slate-800 dark:text-white truncate">
-                {myProfile.name}{" "}
-                <span className="text-slate-500 dark:text-slate-400 font-bold">
-                  (#{myQueueNo})
-                </span>
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                ประมาณอีก <b>{estWaitMins}</b> นาที
-                {!isMeInAnyPreview && (
-                  <span className="ml-2 text-amber-600 dark:text-amber-400 font-black">
-                    • ยังไม่อยู่ในสล็อตคิวสำรองด้านล่าง
-                  </span>
-                )}
+              <div>
+                <p className="text-xs font-bold text-amber-800 dark:text-amber-300 mb-1">ติดตั้งแอปเพื่อรับการแจ้งเตือน</p>
+                <p className="text-[10px] text-amber-700 dark:text-amber-400/80 leading-relaxed">
+                  คุณกำลังใช้งานผ่านเบราว์เซอร์ แนะนำให้กดปุ่ม <b>Share (แชร์)</b> ด้านล่าง แล้วเลือก <b>Add to Home Screen (เพิ่มไปยังหน้าจอหลัก)</b> เพื่อใช้งานได้อย่างลื่นไหล
+                </p>
               </div>
             </div>
-            <div className="shrink-0">
-              <span className="px-3 py-2 rounded-xl bg-amber-400 text-black text-[11px] font-black shadow">
-                YOU
-              </span>
+          )}
+
+          {isStandalone && notifyPerm === 'default' && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700/50 rounded-xl p-3 shadow-sm flex items-center justify-between gap-3 mx-1">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 dark:bg-blue-800/50 p-2 rounded-lg text-blue-600 dark:text-blue-400 shrink-0">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-blue-800 dark:text-blue-300">เปิดรับการแจ้งเตือน</p>
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400/80">ระบบจะแจ้งเตือนเมื่อถึงคิวของคุณ</p>
+                </div>
+              </div>
+              <button 
+                onClick={requestNotify}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-all shrink-0"
+              >
+                เปิดใช้งาน
+              </button>
             </div>
+          )}
+
+          {isStandalone && notifyPerm === 'denied' && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl p-3 shadow-sm flex items-start gap-3 mx-1">
+               <div className="bg-red-100 dark:bg-red-800/50 p-2 rounded-lg text-red-600 dark:text-red-400 shrink-0">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-red-800 dark:text-red-300">การแจ้งเตือนถูกปิดกั้น</p>
+                  <p className="text-[10px] text-red-600 dark:text-red-400/80">โปรดไปที่การตั้งค่าอุปกรณ์เพื่ออนุญาตการแจ้งเตือน</p>
+                </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ส่วนเช็คสถานะ Check In / Check Out */}
+      <div className="flex justify-end px-1 mt-2">
+        {myProfile ? (
+          <div className="flex items-center gap-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-full shadow-sm text-xs">
+            <span className={`w-2.5 h-2.5 rounded-full inline-block shrink-0 ${getSkillColor(getMySkillLevel())}`}></span>
+            <span className="font-bold text-slate-700 dark:text-slate-200">{myProfile.name}</span>
+            <button 
+              onClick={openSignOut}
+              className="ml-1 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/50 px-2.5 py-0.5 rounded-full text-[10px] font-black transition-all active:scale-95"
+            >
+              Check Out
+            </button>
           </div>
         ) : (
-          <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-white/60 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-2xl px-4 py-3">
-            ℹ️ เพื่อให้ระบบไฮไลท์ YOU กรุณา Check-in ก่อน
-          </div>
+          <button 
+            onClick={openCheckIn}
+            className="bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-blue-100 dark:hover:bg-blue-900/50 active:scale-95 transition-all flex items-center gap-1.5"
+          >
+            <span className="text-[10px]">📝</span> Check In
+          </button>
         )}
       </div>
 
-      {/* PRE COURTS */}
-      <div className="grid gap-3">
-        {courtNames.map((court, idx) => {
-          const m = queueSimPreviews[idx];
+      {/* 1. ส่วน Preview Courts: โชว์คิวจำลอง */}
+      {globalPreview && previewQueue && previewQueue.length > 0 && (
+        <section>
+          <h2 className="font-black text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+            <Eye className="w-5 h-5 text-blue-500" /> Preview Mode
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {previewQueue.map((m: any, idx: number) => (
+              <div key={m.matchId || idx} className={`border-2 rounded-2xl p-4 shadow-sm ${m.isManual ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/10 dark:border-emerald-700' : 'border-blue-300 bg-blue-50 dark:bg-blue-900/10 dark:border-blue-800'}`}>
+                <div className="flex justify-between items-center mb-3 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">
+                  <span>{m.isManual ? "✅ ยืนยันแล้ว" : "⏳ UP NEXT"}</span>
+                  <span>Queue #{idx + 1}</span>
+                </div>
+
+                <div className="space-y-2 mb-4">
+                  <div className="grid grid-cols-2 gap-2">
+                    {m.teams[0]?.map((p: any) => (
+                      <div key={p.id} className={`p-2 rounded-lg text-[10px] font-bold text-center border shadow-sm ${getSkillColor(p.skill)}`}>
+                        {p.name}
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="text-center font-black text-slate-400 dark:text-slate-500 text-[10px] flex items-center justify-center gap-2 my-1">
+                    <div className="h-[1px] bg-slate-200 dark:bg-slate-700/60 flex-1"></div>
+                    <span className="tracking-widest">VS</span>
+                    <div className="h-[1px] bg-slate-200 dark:bg-slate-700/60 flex-1"></div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {m.teams[1]?.map((p: any) => (
+                      <div key={p.id} className={`p-2 rounded-lg text-[10px] font-bold text-center border shadow-sm ${getSkillColor(p.skill)}`}>
+                        {p.name}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {admin && (
+                  <div className="flex gap-2">
+                    {!m.isManual ? (
+                      <>
+                        <button 
+                          onClick={() => handleAction(`lock-${m.matchId}`, async () => await lockQueue(m))} 
+                          disabled={loadingId === `lock-${m.matchId}`}
+                          className={`flex-1 py-2 text-white text-[10px] font-bold rounded-lg transition flex justify-center items-center gap-1 ${loadingId === `lock-${m.matchId}` ? 'bg-blue-400 cursor-not-allowed opacity-75' : 'bg-blue-600 active:scale-95'}`}
+                        >
+                          {loadingId === `lock-${m.matchId}` ? <RefreshCw className="w-3 h-3 animate-spin" /> : null}
+                          {loadingId === `lock-${m.matchId}` ? 'รอสักครู่...' : 'ยืนยันผล'}
+                        </button>
+
+                        <button 
+                          onClick={() => handleAction(`reshuffle-${m.matchId}`, async () => await triggerReshuffle(m))} 
+                          disabled={loadingId === `reshuffle-${m.matchId}`}
+                          className={`px-3 py-2 rounded-lg border transition flex justify-center items-center ${loadingId === `reshuffle-${m.matchId}` ? 'bg-slate-100 cursor-not-allowed opacity-75' : 'bg-white dark:bg-slate-800 dark:border-slate-600 active:scale-95'}`}
+                        >
+                          <RefreshCw className={`w-4 h-4 ${loadingId === `reshuffle-${m.matchId}` ? 'animate-spin text-blue-500' : 'dark:text-slate-300'}`} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button 
+                          onClick={() => handleAction(`send-${m.matchId}`, async () => await confirmSpecificMatch(m, m.courtName))} 
+                          disabled={loadingId === `send-${m.matchId}`}
+                          className={`flex-1 py-2 text-white text-[10px] font-bold rounded-lg transition flex justify-center items-center gap-1 ${loadingId === `send-${m.matchId}` ? 'bg-emerald-400 cursor-not-allowed opacity-75' : 'bg-emerald-600 active:scale-95'}`}
+                        >
+                          {loadingId === `send-${m.matchId}` ? <RefreshCw className="w-3 h-3 animate-spin" /> : null}
+                          {loadingId === `send-${m.matchId}` ? 'กำลังส่ง...' : 'ส่งลงสนาม'}
+                        </button>
+
+                        <button 
+                          onClick={() => handleAction(`cancel-${m.matchId}`, async () => await cancelManualMatch(m))} 
+                          disabled={loadingId === `cancel-${m.matchId}`}
+                          className={`px-3 py-2 rounded-lg transition flex justify-center items-center ${loadingId === `cancel-${m.matchId}` ? 'bg-red-50 cursor-not-allowed opacity-75' : 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 active:scale-95'}`}
+                        >
+                          {loadingId === `cancel-${m.matchId}` ? <RefreshCw className="w-4 h-4 animate-spin text-red-400" /> : <X className="w-4 h-4" />}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 2. ส่วน Active Courts */}
+      <h2 className="font-black text-slate-800 dark:text-white mb-4">Active Courts</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {(state?.courtNames || []).map((cn: string) => {
+          const m = (state?.playing || []).find((p: any) => p.court === cn);
+          const min = m ? Math.floor((Date.now() - new Date(m.startTime).getTime()) / 60000) : 0;
+          const started = m ? ((Date.now() - new Date(m.startTime).getTime()) / 60000 > 1) : false;
 
           return (
-            <div
-              key={`${court}-${idx}`}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden"
-            >
-              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <div className="font-black text-slate-800 dark:text-white">
-                  🧩 Pre Court #{idx + 1}
-                
-                </div>
-                <div className="text-[10px] font-black px-2.5 py-1 rounded-full bg-blue-600/10 text-blue-600 dark:text-blue-400">
-                  NEXT
-                </div>
+            <div key={cn} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
+              <div className="flex justify-between items-center mb-3">
+                <span className="font-black text-slate-800 dark:text-white">{cn}</span>
+                {m && <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full"><Clock className="w-3 h-3 inline" /> {min}m</span>}
               </div>
 
-              {!m ? (
-                <div className="px-4 py-5 text-center text-[11px] text-slate-500 dark:text-slate-400">
-                  คิวไม่พอสำหรับสล็อตนี้ (ต้องมี 4 คนต่อ 1 Pre Court)
+              {m ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-2 rounded flex items-center justify-center gap-1.5 shadow-inner">
+                      <span className={`w-2 h-2 rounded-full inline-block shrink-0 ${getSkillColor(m.p1Skill)}`}></span>
+                      <span className="truncate">{m.p1Name}</span>
+                    </div>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-2 rounded flex items-center justify-center gap-1.5 shadow-inner">
+                      <span className={`w-2 h-2 rounded-full inline-block shrink-0 ${getSkillColor(m.p2Skill)}`}></span>
+                      <span className="truncate">{m.p2Name}</span>
+                    </div>
+                  </div>                  
+                  <div className="text-center font-black text-slate-300 dark:text-slate-600 text-[10px]">VS</div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 p-2 rounded flex items-center justify-center gap-1.5 shadow-inner">
+                      <span className={`w-2 h-2 rounded-full inline-block shrink-0 ${getSkillColor(m.p3Skill)}`}></span>
+                      <span className="truncate">{m.p3Name}</span>
+                    </div>
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 p-2 rounded flex items-center justify-center gap-1.5 shadow-inner">
+                      <span className={`w-2 h-2 rounded-full inline-block shrink-0 ${getSkillColor(m.p4Skill)}`}></span>
+                      <span className="truncate">{m.p4Name}</span>
+                    </div>
+                  </div>
+
+                  {admin && (
+                    <div className="flex gap-2 mt-3">
+                      {!started && (
+                        <button 
+                          onClick={() => handleAction(`start-${cn}`, async () => await startGame(cn))} 
+                          disabled={loadingId === `start-${cn}`}
+                          className={`flex-1 py-2 text-white text-[10px] font-bold rounded-lg transition flex justify-center items-center gap-1 ${loadingId === `start-${cn}` ? 'bg-indigo-400 cursor-not-allowed opacity-75' : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'}`}
+                        >
+                          {loadingId === `start-${cn}` ? <RefreshCw className="w-3 h-3 animate-spin" /> : null}
+                          {loadingId === `start-${cn}` ? 'รอสักครู่...' : 'เริ่มเกม'}
+                        </button>
+                      )}
+                      
+                      <button 
+                        onClick={() => finish(cn)} 
+                        className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-[10px] font-bold rounded-lg active:scale-95 transition"
+                      >
+                        จบแมทช์
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="p-4 space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {m.teams?.[0]?.map((p: any) => (
-                      <PlayerChip
-                        key={p.id}
-                        p={p}
-                        isMe={!!myProfile?.id && p.id === myProfile.id}
-                        getSkillColor={getSkillColor}
-                      />
-                    ))}
-                  </div>
-
-                  <div className="text-center text-[10px] font-black text-slate-400">VS</div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {m.teams?.[1]?.map((p: any) => (
-                      <PlayerChip
-                        key={p.id}
-                        p={p}
-                        isMe={!!myProfile?.id && p.id === myProfile.id}
-                        getSkillColor={getSkillColor}
-                      />
-                    ))}
-                  </div>
-
-                  <div className="pt-2 text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                    <span>Strategy: <b>FIFO Queue</b></span>
-                    <span>Queue range: <b>{idx * 4 + 1}-{idx * 4 + 4}</b></span>
-                  </div>
-                </div>
+                <div className="py-6 text-center text-slate-400 dark:text-slate-500 text-xs font-medium italic border-2 border-dashed border-slate-100 dark:border-slate-700 rounded-xl">สนามว่าง</div>
               )}
             </div>
           );
         })}
       </div>
-    </section>
-  );
-}
 
-const PlayerChip = ({
-  p,
-  isMe,
-  getSkillColor,
-}: {
-  p: any;
-  isMe: boolean;
-  getSkillColor: (skill: number | undefined) => string;
-}) => {
-  return (
-    <div
-      className={[
-        "flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl border shadow-sm",
-        getSkillColor(p?.skill),
-        isMe ? "ring-2 ring-amber-300 border-amber-300" : "border-white/30",
-      ].join(" ")}
-      title={isMe ? "YOU" : ""}
-    >
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-black text-[12px] truncate">{p?.name}</span>
-          {isMe && (
-            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-400 text-black shadow">
-              YOU
-            </span>
-          )}
-        </div>
-        <div className="text-[10px] opacity-80 font-mono truncate">{p?.id}</div>
-      </div>
-      <div className="shrink-0 text-[10px] font-black px-2 py-1 rounded-lg bg-black/15">
-        Lv {p?.skill ?? "-"}
-      </div>
-    </div>
-  );
-};
-
-const MiniPlayer = ({
-  p,
-  isMe,
-  getSkillColor,
-}: {
-  p: any;
-  isMe: boolean;
-  getSkillColor: (skill: number | undefined) => string;
-}) => (
-  <div
-    className={[
-      "flex items-center justify-between gap-2 px-2 py-1.5 rounded-xl border shadow-sm",
-      getSkillColor(p?.skill),
-      isMe ? "ring-2 ring-amber-300 border-amber-300" : "border-white/25",
-    ].join(" ")}
-  >
-    <div className="min-w-0">
-      <div className="flex items-center gap-1.5">
-        <span className="font-black text-[11px] truncate">{p?.name}</span>
-        {isMe && (
-          <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-400 text-black">
-            YOU
-          </span>
-        )}
-      </div>
-    </div>
-    <div className="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-lg bg-black/15">
-      Lv {p?.skill ?? "-"}
-    </div>
-  </div>
-);
-
-export function PreviewQueueStrip({
-  globalPreview,
-  previewQueue,
-  myProfile,
-  getSkillColor,
-}: {
-  globalPreview: boolean;
-  previewQueue: any[];
-  myProfile: { id: string; name: string } | null;
-  getSkillColor: (skill: number | undefined) => string;
-}) {
-  if (!globalPreview) return null;
-
-  const list = (previewQueue || []).slice(0, 20); // โชว์ 20 รายการแรกพอ (ปรับได้)
-
-  return (
-    <section className="mt-4">
-      <div className="flex items-end justify-between mb-2">
-        <div>
-          <div className="text-[10px] font-black tracking-widest uppercase text-slate-500 dark:text-slate-400">
-            PREVIEW MODE
-          </div>
-          <div className="text-sm font-black text-slate-800 dark:text-white">
-            🧩 คิวถัดไปที่จะลงสนาม (เกียมตัวนะจร๊ะ)
-          </div>
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
-            คิวอาจมีการเปลียนแปลงตามความเหมาะสม • แสดง {list.length} รายการ
-          </div>
-        </div>
-
-        <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-          Total: <span className="font-black text-slate-800 dark:text-slate-200">{previewQueue?.length ?? 0}</span>
-        </div>
-      </div>
-
-      {/* Horizontal scroll */}
-      <div className="overflow-x-auto">
-        <div className="flex gap-3 pb-2 pr-2 snap-x snap-mandatory">
-          {list.length === 0 ? (
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-white/70 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl px-4 py-3">
-              ยังไม่มีคู่ในคิวจำลอง (คิวไม่พอ/โหมด manual ล้วน)
+      {/* 🌟 3. Admin Settings (ส่วนของแอดมินสำหรับเปิด/ปิด ระบบแจ้งเตือน) */}
+      {admin && (
+        <div className="mt-8 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+          <h3 className="font-black text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+            <Settings className="w-4 h-4 text-slate-500" /> Admin Controls
+          </h3>
+          <div className="flex items-center justify-between bg-white dark:bg-slate-800 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+            <div className="flex flex-col pr-4">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200">ระบบการแจ้งเตือน (Notifications)</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-tight">
+                เปิด/ปิด การแจ้งเตือน หากปิดไว้ผู้เล่นทุกคนจะไม่ได้รับการแจ้งเตือนใดๆ
+              </span>
             </div>
-          ) : null}
-
-          {list.map((m: any, idx: number) => {
-            const isManual = !!m?.isManual;
-            const t1 = m?.teams?.[0] || [];
-            const t2 = m?.teams?.[1] || [];
-
-            const meId = myProfile?.id;
-            const hasMe =
-              !!meId &&
-              [...t1, ...t2].some((p: any) => p?.id === meId);
-
-            return (
-              <div
-                key={`${m.matchNumber ?? idx}-${idx}`}
-                className={[
-                  "min-w-[260px] max-w-[260px] snap-start",
-                  "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden",
-                  hasMe ? "ring-2 ring-amber-300" : ""
-                ].join(" ")}
-              >
-                <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <div className="font-black text-[12px] text-slate-800 dark:text-white">
-                    Next #{idx + 1}
-                  </div>
-                  <div className={`text-[9px] font-black px-2 py-1 rounded-full ${isManual ? "bg-emerald-600/10 text-emerald-600 dark:text-emerald-400" : "bg-blue-600/10 text-blue-600 dark:text-blue-400"}`}>
-                    {isManual ? "MANUAL" : "AUTO"}
-                  </div>
-                </div>
-
-                <div className="p-3 space-y-2">
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {t1.map((p: any) => (
-                      <MiniPlayer key={p.id} p={p} isMe={!!meId && p.id === meId} getSkillColor={getSkillColor} />
-                    ))}
-                  </div>
-
-                  <div className="text-center text-[10px] font-black text-slate-400">VS</div>
-
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {t2.map((p: any) => (
-                      <MiniPlayer key={p.id} p={p} isMe={!!meId && p.id === meId} getSkillColor={getSkillColor} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2">
-        * ระบบรันตามคิวนะจร๊ะ อาจมีการเปลี่ยนแปลงคิวตามความสะดวกใจของแอดมินจร้า
-      </div>
-    </section>
-  );
-}
-
-
-export default function HomeTab(props: any) {
-  const {
-    activeTab, myProfile, openCheckIn, amIPlaying, getSkillColor, getMySkillLevel, getSkillName,
-    myPending, myWaitIndex, estWaitMins, state, loadingCourts, allPreviews, availableCourts,globalPreview,activeWaiting,
-    avgMatchDuration, admin, finish, confirmSpecificMatch, setManualPreviews, executeAutoMatch, fetchProfileHistory,previewQueue,
-  requestNotify,
-  notifyPerm,
-
-  } = props;
-
-  return (
-    <div
-      className={
-        activeTab === "home"
-          ? "block animate-in fade-in slide-in-from-bottom-4 duration-300 pt-4"
-          : "hidden"
-      }
-    >
-      {!myProfile ? (
-        <div className="mb-6 p-6 rounded-3xl shadow-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-center gap-4">
-          <div className="w-16 h-16 bg-blue-50 dark:bg-slate-700 rounded-full flex items-center justify-center text-blue-500 mb-2 shadow-inner">
-            <User className="w-8 h-8" />
-          </div>
-
-          <div className="text-center space-y-2">
-            <h3 className="font-black text-lg text-slate-800 dark:text-white">
-              🏸 ระบบคิวสนามแบดมินตัน
-            </h3>
-
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed text-left">
-              กรุณา{" "}
-              <span className="font-semibold text-blue-600">Check-in</span>{" "}
-              เพื่อรับคิว และ{" "}
-              <span className="font-semibold text-blue-600">Sign Out</span>{" "}
-              หลังเล่นเสร็จทุกครั้ง
-            </p>
-
-            <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600 text-left leading-relaxed">
-              ⚠️ หากมีสถานะ <span className="font-semibold">Check-in ค้าง</span>{" "}
-              แต่ไม่อยู่ในคิว กรุณา{" "}
-              <span className="font-semibold underline">Sign Out ก่อน</span>
-            </div>
-
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed text-left">
-              • <span className="font-semibold">ผู้ใช้ใหม่:</span>{" "}
-              สร้างโปรไฟล์ก่อนใช้งาน <br />•{" "}
-              <span className="font-semibold">ผู้ใช้เดิม:</span> ใส่ชื่อแล้ว
-              Check-in ได้ทันที <br />• ไม่พบข้อมูลใช้{" "}
-              <span className="font-semibold text-blue-600">Guest</span>{" "}
-              ชั่วคราว และแจ้งแอดมินภายหลัง
-            </p>
-          </div>
-
-          <button
-            onClick={openCheckIn}
-            className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl active:scale-95 transition shadow-lg flex items-center justify-center gap-2"
-          >
-            <CheckCircle2 className="w-5 h-5" /> Check In เข้าคิว
-          </button>
-        </div>
-      ) : (
-        <div
-          className={`mb-6 p-4 rounded-2xl shadow-sm border flex items-center justify-between transition-all ${amIPlaying ? "bg-blue-600 text-white border-blue-700" : myPending ? "bg-amber-50 text-amber-800 border-amber-200 dark:bg-yellow-900/30 dark:border-yellow-700/50 dark:text-yellow-200" : myWaitIndex !== -1 ? "bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-700/50 dark:text-emerald-200" : "bg-white dark:bg-slate-800 text-slate-700 dark:text-white border-slate-200 dark:border-slate-700"}`}
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-black shadow-lg ${getSkillColor(getMySkillLevel())}`}
-            >
-              {myProfile.name.charAt(0)}
-            </div>
-            <div>
-              <div className="font-black text-base leading-tight">
-                {myProfile.name}
-              </div>
-              <div className="text-[10px] font-bold opacity-70 uppercase tracking-wide mt-0.5 flex items-center gap-1.5">
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${getSkillColor(getMySkillLevel()).split(" ")[0]}`}
-                ></span>
-                Lv {getMySkillLevel()} • {getSkillName(getMySkillLevel())}
-              </div>
-            </div>
-          </div>
-          <div className="text-right">
-            {amIPlaying ? (
-              <div className="text-sm font-black bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-inner">
-                <Play className="w-4 h-4" /> Playing!
-              </div>
-            ) : myPending ? (
-              <div className="font-bold text-xs bg-black/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-inner">
-                <Clock className="w-3.5 h-3.5" /> Pending...
-              </div>
-            ) : myWaitIndex !== -1 ? (
-              <div className="flex flex-col items-end gap-1">
-                <div className="text-xl font-black leading-none text-emerald-700 dark:text-emerald-400">
-                  คิวที่ {myWaitIndex + 1}
-                </div>
-                <div className="text-[10px] font-bold bg-emerald-200/50 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full shadow-sm">
-                  รอประมาณ {estWaitMins} นาที
-                </div>
-              </div>
-            ) : (
-              <div className="font-bold text-xs bg-black/5 px-3 py-1.5 rounded-lg opacity-50 shadow-inner">
-                ว่าง
-              </div>
-            )}
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" className="sr-only peer" checked={enableNotify} onChange={(e) => toggleEnableNotify(e.target.checked)} />
+              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+            </label>
           </div>
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="font-black text-lg text-slate-800 dark:text-white">
-          Active Courts
-        </h2>
-        <span className="text-xs font-bold bg-slate-200 dark:bg-slate-800 px-3 py-1 rounded-full text-slate-600 dark:text-slate-400 shadow-sm">
-          {(state?.playing || []).length}/{state?.courtCount}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-10">
-        {(state?.courtNames || []).map((cn: any) => {
-          const isLoadingCourt = loadingCourts.includes(cn);
-          const m = (state?.playing || []).find((p: any) => p.court === cn);
-          const prepMatch = allPreviews.find(
-            (p: any) => allPreviews.indexOf(p) === availableCourts.indexOf(cn),
-          );
-
-          if (isLoadingCourt) {
-            return (
-              <div
-                key={cn}
-                className="bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm relative flex flex-col items-center justify-center min-h-[160px] animate-pulse"
-              >
-                <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
-                <span className="text-xs font-bold text-slate-400 tracking-widest uppercase">
-                  กำลังเตรียมคอร์ท...
-                </span>
-              </div>
-            );
-          }
-
-          if (m) {
-            const min = Math.floor(
-              (Date.now() - new Date(m.startTime).getTime()) / 60000,
-            );
-            const isLate = min >= avgMatchDuration;
-            return (
-              <div
-                key={cn}
-                className={`bg-white dark:bg-slate-800 rounded-2xl border ${isLate ? "border-red-400 ring-2 ring-red-400/30" : "border-slate-200 dark:border-slate-700"} p-4 shadow-sm relative`}
-              >
-                <div className="flex justify-between items-center mb-3">
-                  <span
-                    className={`text-[10px] font-black px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm ${isLate ? "bg-red-500 text-white animate-pulse" : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"}`}
-                  >
-                    <Clock className="w-3 h-3" /> {min}m
-                  </span>
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                    {m.court}
-                  </span>
-                </div>
-                <div className="space-y-1.5 text-sm font-bold">
-                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 rounded-lg p-2.5 flex justify-between items-center shadow-sm">
-                    <span className="text-slate-700 dark:text-slate-200">
-                      {m.p1Name}
-                    </span>
-                    <span className="text-slate-700 dark:text-slate-200">
-                      {m.p2Name}
-                    </span>
-                  </div>
-                  <div className="flex justify-center -my-3 z-10 relative">
-                    <span className="bg-white dark:bg-slate-800 text-[9px] px-1.5 rounded-full text-slate-400 border border-slate-100 dark:border-slate-700 flex items-center gap-1 shadow-sm">
-                      <Swords className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 rounded-lg p-2.5 flex justify-between items-center shadow-sm">
-                    <span className="text-slate-700 dark:text-slate-200">
-                      {m.p3Name}
-                    </span>
-                    <span className="text-slate-700 dark:text-slate-200">
-                      {m.p4Name}
-                    </span>
-                  </div>
-                </div>
-                {admin && (
-                  <button
-                    onClick={async () => {
-                      finish(m.court);
-                    }}
-                    className="mt-4 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-bold rounded-lg active:scale-95 transition flex items-center justify-center gap-1.5 shadow-md"
-                  >
-                    <Check className="w-4 h-4" /> Finish Match
-                  </button>
-                )}
-              </div>
-            );
-          } else if (prepMatch) {
-            return (
-              <div
-                key={cn}
-                className="bg-emerald-50 dark:bg-emerald-900/10 border-2 border-dashed border-emerald-400 dark:border-emerald-700/50 rounded-2xl p-4 shadow-sm relative overflow-hidden"
-              >
-                <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-200 dark:bg-emerald-800/30 blur-2xl rounded-full -mr-4 -mt-4 z-0"></div>
-                <div className="flex justify-between items-center mb-3 relative z-10">
-                  <span className="text-[10px] font-black tracking-widest uppercase bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 rounded shadow-sm flex items-center gap-1">
-                    <Eye className="w-3 h-3" />{" "}
-                    {prepMatch.isManual ? "MANUAL FIFO" : "UP NEXT"}
-                  </span>
-                  <span className="text-xs font-black text-slate-400">
-                    {cn}
-                  </span>
-                </div>
-                <div className="text-sm font-bold text-slate-700 dark:text-slate-300 space-y-1.5 relative z-10">
-                  <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg flex justify-between shadow-sm border border-slate-100 dark:border-slate-700">
-                    <span>{prepMatch.teams[0][0].name}</span>
-                    <span>{prepMatch.teams[0][1].name}</span>
-                  </div>
-                  <div className="flex justify-center -my-3 z-10 relative">
-                    <span className="bg-emerald-50 dark:bg-slate-900 text-[9px] px-1.5 rounded-full text-slate-400 flex items-center gap-1">
-                      <Swords className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
-                  <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg flex justify-between shadow-sm border border-slate-100 dark:border-slate-700">
-                    <span>{prepMatch.teams[1][0].name}</span>
-                    <span>{prepMatch.teams[1][1].name}</span>
-                  </div>
-                </div>
-                {admin && (
-                  <div className="flex gap-2 relative z-10 mt-4">
-                    <button
-                      onClick={() => confirmSpecificMatch(prepMatch, cn)}
-                      className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg shadow-sm active:scale-95 transition flex items-center justify-center gap-1.5"
-                    >
-                      <CheckCircle2 className="w-4 h-4" /> Confirm Court
-                    </button>
-                    {prepMatch.isManual && (
-                      <button
-                        onClick={() =>
-                          setManualPreviews((prev: any) =>
-                            prev.filter((m: any) => m !== prepMatch),
-                          )
-                        }
-                        className="px-3 py-2 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-200 rounded-lg text-xs font-black transition active:scale-95 shadow-md"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          } else {
-            return (
-              <div
-                key={cn}
-                className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-4 flex flex-col items-center justify-center min-h-[160px]"
-              >
-                <span className="text-xs font-bold text-slate-400">{cn}</span>
-                <span className="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-full mt-1 font-bold shadow-inner">
-                  ว่าง
-                </span>
-              </div>
-            );
-          }
-        })}
-      </div>
-
-      <PreviewQueueStrip
-        globalPreview={globalPreview}
-        previewQueue={previewQueue}
-        myProfile={myProfile}
-        getSkillColor={getSkillColor}
-      />
-      <div></div>
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-[10px] font-black tracking-widest uppercase text-slate-500 dark:text-slate-400">
-              Notifications
-            </div>
-            <div className="font-black text-slate-800 dark:text-white">
-              การแจ้งเตือน (Push)
-            </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              สถานะสิทธิ: <b>{notifyPerm}</b>
-              {myProfile ? ` • User: ${myProfile.id}` : ""}
-            </div>
-          </div>
-
-          <button
-            onClick={requestNotify}
-            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-black shadow active:scale-95 transition"
-          >
-            อัปเดตสิทธิ/Token
-          </button>
-        </div>
-
-        <div className="mt-3 text-[10px] text-slate-500 dark:text-slate-400">
-          * กดปุ่มนี้เพื่อเปิดสิทธิ์และอัปเดต Token บนระบบ (รองรับหลายอุปกรณ์)
-        </div>
-      </div>
     </div>
   );
 }
