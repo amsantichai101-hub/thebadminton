@@ -27,7 +27,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.3.9";
+const APP_VERSION = "2.4.1"; // 🌟 อัปเดตเวอร์ชันแก้ไขระบบเพิ่มลบคอร์ท
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -51,10 +51,9 @@ const Toast = Swal.mixin({
   }
 });
 
-// 🌟 [แก้บั๊กการเรียงลำดับ] ดึงเฉพาะเวลาที่เป็น Timestamp ยาวๆ 10-13 หลัก ป้องกันการดึงเลขคิว (auto-1, auto-2) ผิดพลาด
 const extractTimeFromId = (id: string) => {
   if (!id) return Date.now();
-  const match = id.match(/-(\d{10,})/); // บังคับว่าต้องมีตัวเลขติดกันอย่างน้อย 10 ตัว
+  const match = id.match(/-(\d{10,})/); 
   return match ? parseInt(match[1]) : Date.now();
 };
 
@@ -64,7 +63,10 @@ export default function Home() {
   const [selected, setSelected] = useState<string[]>([])
   const [fullscreen, setFullscreen] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  
   const [isLoading, setIsLoading] = useState(true)
+  const [isGlobalProcessing, setIsGlobalProcessing] = useState(false) 
+
   const [loadingCourts, setLoadingCourts] = useState<string[]>([])
 
   const [myProfile, setMyProfile] = useState<{ id: string, name: string } | null>(null)
@@ -234,7 +236,6 @@ export default function Home() {
     return [...manualQueue, ...autoQueue];
   }, [manualPreviews, activeWaiting, pausedIds, matchMode, matchHistory, globalPreview]);
 
-  // 🌟 [แก้ปัญหาคิวกระโดด] ลอจิกการสลับผู้เล่น (Swap) แบบปักหมุดคิวก่อนหน้า
   const executePlayerSwap = async (targetMatchId: string, targetPlayerId: string) => {
     if (!swapSource) return;
     const { matchId: sourceMatchId, playerId: sourcePlayerId } = swapSource;
@@ -244,118 +245,117 @@ export default function Home() {
       return;
     }
 
-    Swal.fire({ title: 'กำลังสลับตำแหน่ง...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
+    setIsGlobalProcessing(true);
 
-    const allPreviews = [...previewQueue];
-    const sMatchIdx = allPreviews.findIndex((m: any) => m.matchId === sourceMatchId);
-    const tMatchIdx = allPreviews.findIndex((m: any) => m.matchId === targetMatchId);
+    try {
+      const allPreviews = [...previewQueue];
+      const sMatchIdx = allPreviews.findIndex((m: any) => m.matchId === sourceMatchId);
+      const tMatchIdx = allPreviews.findIndex((m: any) => m.matchId === targetMatchId);
 
-    if (sMatchIdx === -1 || tMatchIdx === -1) {
-       Toast.fire({ title: '❌ ไม่พบข้อมูลคิวที่ต้องการสลับ' });
-       setSwapSource(null);
-       return;
-    }
-
-    // 🌟 ป้องกันคิวกระโดด: ปักหมุดคิว (Pin) ที่อยู่ก่อนหน้าคิวที่ถูกสลับทั้งหมด 
-    // เพื่อให้มันจัดเรียงเป็น 1, 2, 3 ตามลำดับเหมือนเดิมเป๊ะๆ
-    const maxIdx = Math.max(sMatchIdx, tMatchIdx);
-    const existingManualIds = new Set(manualPreviews.map((m: any) => m.matchId));
-    
-    for (let i = 0; i < maxIdx; i++) {
-      const m = allPreviews[i];
-      if (i === sMatchIdx || i === tMatchIdx) continue; // ข้ามอันที่เรากำลังสลับ
-      
-      // ถ้าคิวก่อนหน้ายังเป็น Auto ให้เซฟลง DB เพื่อปักหมุดไว้
-      if (!existingManualIds.has(m.matchId)) {
-        const timeOffset = Date.now() - 10000 + i; // ให้เวลาเก่ากว่าอันที่เราจะสลับ
-        const newMatchId = `U-pinned-${timeOffset}`; 
-        
-        await fetch('/api/manual-queue', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            court_name: newMatchId,
-            p1_id: m.teams[0][0].id, p2_id: m.teams[0][1].id,
-            p3_id: m.teams[1][0].id, p4_id: m.teams[1][1].id
-          })
-        });
+      if (sMatchIdx === -1 || tMatchIdx === -1) {
+         Toast.fire({ title: '❌ ไม่พบข้อมูลคิวที่ต้องการสลับ' });
+         setSwapSource(null);
+         return;
       }
+
+      const maxIdx = Math.max(sMatchIdx, tMatchIdx);
+      const existingManualIds = new Set(manualPreviews.map((m: any) => m.matchId));
+      
+      for (let i = 0; i < maxIdx; i++) {
+        const m = allPreviews[i];
+        if (i === sMatchIdx || i === tMatchIdx) continue;
+        if (!existingManualIds.has(m.matchId)) {
+          const timeOffset = Date.now() - 10000 + i; 
+          const newMatchId = `U-pinned-${timeOffset}`; 
+          await fetch('/api/manual-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              court_name: newMatchId,
+              p1_id: m.teams[0][0].id, p2_id: m.teams[0][1].id,
+              p3_id: m.teams[1][0].id, p4_id: m.teams[1][1].id
+            })
+          });
+        }
+      }
+
+      let pSource: any = null;
+      let pTarget: any = null;
+      let sTeamIdx = -1, sPlayerIdx = -1;
+      let tTeamIdx = -1, tPlayerIdx = -1;
+
+      allPreviews[sMatchIdx].teams.forEach((t: any[], tIdx: number) => {
+         const pIdx = t.findIndex((p: any) => p.id === sourcePlayerId);
+         if (pIdx > -1) { pSource = JSON.parse(JSON.stringify(t[pIdx])); sTeamIdx = tIdx; sPlayerIdx = pIdx; }
+      });
+
+      allPreviews[tMatchIdx].teams.forEach((t: any[], tIdx: number) => {
+         const pIdx = t.findIndex((p: any) => p.id === targetPlayerId);
+         if (pIdx > -1) { pTarget = JSON.parse(JSON.stringify(t[pIdx])); tTeamIdx = tIdx; tPlayerIdx = pIdx; }
+      });
+
+      if (!pSource || !pTarget) {
+         Toast.fire({ title: '❌ เกิดข้อผิดพลาด ไม่พบข้อมูลผู้เล่น' });
+         setSwapSource(null); return;
+      }
+
+      const sMatch = JSON.parse(JSON.stringify(allPreviews[sMatchIdx]));
+      const tMatch = (sourceMatchId === targetMatchId) ? sMatch : JSON.parse(JSON.stringify(allPreviews[tMatchIdx]));
+
+      if (sTeamIdx > -1 && sPlayerIdx > -1) sMatch.teams[sTeamIdx][sPlayerIdx] = pTarget;
+      if (tTeamIdx > -1 && tPlayerIdx > -1) tMatch.teams[tTeamIdx][tPlayerIdx] = pSource;
+
+      const baseTime = Date.now() - 5000;
+      const finalSMatchId = sMatch.matchId.startsWith('auto-') ? `U-swap-${baseTime + sMatchIdx}` : sMatch.matchId;
+      sMatch.matchId = finalSMatchId;
+
+      let finalTMatchId = finalSMatchId;
+      if (sourceMatchId !== targetMatchId) {
+         finalTMatchId = tMatch.matchId.startsWith('auto-') ? `U-swap-${baseTime + tMatchIdx}` : tMatch.matchId;
+         tMatch.matchId = finalTMatchId;
+      }
+
+      const sDeleteId = allPreviews[sMatchIdx].dbId || sourceMatchId;
+      if (sDeleteId && !sourceMatchId.startsWith('auto-')) {
+         await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sDeleteId }) }).catch(()=>null);
+      }
+
+      if (sourceMatchId !== targetMatchId) {
+         const tDeleteId = allPreviews[tMatchIdx].dbId || targetMatchId;
+         if (tDeleteId && !targetMatchId.startsWith('auto-')) {
+            await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: tDeleteId }) }).catch(()=>null);
+         }
+      }
+
+      await fetch('/api/manual-queue', {
+         method: 'POST', headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+            court_name: finalSMatchId,
+            p1_id: sMatch.teams[0][0].id, p2_id: sMatch.teams[0][1].id,
+            p3_id: sMatch.teams[1][0].id, p4_id: sMatch.teams[1][1].id
+         })
+      });
+
+      if (sourceMatchId !== targetMatchId) {
+         await fetch('/api/manual-queue', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+               court_name: finalTMatchId,
+               p1_id: tMatch.teams[0][0].id, p2_id: tMatch.teams[0][1].id,
+               p3_id: tMatch.teams[1][0].id, p4_id: tMatch.teams[1][1].id
+            })
+         });
+      }
+
+      setSwapSource(null);
+      await refresh(false);
+      Toast.fire({ title: '✅ สลับตัวผู้เล่นเรียบร้อย (ลำดับเดิม)' });
+
+    } catch (e) {
+      Toast.fire({ title: '❌ เกิดข้อผิดพลาดในการสลับคิว' });
+    } finally {
+      setIsGlobalProcessing(false);
     }
-
-    let pSource: any = null;
-    let pTarget: any = null;
-    let sTeamIdx = -1, sPlayerIdx = -1;
-    let tTeamIdx = -1, tPlayerIdx = -1;
-
-    allPreviews[sMatchIdx].teams.forEach((t: any[], tIdx: number) => {
-       const pIdx = t.findIndex((p: any) => p.id === sourcePlayerId);
-       if (pIdx > -1) { pSource = JSON.parse(JSON.stringify(t[pIdx])); sTeamIdx = tIdx; sPlayerIdx = pIdx; }
-    });
-
-    allPreviews[tMatchIdx].teams.forEach((t: any[], tIdx: number) => {
-       const pIdx = t.findIndex((p: any) => p.id === targetPlayerId);
-       if (pIdx > -1) { pTarget = JSON.parse(JSON.stringify(t[pIdx])); tTeamIdx = tIdx; tPlayerIdx = pIdx; }
-    });
-
-    if (!pSource || !pTarget) {
-       Toast.fire({ title: '❌ เกิดข้อผิดพลาด ไม่พบข้อมูลผู้เล่น' });
-       setSwapSource(null); return;
-    }
-
-    const sMatch = JSON.parse(JSON.stringify(allPreviews[sMatchIdx]));
-    const tMatch = (sourceMatchId === targetMatchId) ? sMatch : JSON.parse(JSON.stringify(allPreviews[tMatchIdx]));
-
-    // สลับใน Array
-    if (sTeamIdx > -1 && sPlayerIdx > -1) sMatch.teams[sTeamIdx][sPlayerIdx] = pTarget;
-    if (tTeamIdx > -1 && tPlayerIdx > -1) tMatch.teams[tTeamIdx][tPlayerIdx] = pSource;
-
-    // 🌟 ให้ Timestamp ใหม่เรียงตาม Index เพื่อต่อท้ายคิวที่ถูกปักหมุด
-    const baseTime = Date.now() - 5000;
-    
-    const finalSMatchId = sMatch.matchId.startsWith('auto-') ? `U-swap-${baseTime + sMatchIdx}` : sMatch.matchId;
-    sMatch.matchId = finalSMatchId;
-
-    let finalTMatchId = finalSMatchId;
-    if (sourceMatchId !== targetMatchId) {
-       finalTMatchId = tMatch.matchId.startsWith('auto-') ? `U-swap-${baseTime + tMatchIdx}` : tMatch.matchId;
-       tMatch.matchId = finalTMatchId;
-    }
-
-    const sDeleteId = allPreviews[sMatchIdx].dbId || sourceMatchId;
-    if (sDeleteId && !sourceMatchId.startsWith('auto-')) {
-       await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sDeleteId }) }).catch(()=>null);
-    }
-
-    if (sourceMatchId !== targetMatchId) {
-       const tDeleteId = allPreviews[tMatchIdx].dbId || targetMatchId;
-       if (tDeleteId && !targetMatchId.startsWith('auto-')) {
-          await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: tDeleteId }) }).catch(()=>null);
-       }
-    }
-
-    await fetch('/api/manual-queue', {
-       method: 'POST', headers: { 'Content-Type': 'application/json' },
-       body: JSON.stringify({
-          court_name: finalSMatchId,
-          p1_id: sMatch.teams[0][0].id, p2_id: sMatch.teams[0][1].id,
-          p3_id: sMatch.teams[1][0].id, p4_id: sMatch.teams[1][1].id
-       })
-    });
-
-    if (sourceMatchId !== targetMatchId) {
-       await fetch('/api/manual-queue', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-             court_name: finalTMatchId,
-             p1_id: tMatch.teams[0][0].id, p2_id: tMatch.teams[0][1].id,
-             p3_id: tMatch.teams[1][0].id, p4_id: tMatch.teams[1][1].id
-          })
-       });
-    }
-
-    setSwapSource(null);
-    await refresh(false);
-    Toast.fire({ title: '✅ สลับตัวผู้เล่นเรียบร้อย (ลำดับเดิม)' });
   }
 
   const myStartLogs = myPlayHistory.filter(h => h.action.toLowerCase().includes('start') || h.action.includes('ลงสนาม'));
@@ -541,7 +541,10 @@ export default function Home() {
   };
 
   const refresh = async (showLoader = false, forceClearCache = false) => {
-    if (showLoader) setIsLoading(true);
+    if (showLoader) {
+      setIsGlobalProcessing(true);
+      setIsLoading(true);
+    }
     try {
       const headers: HeadersInit | undefined = forceClearCache ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } : undefined;
       const res = await fetch('/api/state', { cache: 'no-store', headers });
@@ -595,17 +598,26 @@ export default function Home() {
          setManualPreviews(formattedManuals);
       }
     } catch (e) { }
-    finally { setIsLoading(false); }
+    finally { 
+      if (showLoader) {
+        setIsLoading(false);
+        setIsGlobalProcessing(false);
+      }
+    }
   }
 
   const handleForceSignOut = async () => {
     if (myProfile?.id) {
-      Toast.fire({ title: 'ℹ️ กำลังออกจากระบบ...' });
-      await fetch('/api/checkout', { 
-        method: 'POST', 
-        headers: { 'content-type': 'application/json' }, 
-        body: JSON.stringify({ id: myProfile.id }) 
-      });
+      setIsGlobalProcessing(true);
+      try {
+        await fetch('/api/checkout', { 
+          method: 'POST', 
+          headers: { 'content-type': 'application/json' }, 
+          body: JSON.stringify({ id: myProfile.id }) 
+        });
+      } finally {
+        setIsGlobalProcessing(false);
+      }
     }
     localStorage.removeItem('myProfile');
     localStorage.removeItem('myProfileSkill');
@@ -665,20 +677,11 @@ export default function Home() {
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      
-      if (currentScrollY < 10) {
-        setShowNav(true);
-      } 
-      else if (currentScrollY > lastScrollY.current) {
-        setShowNav(false);
-      } 
-      else {
-        setShowNav(true);
-      }
-      
+      if (currentScrollY < 10) setShowNav(true);
+      else if (currentScrollY > lastScrollY.current) setShowNav(false);
+      else setShowNav(true);
       lastScrollY.current = currentScrollY;
     };
-
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
@@ -721,13 +724,18 @@ export default function Home() {
   const toggleGlobalPreviewState = async (checked: boolean) => {
     setGlobalPreview(checked);
     if (admin) {
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set', key: 'GlobalShowPreview', value: checked.toString() })
-      });
-      Toast.fire({ title: '✅ อัปเดตการตั้งค่าโชว์คิวถัดไปแล้ว' });
-      refresh(false);
+      setIsGlobalProcessing(true);
+      try {
+        await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'set', key: 'GlobalShowPreview', value: checked.toString() })
+        });
+        await refresh(false);
+        Toast.fire({ title: '✅ อัปเดตการตั้งค่าโชว์คิวถัดไปแล้ว' });
+      } finally {
+        setIsGlobalProcessing(false);
+      }
     }
   }
 
@@ -735,36 +743,45 @@ export default function Home() {
     setEnableNotify(checked);
     enableNotifyRef.current = checked;
     if (admin) {
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'set', key: 'EnableNotify', value: checked.toString() })
-      });
-      Toast.fire({ title: `✅ ${checked ? 'เปิด' : 'ปิด'}ระบบแจ้งเตือนและแถบประกาศแล้ว` });
-      refresh(false);
+      setIsGlobalProcessing(true);
+      try {
+        await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'set', key: 'EnableNotify', value: checked.toString() })
+        });
+        await refresh(false);
+        Toast.fire({ title: `✅ ${checked ? 'เปิด' : 'ปิด'}ระบบแจ้งเตือนและแถบประกาศแล้ว` });
+      } finally {
+        setIsGlobalProcessing(false);
+      }
     }
   }
 
   const savePlayTime = async () => {
-    Toast.fire({ title: 'ℹ️ Saving Time...' });
-    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayStartTime', value: playStartTime }) });
-    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayEndTime', value: playEndTime }) });
-    Toast.fire({ title: '✅ Play Time Saved' });
-    refresh(false);
+    setIsGlobalProcessing(true);
+    try {
+      await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayStartTime', value: playStartTime }) });
+      await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'PlayEndTime', value: playEndTime }) });
+      await refresh(false);
+      Toast.fire({ title: '✅ Play Time Saved' });
+    } finally {
+      setIsGlobalProcessing(false);
+    }
   }
 
   const runApi = async (url: string, body?: any, showLoader = true) => {
-    if (showLoader) Swal.fire({ title: 'กำลังประมวลผล...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
+    if (showLoader) setIsGlobalProcessing(true);
     try {
       const res = await fetch(url, { method: body ? 'POST' : 'GET', headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
       const data = await res.json();
       await refresh(false);
-      if (showLoader) Swal.close();
       return data;
     } catch (e) {
-      if (showLoader) Swal.close();
       Toast.fire({ title: '❌ Network Error' });
       return null;
+    } finally {
+      if (showLoader) setIsGlobalProcessing(false);
     }
   }
 
@@ -774,34 +791,64 @@ export default function Home() {
 
   const handleAddCourt = async () => {
     if (!newCourtName.trim()) return;
-    const currentCourts = [...(state?.courtNames || []), newCourtName.trim()];
-    await fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'Courts', value: currentCourts.join(',') }) });
-    setNewCourtName(''); refresh(false); Toast.fire({ title: '✅ เพิ่มคอร์ทแล้ว' });
+    setIsGlobalProcessing(true);
+    try {
+      const currentCourts = [...(state?.courtNames || []), newCourtName.trim()];
+      await fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'Courts', value: currentCourts.join(',') }) });
+      setNewCourtName(''); 
+      await refresh(false); 
+      Toast.fire({ title: '✅ เพิ่มคอร์ทแล้ว' });
+    } finally {
+      setIsGlobalProcessing(false);
+    }
   }
 
+  // 🌟 [แก้บั๊ก] ตรวจสอบว่าคอร์ทนี้มีคนกำลังเล่นอยู่หรือไม่ ถ้ามีให้บล็อกการลบทันที
   const handleRemoveCourt = async (courtToRemove: string) => {
-    const currentCourts = (state?.courtNames || []).filter(c => c !== courtToRemove);
-    await fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'Courts', value: currentCourts.join(',') }) });
-    refresh(false); Toast.fire({ title: '🗑️ ลบคอร์ทแล้ว' });
+    const isCourtActive = (state?.playing || []).some((p: any) => p.court === courtToRemove);
+    
+    if (isCourtActive) {
+      Swal.fire({
+        title: 'ไม่สามารถลบคอร์ทได้!',
+        text: `คอร์ท ${courtToRemove} กำลังมีผู้เล่นใช้งานอยู่ กรุณากด "จบแมตช์" หรือเคลียร์คอร์ทก่อนทำการลบ เพื่อป้องกันรายชื่อผู้เล่นตกหล่นครับ`,
+        icon: 'warning',
+        confirmButtonColor: '#3b82f6',
+        confirmButtonText: 'เข้าใจแล้ว'
+      });
+      return;
+    }
+
+    Swal.fire({
+      title: `ยืนยันลบคอร์ท ${courtToRemove}?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      confirmButtonText: 'ใช่, ลบเลย!',
+      cancelButtonText: 'ยกเลิก'
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        setIsGlobalProcessing(true);
+        try {
+          const currentCourts = (state?.courtNames || []).filter(c => c !== courtToRemove);
+          await fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'Courts', value: currentCourts.join(',') }) });
+          await refresh(false); 
+          Toast.fire({ title: '🗑️ ลบคอร์ทแล้ว' });
+        } finally {
+          setIsGlobalProcessing(false);
+        }
+      }
+    });
   }
 
   const handleApproveProcess = async (p: any) => {
     const playerInDb = state?.pending?.find((pendingP: any) => pendingP.id === p.id) || p;
-    
     Swal.fire({
       title: '✏️ ตรวจสอบข้อมูลก่อนอนุมัติ',
       html: `
         <div class="flex flex-col gap-3 text-left mt-2">
-          <div>
-            <label class="text-[10px] font-bold text-slate-500">Employee ID</label>
-            <input id="apId" value="${playerInDb.id}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-          </div>
-          <div>
-            <label class="text-[10px] font-bold text-slate-500">Display Name</label>
-            <input id="apName" value="${playerInDb.name}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-          </div>
-          <div>
-            <label class="text-[10px] font-bold text-slate-500">Skill Level</label>
+          <div><label class="text-[10px] font-bold text-slate-500">Employee ID</label><input id="apId" value="${playerInDb.id}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none"></div>
+          <div><label class="text-[10px] font-bold text-slate-500">Display Name</label><input id="apName" value="${playerInDb.name}" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none"></div>
+          <div><label class="text-[10px] font-bold text-slate-500">Skill Level</label>
             <select id="apSkill" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
               <option value="1" ${playerInDb.skill == 1 ? 'selected' : ''}>1 (มือใหม่)</option>
               <option value="2" ${playerInDb.skill == 2 ? 'selected' : ''}>2 (เริ่มมีทรง)</option>
@@ -812,47 +859,49 @@ export default function Home() {
           </div>
         </div>
       `,
-      showCancelButton: true,
-      confirmButtonText: 'บันทึกและอนุมัติ',
-      confirmButtonColor: '#2563eb',
-      preConfirm: () => ({
-        oldId: p.id,
-        newId: (document.getElementById('apId') as HTMLInputElement).value,
-        name: (document.getElementById('apName') as HTMLInputElement).value,
-        skill: Number((document.getElementById('apSkill') as HTMLSelectElement).value)
-      })
+      showCancelButton: true, confirmButtonText: 'บันทึกและอนุมัติ', confirmButtonColor: '#2563eb',
+      preConfirm: () => ({ oldId: p.id, newId: (document.getElementById('apId') as HTMLInputElement).value, name: (document.getElementById('apName') as HTMLInputElement).value, skill: Number((document.getElementById('apSkill') as HTMLSelectElement).value) })
     }).then(async r => {
       if (r.isConfirmed) {
-        Swal.fire({ title: 'กำลังบันทึก...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-        await fetch('/api/update-player', { 
-            method: 'POST', 
-            headers: { 'content-type': 'application/json' }, 
-            body: JSON.stringify(r.value) 
-        });
-        await runApi('/api/approve', { id: r.value.newId }, false);
-        Toast.fire({ title: '✅ อนุมัติและบันทึกรหัสจริงเรียบร้อย' });
+        setIsGlobalProcessing(true);
+        try {
+          await fetch('/api/update-player', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(r.value) });
+          await fetch('/api/approve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.value.newId }) });
+          await refresh(false);
+          Toast.fire({ title: '✅ อนุมัติและบันทึกรหัสจริงเรียบร้อย' });
+        } finally {
+          setIsGlobalProcessing(false);
+        }
       }
     });
   }
 
   const handleBulkApprove = async () => {
     if (selectedPending.length === 0) return;
-    Swal.fire({ title: 'กำลังอนุมัติ...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-    for (const id of selectedPending) {
-      await fetch('/api/approve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
+    setIsGlobalProcessing(true);
+    try {
+      for (const id of selectedPending) {
+        await fetch('/api/approve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
+      }
+      setSelectedPending([]);
+      await refresh(false);
+      Toast.fire({ title: '✅ อนุมัติผู้เล่นทั้งหมดแล้ว' });
+    } finally {
+      setIsGlobalProcessing(false);
     }
-    setSelectedPending([]);
-    refresh(false);
-    Swal.close();
-    Toast.fire({ title: '✅ อนุมัติผู้เล่นทั้งหมดแล้ว' });
   }
 
   const handleRejectPlayer = async (id: string) => {
-    Swal.fire({ title: 'ปฏิเสธคำขอ?', text: "คำขอนี้จะถูกลบ", icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444' })
-      .then(async r => {
+    Swal.fire({ title: 'ปฏิเสธคำขอ?', text: "คำขอนี้จะถูกลบ", icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444' }).then(async r => {
         if (r.isConfirmed) {
-          await fetch('/api/reject', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
-          refresh(false); Toast.fire({ title: '🗑️ ปฏิเสธคำขอแล้ว' });
+          setIsGlobalProcessing(true);
+          try {
+            await fetch('/api/reject', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
+            await refresh(false); 
+            Toast.fire({ title: '🗑️ ปฏิเสธคำขอแล้ว' });
+          } finally {
+            setIsGlobalProcessing(false);
+          }
         }
       });
   }
@@ -860,24 +909,24 @@ export default function Home() {
   const togglePause = async (p: any) => {
     const isPaused = p.name.includes('(พัก)');
     const newName = isPaused ? p.name.replace(' (พัก)', '') : p.name + ' (พัก)';
-    Swal.fire({ title: 'กำลังอัปเดต...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-    await fetch('/api/update-player', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ oldId: p.id, newId: p.id, name: newName, skill: p.skill }) });
-    await refresh(false); Swal.close(); Toast.fire({ title: isPaused ? '✅ กลับเข้าคิวปกติแล้ว' : '⏸️ พักคิวแล้ว' });
+    setIsGlobalProcessing(true);
+    try {
+      await fetch('/api/update-player', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ oldId: p.id, newId: p.id, name: newName, skill: p.skill }) });
+      await refresh(false); 
+      Toast.fire({ title: isPaused ? '✅ กลับเข้าคิวปกติแล้ว' : '⏸️ พักคิวแล้ว' });
+    } finally {
+      setIsGlobalProcessing(false);
+    }
   }
 
-  const executeAutoMatch = async () => {
-    Toast.fire({ title: '⚠️ กรุณาเปิดสวิตช์ Auto Match ด้านล่างแทนการกดปุ่มนี้' });
-  }
+  const executeAutoMatch = async () => Toast.fire({ title: '⚠️ กรุณาเปิดสวิตช์ Auto Match ด้านล่างแทนการกดปุ่มนี้' });
 
   const toggleSelect = (pId: string) => {
     if (!admin) return;
     setSelected(prev => {
-      if (prev.includes(pId)) {
-        return prev.filter(x => x !== pId);
-      } else {
-        if (prev.length >= 4) return prev;
-        return [...prev, pId];
-      }
+      if (prev.includes(pId)) return prev.filter(x => x !== pId);
+      if (prev.length >= 4) return prev;
+      return [...prev, pId];
     });
   };
 
@@ -887,146 +936,123 @@ export default function Home() {
     const selectedPlayers = (selected.map(id => state?.waiting?.find(p => p.id === id)).filter(Boolean) as Player[]) || [];
     if (selectedPlayers.length !== 4) return Toast.fire({ title: '⚠️ ดึงข้อมูลผู้เล่นไม่ครบ' });
 
-    const matchId = `M-inserted-${Date.now()}`;
-    const matchData = {
-      matchId,
-      isManual: true,
-      teams: [[selectedPlayers[0], selectedPlayers[1]], [selectedPlayers[2], selectedPlayers[3]]],
-      diff: 0
-    };
-
-    setManualPreviews(prev => [...prev, matchData]); 
-    setSelected([]);
-    
-    await fetch('/api/manual-queue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        court_name: matchId, 
-        p1_id: selectedPlayers[0].id, p2_id: selectedPlayers[1].id,
-        p3_id: selectedPlayers[2].id, p4_id: selectedPlayers[3].id
-      })
-    });
-
-    Toast.fire({ title: '✅ จัดทีมแทรกคิวถัดไปสำเร็จ!' });
+    setIsGlobalProcessing(true);
+    try {
+      const matchId = `M-inserted-${Date.now()}`;
+      await fetch('/api/manual-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          court_name: matchId, 
+          p1_id: selectedPlayers[0].id, p2_id: selectedPlayers[1].id,
+          p3_id: selectedPlayers[2].id, p4_id: selectedPlayers[3].id
+        })
+      });
+      setSelected([]);
+      await refresh(false);
+      Toast.fire({ title: '✅ จัดทีมแทรกคิวถัดไปสำเร็จ!' });
+    } finally {
+      setIsGlobalProcessing(false);
+    }
   };
 
   const cancelManualMatch = async (prepMatch: any) => {
-    setManualPreviews(prev => prev.filter(m => m.matchId !== prepMatch.matchId));
-    const deleteId = prepMatch.dbId || prepMatch.matchId;
-    if (deleteId && !prepMatch.matchId.startsWith('auto-')) {
-       await fetch('/api/manual-queue', {
-         method: 'DELETE',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ id: deleteId })
-       }).catch(()=>null);
+    setIsGlobalProcessing(true);
+    try {
+      const deleteId = prepMatch.dbId || prepMatch.matchId;
+      if (deleteId && !prepMatch.matchId.startsWith('auto-')) {
+         await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deleteId }) }).catch(()=>null);
+      }
+      await refresh(false);
+      Toast.fire({ title: '🗑️ ยกเลิกคิวแล้ว' });
+    } finally {
+      setIsGlobalProcessing(false);
     }
-    Toast.fire({ title: '🗑️ ยกเลิกคิวแล้ว' });
   };
 
   const lockQueue = async (prepMatch: any) => {
-    Swal.fire({ title: 'กำลังยืนยันคิว...', toast: true, position: 'top', showConfirmButton: false });
-    
-    const oldTime = extractTimeFromId(prepMatch.matchId);
-    const matchId = `M-locked-${oldTime}`; 
-    
-    const newManual = { matchId, isManual: true, teams: prepMatch.teams };
-    setManualPreviews(prev => {
-        const filtered = prev.filter(m => m.matchId !== prepMatch.matchId);
-        return [...filtered, newManual];
-    });
-    
-    const deleteId = prepMatch.dbId || prepMatch.matchId;
-    if (deleteId && !prepMatch.matchId.startsWith('auto-')) {
-       await fetch('/api/manual-queue', {
-         method: 'DELETE',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ id: deleteId })
-       }).catch(()=>null);
+    setIsGlobalProcessing(true);
+    try {
+      const oldTime = extractTimeFromId(prepMatch.matchId);
+      const matchId = `M-locked-${oldTime}`; 
+      
+      const deleteId = prepMatch.dbId || prepMatch.matchId;
+      if (deleteId && !prepMatch.matchId.startsWith('auto-')) {
+         await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deleteId }) }).catch(()=>null);
+      }
+      
+      await fetch('/api/manual-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          court_name: matchId,
+          p1_id: prepMatch.teams[0][0].id, p2_id: prepMatch.teams[0][1].id,
+          p3_id: prepMatch.teams[1][0].id, p4_id: prepMatch.teams[1][1].id
+        })
+      });
+      await refresh(false);
+      Toast.fire({ title: '✅ ยืนยันผลการจัดคู่แล้ว!' });
+    } catch(e) {
+      Toast.fire({ title: '❌ เกิดข้อผิดพลาด' });
+    } finally {
+      setIsGlobalProcessing(false);
     }
-    
-    await fetch('/api/manual-queue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        court_name: matchId,
-        p1_id: prepMatch.teams[0][0].id, p2_id: prepMatch.teams[0][1].id,
-        p3_id: prepMatch.teams[1][0].id, p4_id: prepMatch.teams[1][1].id
-      })
-    });
-    Toast.fire({ title: '✅ ยืนยันผลการจัดคู่แล้ว!' });
   };
 
-  // 🌟 [แก้ปัญหาสุ่มใหม่แล้วกระโดด] สุ่มใหม่โดยจัดลำดับไว้ที่เดิม
   const triggerReshuffle = async (matchData?: any) => {
     const targetIndex = previewQueue.findIndex((m: any) => m.matchId === matchData?.matchId);
     if (targetIndex === -1) return;
 
-    const precedingMatches = previewQueue.slice(0, targetIndex);
-    const existingManualIds = new Set(manualPreviews.map(m => m.matchId));
-    
-    Swal.fire({ title: 'กำลังสุ่มใหม่...', toast: true, position: 'top', showConfirmButton: false });
+    setIsGlobalProcessing(true);
+    try {
+      const precedingMatches = previewQueue.slice(0, targetIndex);
+      const existingManualIds = new Set(manualPreviews.map(m => m.matchId));
 
-    // 1. ปักหมุดคิวก่อนหน้าทั้งหมดให้ล็อคที่เดิม
-    for (let i = 0; i < precedingMatches.length; i++) {
-      const m = precedingMatches[i];
-      if (!existingManualIds.has(m.matchId)) {
-        const timeOffset = Date.now() - 10000 + i; 
-        const newMatchId = `U-pinned-${timeOffset}`; 
-        
-        await fetch('/api/manual-queue', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            court_name: newMatchId,
-            p1_id: m.teams[0][0].id, p2_id: m.teams[0][1].id,
-            p3_id: m.teams[1][0].id, p4_id: m.teams[1][1].id
-          })
-        });
+      for (let i = 0; i < precedingMatches.length; i++) {
+        const m = precedingMatches[i];
+        if (!existingManualIds.has(m.matchId)) {
+          const timeOffset = Date.now() - 10000 + i; 
+          const newMatchId = `U-pinned-${timeOffset}`; 
+          await fetch('/api/manual-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ court_name: newMatchId, p1_id: m.teams[0][0].id, p2_id: m.teams[0][1].id, p3_id: m.teams[1][0].id, p4_id: m.teams[1][1].id })
+          });
+        }
       }
-    }
 
-    const availableWaiters = activeWaiting.filter(p => !manualPreviews.flatMap(m => m.teams.flat().map((x:any)=>x.id)).includes(p.id));
+      const availableWaiters = activeWaiting.filter(p => !manualPreviews.flatMap(m => m.teams.flat().map((x:any)=>x.id)).includes(p.id));
 
-    if (availableWaiters.length < 4) {
-       Swal.close();
-       return Toast.fire({ title: '⚠️ คิวรอว่างไม่พอ 4 คน สำหรับสุ่มใหม่' });
-    }
+      if (availableWaiters.length < 4) {
+         Toast.fire({ title: '⚠️ คิวรอว่างไม่พอ 4 คน สำหรับสุ่มใหม่' });
+         return;
+      }
 
-    const shuffled = [...availableWaiters].sort(() => 0.5 - Math.random());
-    let bestMatch = extractBestMatch(shuffled, matchHistory) || { teams: [[shuffled[0], shuffled[1]], [shuffled[2], shuffled[3]]] };
+      const shuffled = [...availableWaiters].sort(() => 0.5 - Math.random());
+      let bestMatch = extractBestMatch(shuffled, matchHistory) || { teams: [[shuffled[0], shuffled[1]], [shuffled[2], shuffled[3]]] };
 
-    // 2. ใช้ Date.now() เป็นรหัสสุ่มใหม่ เพื่อให้มันต่อท้ายพวกที่ปักหมุดไว้ข้างบนพอดี
-    const newReshuffledId = `U-reshuffle-${Date.now()}`;
+      const newReshuffledId = `U-reshuffle-${extractTimeFromId(matchData.matchId)}`;
 
-    const deleteId = matchData.dbId || matchData.matchId;
-    if (deleteId && !matchData.matchId.startsWith('auto-')) {
+      const deleteId = matchData.dbId || matchData.matchId;
+      if (deleteId && !matchData.matchId.startsWith('auto-')) {
+        await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deleteId }) }).catch(()=>null);
+      }
+
       await fetch('/api/manual-queue', {
-        method: 'DELETE',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: deleteId })
-      }).catch(()=>null);
+        body: JSON.stringify({ court_name: newReshuffledId, p1_id: bestMatch.teams[0][0].id, p2_id: bestMatch.teams[0][1].id, p3_id: bestMatch.teams[1][0].id, p4_id: bestMatch.teams[1][1].id })
+      });
+
+      await refresh(false);
+      Toast.fire({ title: '✅ สุ่มคิวใหม่แล้ว (รอยืนยัน)' });
+    } finally {
+      setIsGlobalProcessing(false);
     }
-
-    await fetch('/api/manual-queue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        court_name: newReshuffledId,
-        p1_id: bestMatch.teams[0][0].id, p2_id: bestMatch.teams[0][1].id,
-        p3_id: bestMatch.teams[1][0].id, p4_id: bestMatch.teams[1][1].id
-      })
-    });
-
-    await refresh(false);
-    Toast.fire({ title: '✅ สุ่มคิวใหม่แล้ว (รอยืนยัน)' });
   };
 
   const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
-    if (isConfirmingMatchRef.current) {
-      Toast.fire({ title: '⏳ กำลังประมวลผลคิวก่อนหน้า กรุณารอสักครู่...' });
-      return;
-    }
+    if (isConfirmingMatchRef.current) return;
     isConfirmingMatchRef.current = true;
 
     const courtToLoad = targetCourtName || '';
@@ -1084,39 +1110,20 @@ export default function Home() {
       return;
     }
 
-    const ids = [
-      matchData.teams[0][0].id,
-      matchData.teams[0][1].id,
-      matchData.teams[1][0].id,
-      matchData.teams[1][1].id
-    ];
-
-    recordMatchToHistory(ids);
-
+    setIsGlobalProcessing(true);
     try {
-      Swal.fire({ title: 'กำลังบันทึก...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
-      
-      const res = await fetch('/api/manual-match', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ids, court: targetCourtName })
-      });
+      const ids = [matchData.teams[0][0].id, matchData.teams[0][1].id, matchData.teams[1][0].id, matchData.teams[1][1].id];
+      recordMatchToHistory(ids);
 
+      const res = await fetch('/api/manual-match', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids, court: targetCourtName }) });
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        Toast.fire({ title: `❌ ลงสนามไม่สำเร็จ: ${err?.message || res.status}` });
+        Toast.fire({ title: `❌ ลงสนามไม่สำเร็จ` });
         return;
       }
 
-      setManualPreviews(prev => prev.filter(m => m.matchId !== matchData.matchId));
-
       const deleteId = matchData.dbId || matchData.matchId;
       if (deleteId && !matchData.matchId.startsWith('auto-')) {
-        await fetch('/api/manual-queue', {
-          method: 'DELETE', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ id: deleteId })
-        }).catch(()=>null);
+        await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deleteId }) }).catch(()=>null);
       }
 
       await refresh(false);
@@ -1126,25 +1133,33 @@ export default function Home() {
     } finally {
       if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
       isConfirmingMatchRef.current = false;
+      setIsGlobalProcessing(false);
     }
   };
 
   const startGame = async (courtName: string) => {
-    Swal.fire({ title: 'กำลังเริ่มเกม...', toast: true, position: 'top', showConfirmButton: false });
-    await fetch('/api/start-game', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ court: courtName })
-    });
-    await refresh(false);
-    Toast.fire({ title: '✅ เริ่มเกม (จับเวลาใหม่)!' });
+    setIsGlobalProcessing(true);
+    try {
+      await fetch('/api/start-game', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ court: courtName }) });
+      await refresh(false);
+      Toast.fire({ title: '✅ เริ่มเกม (จับเวลาใหม่)!' });
+    } finally {
+      setIsGlobalProcessing(false);
+    }
   };
 
   const finish = (court: string) => {
     Swal.fire({title: `จบแมทช์ที่ ${court}?`, showCancelButton: true}).then(async r => {
       if(!r.isConfirmed) return;
-      Toast.fire({ title: '✅ Match Finished' });
-      await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
-      await refresh(false);
-      fetchProfileHistory();
+      setIsGlobalProcessing(true);
+      try {
+        await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
+        await refresh(false);
+        fetchProfileHistory();
+        Toast.fire({ title: '✅ Match Finished' });
+      } finally {
+        setIsGlobalProcessing(false);
+      }
     });
   }
 
@@ -1477,10 +1492,15 @@ export default function Home() {
       }
     }).then(async (r) => {
       if (r.isConfirmed) {
-        Toast.fire({ title: 'ℹ️ Signing out...' });
-        fetch('/api/checkout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(r.value) }).then(() => refresh(false));
-        localStorage.removeItem('myProfile'); setMyProfile(null);
-        Toast.fire({ title: '✅ Signed Out Successfully' }); setTimeout(() => window.location.reload(), 1500);
+        setIsGlobalProcessing(true);
+        try {
+          await fetch('/api/checkout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(r.value) });
+          await refresh(false);
+          localStorage.removeItem('myProfile'); setMyProfile(null);
+          Toast.fire({ title: '✅ Signed Out Successfully' }); setTimeout(() => window.location.reload(), 1500);
+        } finally {
+          setIsGlobalProcessing(false);
+        }
       }
     })
   }
@@ -1513,11 +1533,17 @@ export default function Home() {
       }
     }).then(async (r) => {
       if (r.isConfirmed) {
-        const res = await runApi('/api/checkin', r.value, false);
-        if (res && (res.ok || res.status === 'success')) {
-          await runApi('/api/approve', { id: r.value.id }, false);
-          Toast.fire({ title: '✅ เพิ่มสมาชิกและอนุมัติลงคิวแล้ว!' });
-        } else Toast.fire({ title: `❌ ${res?.message || 'Error'}` });
+        setIsGlobalProcessing(true);
+        try {
+          const res = await fetch('/api/checkin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(r.value) });
+          if (res.ok) {
+            await fetch('/api/approve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.value.id }) });
+            await refresh(false);
+            Toast.fire({ title: '✅ เพิ่มสมาชิกและอนุมัติลงคิวแล้ว!' });
+          } else Toast.fire({ title: `❌ Error` });
+        } finally {
+          setIsGlobalProcessing(false);
+        }
       }
     });
   }
@@ -1564,7 +1590,18 @@ export default function Home() {
         name: (document.getElementById('editName') as HTMLInputElement).value,
         skill: Number((document.getElementById('editSkill') as HTMLSelectElement).value)
       })
-    }).then(async r => { if (r.isConfirmed) { await runApi('/api/update-player', r.value, false); Toast.fire({ title: '✅ บันทึกการแก้ไขแล้ว' }); } })
+    }).then(async r => { 
+      if (r.isConfirmed) { 
+        setIsGlobalProcessing(true);
+        try {
+          await fetch('/api/update-player', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(r.value) });
+          await refresh(false);
+          Toast.fire({ title: '✅ บันทึกการแก้ไขแล้ว' }); 
+        } finally {
+          setIsGlobalProcessing(false);
+        }
+      } 
+    })
   }
 
   const openBroadcastModal = () => {
@@ -1589,13 +1626,17 @@ export default function Home() {
       }
     }).then(async (r) => {
       if (r.isConfirmed) {
-        Swal.fire({ title: 'กำลังสั่งรัน Broadcast...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        setIsGlobalProcessing(true);
         try {
           const res = await fetch('/api/webpush', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'broadcast', date: r.value.date, title: r.value.title, message: r.value.message }) });
           const data = await res.json();
           if (!res.ok) Swal.fire('ไม่พบข้อมูล', data.error || 'ไม่พบผู้ลงทะเบียนในช่วงเวลานี้', 'info');
           else Swal.fire('✅ ส่งสำเร็จ', `ยิงแจ้งเตือนถึงอุปกรณ์ที่พร้อมรับ ${data.count} จากทั้งหมด ${data.total} เครื่อง`, 'success');
-        } catch (e: any) { Swal.fire('❌ ผิดพลาด', e.message, 'error'); }
+        } catch (e: any) { 
+          Swal.fire('❌ ผิดพลาด', e.message, 'error'); 
+        } finally {
+          setIsGlobalProcessing(false);
+        }
       }
     });
   }
@@ -1717,10 +1758,16 @@ export default function Home() {
     Swal.fire({ title: 'Reset Entire Day?', text: "This will clear all active courts, queues, and memory.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes, Reset!' })
       .then(async r => {
         if (r.isConfirmed) {
-          localStorage.removeItem('localMatchHistory');
-          setMatchHistory([]);
-          await runApi('/api/reset-day', {});
-          Toast.fire({ title: '✅ System Reset Complete' });
+          setIsGlobalProcessing(true);
+          try {
+            localStorage.removeItem('localMatchHistory');
+            setMatchHistory([]);
+            await fetch('/api/reset-day', { method: 'POST' });
+            await refresh(false);
+            Toast.fire({ title: '✅ System Reset Complete' });
+          } finally {
+            setIsGlobalProcessing(false);
+          }
         }
       })
   }
@@ -1758,8 +1805,6 @@ export default function Home() {
     cancelManualMatch, lockQueue, triggerReshuffle, startGame, APP_VERSION
   };
 
-  if (fullscreen) return <FocusMode {...tabProps} />
-
   if (isLoading && !state) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
       <div className="flex flex-col items-center gap-4">
@@ -1769,8 +1814,9 @@ export default function Home() {
     </div>
   )
 
-  return (
-    
+  const MainContent = fullscreen ? (
+    <FocusMode {...tabProps} />
+  ) : (
     <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-24 transition-all duration-300 ${(state?.announcement && enableNotify) ? 'pt-24' : 'pt-16'}`}>
       
       <style dangerouslySetInnerHTML={{__html: `
@@ -1821,9 +1867,14 @@ export default function Home() {
               onClick={async () => {
                 const txt = prompt('Edit Announcement', state.announcement);
                 if (txt !== null) {
-                  await fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'Announcement', value: txt }) });
-                  refresh(false);
-                  Swal.fire({ title: '✅ Announcement Updated', toast: true, position: 'top', showConfirmButton: false, timer: 1500 });
+                  setIsGlobalProcessing(true);
+                  try {
+                    await fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'set', key: 'Announcement', value: txt }) });
+                    await refresh(false);
+                    Swal.fire({ title: '✅ Announcement Updated', toast: true, position: 'top', showConfirmButton: false, timer: 1500 });
+                  } finally {
+                    setIsGlobalProcessing(false);
+                  }
                 }
               }}
               className="ml-4 pl-2 border-l border-blue-400 text-blue-100 hover:text-white"
@@ -1931,5 +1982,26 @@ export default function Home() {
         </div>
       </div>
     </div>
-  )
+  );
+
+  return (
+    <>
+      {/* 🌟 Global Processing Overlay */}
+      {isGlobalProcessing && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-900/30 dark:bg-slate-950/50 backdrop-blur-[3px] transition-all duration-300">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] shadow-2xl flex flex-col items-center gap-4 border border-slate-100 dark:border-slate-700 animate-in zoom-in-95">
+            <div className="relative flex items-center justify-center">
+              <div className="w-14 h-14 border-[5px] border-blue-100 dark:border-slate-700 border-t-blue-600 dark:border-t-blue-500 rounded-full animate-spin"></div>
+              <div className="absolute inset-0 bg-gradient-to-tr from-transparent to-blue-500/10 rounded-full animate-pulse"></div>
+            </div>
+            <span className="text-xs font-black text-slate-700 dark:text-slate-200 tracking-widest uppercase animate-pulse">
+              Processing
+            </span>
+          </div>
+        </div>
+      )}
+      
+      {MainContent}
+    </>
+  );
 }
