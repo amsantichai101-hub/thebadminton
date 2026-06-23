@@ -71,7 +71,6 @@ export default function Home() {
   const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
   const [manualPreviews, setManualPreviews] = useState<any[]>([]);
 
-  // 🌟 State สำหรับเปิด/ปิดแจ้งเตือน (Global)
   const [enableNotify, setEnableNotify] = useState(true);
   const enableNotifyRef = useRef(true); 
 
@@ -85,13 +84,18 @@ export default function Home() {
 
   const [isCourtManagerOpen, setIsCourtManagerOpen] = useState(false);
   const [newCourtName, setNewCourtName] = useState('');
-
-  // 🌟 [เพิ่มใหม่] State ควบคุมป๊อปอัปแจ้งเตือนเซสชันค้าง
+  
   const [showStaleSessionModal, setShowStaleSessionModal] = useState(false);
+  
+  // 🌟 [เพิ่มใหม่] State สำหรับเก็บข้อมูลคนที่ถูกคลิกเพื่อสลับตำแหน่ง
+  const [swapSource, setSwapSource] = useState<{ matchId: string, playerId: string } | null>(null);
 
   const wakeLockRef = useRef<any>(null);
   const [isAwake, setIsAwake] = useState(false);
   const [notifyPerm, setNotifyPerm] = useState<string>('default');
+  
+  const autoFillingRef = useRef(false);
+  const isConfirmingMatchRef = useRef(false); 
 
   const activeWaiting = (state?.waiting || []).filter(p => !p.name.includes('(พัก)'));
   const myWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
@@ -207,9 +211,6 @@ export default function Home() {
     return matches;
   }
 
-  // ==========================================
-  // PREVIEW QUEUE CORE LOGIC
-  // ==========================================
   const previewQueue = useMemo(() => {
     if (!globalPreview) return [];
 
@@ -228,14 +229,126 @@ export default function Home() {
     return [...manualQueue, ...autoQueue];
   }, [manualPreviews, activeWaiting, pausedIds, matchMode, matchHistory, globalPreview]);
 
+// 🌟 [แก้ไขใหม่] ฟังก์ชันสำหรับสลับตัวผู้เล่นข้ามคู่หรือข้ามทีม
+  const executePlayerSwap = async (targetMatchId: string, targetPlayerId: string) => {
+    if (!swapSource) return;
+    const { matchId: sourceMatchId, playerId: sourcePlayerId } = swapSource;
+
+    // ถ้ากดคลิกคนเดิม (Toggle off)
+    if (sourceMatchId === targetMatchId && sourcePlayerId === targetPlayerId) {
+      setSwapSource(null);
+      return;
+    }
+
+    Swal.fire({ title: 'กำลังสลับตำแหน่ง...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
+
+    const allPreviews = [...previewQueue];
+    const sMatchIdx = allPreviews.findIndex((m: any) => m.matchId === sourceMatchId);
+    const tMatchIdx = allPreviews.findIndex((m: any) => m.matchId === targetMatchId);
+
+    if (sMatchIdx === -1 || tMatchIdx === -1) {
+       Toast.fire({ title: '❌ ไม่พบข้อมูลคิวที่ต้องการสลับ' });
+       setSwapSource(null);
+       return;
+    }
+
+    // เตรียมตัวแปรหาตำแหน่งเป๊ะๆ (Index) ป้องกันการแทนที่ผิดตัว
+    let pSource: any = null;
+    let pTarget: any = null;
+    let sTeamIdx = -1, sPlayerIdx = -1;
+    let tTeamIdx = -1, tPlayerIdx = -1;
+
+    allPreviews[sMatchIdx].teams.forEach((t: any[], tIdx: number) => {
+       const pIdx = t.findIndex((p: any) => p.id === sourcePlayerId);
+       if (pIdx > -1) {
+         pSource = JSON.parse(JSON.stringify(t[pIdx]));
+         sTeamIdx = tIdx;
+         sPlayerIdx = pIdx;
+       }
+    });
+
+    allPreviews[tMatchIdx].teams.forEach((t: any[], tIdx: number) => {
+       const pIdx = t.findIndex((p: any) => p.id === targetPlayerId);
+       if (pIdx > -1) {
+         pTarget = JSON.parse(JSON.stringify(t[pIdx]));
+         tTeamIdx = tIdx;
+         tPlayerIdx = pIdx;
+       }
+    });
+
+    if (!pSource || !pTarget) {
+       Toast.fire({ title: '❌ ไม่พบผู้เล่นที่ระบุ' });
+       setSwapSource(null);
+       return;
+    }
+
+    // 🔄 Copy Match เพื่อนำมาสลับ
+    const sMatch = JSON.parse(JSON.stringify(allPreviews[sMatchIdx]));
+    
+    // 💡 คีย์หลัก: ถ้าสลับในคิวเดียวกัน ให้ชี้ตัวแปร tMatch ไปที่ sMatch เลย จะได้อัปเดตก้อนเดียวกัน
+    const tMatch = (sourceMatchId === targetMatchId) ? sMatch : JSON.parse(JSON.stringify(allPreviews[tMatchIdx]));
+
+    // ทำการแทนที่ผู้เล่นในตำแหน่ง Index ตรงๆ
+    if (sTeamIdx > -1 && sPlayerIdx > -1) {
+       sMatch.teams[sTeamIdx][sPlayerIdx] = pTarget;
+    }
+    if (tTeamIdx > -1 && tPlayerIdx > -1) {
+       tMatch.teams[tTeamIdx][tPlayerIdx] = pSource;
+    }
+
+    // 🔒 แปลงให้เป็น Manual Match อัตโนมัติ (เพื่อล็อกไม่ให้ระบบจัดใหม่)
+    const finalSMatchId = sMatch.isManual ? sMatch.matchId : `M-swapS-${Date.now()}`;
+    sMatch.matchId = finalSMatchId;
+    sMatch.isManual = true;
+
+    let finalTMatchId = finalSMatchId;
+    if (sourceMatchId !== targetMatchId) {
+       finalTMatchId = tMatch.isManual ? tMatch.matchId : `M-swapT-${Date.now()}`;
+       tMatch.matchId = finalTMatchId;
+       tMatch.isManual = true;
+    }
+
+    // 💾 บันทึกลงฐานข้อมูล API
+    if (allPreviews[sMatchIdx].isManual) {
+       await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sourceMatchId }) }).catch(()=>null);
+    }
+    if (sourceMatchId !== targetMatchId && allPreviews[tMatchIdx].isManual) {
+       await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: targetMatchId }) }).catch(()=>null);
+    }
+
+    // Save คู่แรก
+    await fetch('/api/manual-queue', {
+       method: 'POST', headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({
+          court_name: finalSMatchId,
+          p1_id: sMatch.teams[0][0].id, p2_id: sMatch.teams[0][1].id,
+          p3_id: sMatch.teams[1][0].id, p4_id: sMatch.teams[1][1].id
+       })
+    });
+
+    // Save คู่ที่สอง (เฉพาะกรณีที่สลับข้ามคิว)
+    if (sourceMatchId !== targetMatchId) {
+       await fetch('/api/manual-queue', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+             court_name: finalTMatchId,
+             p1_id: tMatch.teams[0][0].id, p2_id: tMatch.teams[0][1].id,
+             p3_id: tMatch.teams[1][0].id, p4_id: tMatch.teams[1][1].id
+          })
+       });
+    }
+
+    setSwapSource(null);
+    await refresh(false);
+    Toast.fire({ title: '✅ สลับตัวผู้เล่นเรียบร้อย และถูกล็อคคิวแล้ว!' });
+  }
+
   const myStartLogs = myPlayHistory.filter(h => h.action.toLowerCase().includes('start') || h.action.includes('ลงสนาม'));
   const realPlayCount = myStartLogs.length;
   const realPlayTime = realPlayCount * avgMatchDuration;
 
   const notifiedStandby = useRef(false);
   const notifiedPlay = useRef(false);
-  const autoFillingRef = useRef(false);
-  const isConfirmingMatchRef = useRef(false);
 
   const withTimeout = async <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
     let t: any;
@@ -262,7 +375,7 @@ export default function Home() {
   const requestNotify = async () => {
     if (!myProfile) return Toast.fire({ title: '⚠️ กรุณา Check in ก่อนเปิดแจ้งเตือน' });
     if (!('Notification' in window)) return Toast.fire({ title: '❌ เบราว์เซอร์ไม่รองรับแจ้งเตือน' });
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return Toast.fire({ title: '❌ ไม่รองรับ Push (ต้อง https + Service Worker)' });
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return Toast.fire({ title: '❌ ไม่รองรับ Push' });
 
     Swal.fire({
       title: 'กำลังอัปเดตการแจ้งเตือน...',
@@ -361,7 +474,6 @@ export default function Home() {
   };
 
   const triggerNotification = async (title: string, body: string, vibratePattern: number[], targetTab?: 'home' | 'queue') => {
-    // 🌟 ถ้าระบบแจ้งเตือนถูกแอดมินปิดไว้ ให้ข้ามฟังก์ชันนี้ไปเลย เพื่อไม่โชว์แถบสีฟ้าและไม่ส่งเสียง
     if (!enableNotifyRef.current) return; 
 
     playAlertSound();
@@ -454,7 +566,6 @@ export default function Home() {
     finally { setIsLoading(false); }
   }
 
-// 🌟 [เพิ่มใหม่] ฟังก์ชันยืนยันการเคลียร์คิวที่ค้างอยู่
   const handleForceSignOut = async () => {
     if (myProfile?.id) {
       Toast.fire({ title: 'ℹ️ กำลังออกจากระบบ...' });
@@ -473,22 +584,16 @@ export default function Home() {
     setTimeout(() => window.location.reload(), 1500);
   };
 
-  // 🌟 [เพิ่มใหม่] ตรวจสอบสถานะว่าชื่อหลุดจากระบบหรือยัง (เช็คจาก Waiting, Pending, Playing)
   useEffect(() => {
-    // ต้องมีข้อมูล Profile ในเครื่อง และดึง State จาก Backend สำเร็จแล้วเท่านั้น
     if (!myProfile || !state) return;
 
-    // ตรวจสอบว่าอยู่ในคิวรอหรือไม่
     const isInWaiting = (state.waiting || []).some(p => p.id === myProfile.id);
-    // ตรวจสอบว่าอยู่ในคิวรออนุมัติหรือไม่
     const isInPending = (state.pending || []).some(p => p.id === myProfile.id);
-    // ตรวจสอบว่าอยู่ในคอร์ทหรือไม่
     const isPlaying = (state.playing || []).some(c => 
       c.p1Id === myProfile.id || c.p2Id === myProfile.id || 
       c.p3Id === myProfile.id || c.p4Id === myProfile.id
     );
 
-    // ถ้าไม่มีชื่อที่ไหนเลย แสดงว่า Session ค้าง ให้เด้งป๊อปอัป
     if (!isInWaiting && !isInPending && !isPlaying) {
       setShowStaleSessionModal(true);
     } else {
@@ -521,12 +626,8 @@ export default function Home() {
     refresh(true);
     const t = setInterval(() => refresh(false), Number(process.env.NEXT_PUBLIC_AUTO_REFRESH_MS || 5000));
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ==========================================
-  // ซ่อน/แสดง Header และ เมนูด้านล่าง เมื่อ Scroll หน้าจอ
-  // ==========================================
   const lastScrollY = useRef(0);
 
   useEffect(() => {
@@ -652,7 +753,7 @@ export default function Home() {
     refresh(false); Toast.fire({ title: '🗑️ ลบคอร์ทแล้ว' });
   }
 
-const handleApproveProcess = async (p: any) => {
+  const handleApproveProcess = async (p: any) => {
     const playerInDb = state?.pending?.find((pendingP: any) => pendingP.id === p.id) || p;
     
     Swal.fire({
@@ -879,7 +980,6 @@ const handleApproveProcess = async (p: any) => {
   };
 
   const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
-    // 🛑 1. ป้องกันการกดซ้ำ (Lock UI)
     if (isConfirmingMatchRef.current) {
       Toast.fire({ title: '⏳ กำลังประมวลผลคิวก่อนหน้า กรุณารอสักครู่...' });
       return;
@@ -889,27 +989,39 @@ const handleApproveProcess = async (p: any) => {
     const courtToLoad = targetCourtName || '';
     if (courtToLoad) setLoadingCourts(prev => [...prev, courtToLoad]);
 
-    // ⏳ 2. Countdown Delay 3 วินาที ด้วย SweetAlert2 (ให้โอกาสกดยกเลิก)
     let isCancelled = false;
     let timerInterval: NodeJS.Timeout;
 
     await Swal.fire({
-      title: 'เตรียมส่งลงสนาม!',
-      html: `กำลังจัดคิวลง <b>${targetCourtName || 'สนามว่าง'}</b><br/><br/>ในอีก <b>3</b> วินาที...`,
-      icon: 'info',
-      timer: 3000,
+      html: `
+        <div class="flex flex-col items-center justify-center pt-2">
+          <div class="relative w-20 h-20 mb-4 flex items-center justify-center bg-slate-50 dark:bg-slate-800 rounded-full border-[4px] border-blue-100 dark:border-slate-700 shadow-inner">
+            <div id="swal-timer" class="text-4xl font-black text-blue-600 dark:text-blue-400 z-10 animate-pulse">5</div>
+          </div>
+          <h3 class="text-xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">เตรียมลงสนาม</h3>
+          <p class="text-sm text-slate-500 dark:text-slate-400">
+            จัดคิวลง <span class="font-bold text-blue-600 px-2 py-1 bg-blue-50 dark:bg-blue-900/30 rounded-lg">${targetCourtName || 'สนามว่าง'}</span>
+          </p>
+        </div>
+      `,
+      timer: 5000,
       timerProgressBar: true,
       showCancelButton: true,
-      cancelButtonText: 'ยกเลิก (Cancel)',
-      cancelButtonColor: '#ef4444',
+      cancelButtonText: 'ยกเลิก',
       showConfirmButton: false,
       allowOutsideClick: false,
+      background: 'transparent',
+      customClass: {
+        popup: '!bg-white dark:!bg-slate-900 !rounded-[2rem] !shadow-2xl !border !border-slate-100 dark:!border-slate-800',
+        cancelButton: '!bg-slate-100 hover:!bg-red-50 !text-slate-600 hover:!text-red-600 !rounded-xl !font-bold !px-8 !py-3 !transition-all active:!scale-95',
+        timerProgressBar: '!bg-blue-500'
+      },
       didOpen: () => {
-        const b = Swal.getHtmlContainer()?.querySelector('b:nth-of-type(2)');
+        const timerEl = document.getElementById('swal-timer');
         timerInterval = setInterval(() => {
           const timeLeft = Swal.getTimerLeft();
-          if (b && timeLeft) {
-            b.textContent = Math.ceil(timeLeft / 1000).toString();
+          if (timerEl && timeLeft) {
+            timerEl.textContent = Math.ceil(timeLeft / 1000).toString();
           }
         }, 100);
       },
@@ -917,13 +1029,11 @@ const handleApproveProcess = async (p: any) => {
         clearInterval(timerInterval);
       }
     }).then((result) => {
-      // ถ้ายูสเซอร์กดยกเลิกใน 3 วินาที
       if (result.dismiss === Swal.DismissReason.cancel) {
         isCancelled = true;
       }
     });
 
-    // หากถูกยกเลิก ให้คืนค่า UI กลับเป็นปกติและหยุดทำงาน
     if (isCancelled) {
       isConfirmingMatchRef.current = false;
       if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
@@ -931,7 +1041,6 @@ const handleApproveProcess = async (p: any) => {
       return;
     }
 
-    // ✅ 3. ลอจิกส่งข้อมูลลงฐานข้อมูล (ทำงานต่อเมื่อครบ 3 วิ และไม่ถูกยกเลิก)
     const ids = [
       matchData.teams[0][0].id,
       matchData.teams[0][1].id,
@@ -956,12 +1065,10 @@ const handleApproveProcess = async (p: any) => {
         return;
       }
 
-      // 🌟 1. ลบออกจาก manualPreviews ทันที
       setManualPreviews(prev => prev.filter(m => 
         m.teams[0][0].id !== matchData.teams[0][0].id 
       ));
 
-      // 🌟 2. ลบออกจาก Database (กรณีที่เป็นคิวแบบล็อคมา)
       if (matchData?.isManual && matchData?.matchId) {
         await fetch('/api/manual-queue', {
           method: 'DELETE', 
@@ -970,14 +1077,12 @@ const handleApproveProcess = async (p: any) => {
         }).catch(()=>null);
       }
 
-      // รีเฟรช State ทั้งหมด
       await refresh(false);
       Toast.fire({ title: '✅ ส่งลงสนามเรียบร้อย!' });
     } catch (e) {
       Toast.fire({ title: '❌ Network error ระหว่างลงสนาม' });
     } finally {
       if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
-      // 🔓 ปลดล็อคปุ่มให้กดคิวถัดไปได้
       isConfirmingMatchRef.current = false;
     }
   };
@@ -1502,7 +1607,7 @@ const handleApproveProcess = async (p: any) => {
 
   const showAnalyticsMenu = () => window.open('/analytics', '_blank');
 
-const exportRegisteredToday = () => {
+  const exportRegisteredToday = () => {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
     Swal.fire({
       title: '📋 ผู้ลงทะเบียนรายวัน',
@@ -1522,7 +1627,6 @@ const exportRegisteredToday = () => {
             const data = await res.json();
             const list = Array.isArray(data) ? data : (data.list || data.data || []);
             
-            // กรองผู้ลงทะเบียนของวันที่เลือก (ปรับเวลาเป็นไทยก่อนเทียบ)
             const targetList = list.filter((p: any) => {
                const pDate = p.timestamp || p.last_seen || p.created_at;
                if (!pDate) return false;
@@ -1530,7 +1634,6 @@ const exportRegisteredToday = () => {
                return localDate === date;
             });
 
-            // Group ชื่อคน เพื่อไม่ให้นับซ้ำ
             const uniquePlayers = Array.from(new Map(targetList.map((p: any) => [p.name?.trim().toLowerCase(), p])).values()) as any[];
 
             let csv = '\uFEFFEmployee ID,Name,Skill,Type,Time\n';
@@ -1599,6 +1702,8 @@ const exportRegisteredToday = () => {
     estWaitMins, getSkillColor, getMySkillLevel, getSkillName, isSimilarSkillGroup, getAutoNextMatches,
     
     availableCourts, manualIdsList, availableWaitingView, autoMatches, allPreviews, previewQueue, 
+    
+    swapSource, setSwapSource, executePlayerSwap, // <-- 🌟 ส่งฟังก์ชันสลับตัวใหม่ไปให้ Component ลูกใช้
 
     enableNotify, toggleEnableNotify,
 
@@ -1625,7 +1730,34 @@ const exportRegisteredToday = () => {
   return (
     
     <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-24 transition-all duration-300 ${(state?.announcement && enableNotify) ? 'pt-24' : 'pt-16'}`}>
-    {/* 🌟 ปรับ padding ด้านบน ถ้าแถบสีฟ้าถูกแอดมินซ่อน หน้าจอจะหดชิดขอบพอดี */} 
+      
+      {/* 🌟 [เพิ่มใหม่] CSS Global สำหรับไฮไลท์ตัวเองและทำ Animation สลับตัว */}
+      <style dangerouslySetInnerHTML={{__html: `
+        .highlight-me {
+          box-shadow: 0 0 0 3px #3b82f6, 0 0 15px rgba(59, 130, 246, 0.5) !important;
+          border-radius: 0.5rem;
+          background-color: #eff6ff !important;
+          color: #1d4ed8 !important;
+          transform: scale(1.02);
+          transition: all 0.2s ease-in-out;
+          position: relative;
+          z-index: 10;
+        }
+        .dark .highlight-me {
+          background-color: #1e3a8a !important;
+          color: #93c5fd !important;
+        }
+        .swap-source-active {
+          border: 2px dashed #f59e0b !important;
+          opacity: 0.8;
+          animation: swap-pulse 1s infinite alternate;
+        }
+        @keyframes swap-pulse {
+          from { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+          to { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+        }
+      `}} />
+
       <div
         className={`fixed top-14 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 cursor-pointer ${capsuleAlert.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-10 scale-95 pointer-events-none'}`}
         onClick={() => { if (capsuleAlert.onClick) capsuleAlert.onClick(); setCapsuleAlert(prev => ({ ...prev, visible: false })); }}
@@ -1639,7 +1771,6 @@ const exportRegisteredToday = () => {
         </div>
       </div>
 
-      {/* 🌟 แถบประกาศสีฟ้า (Announcement) จะโชว์ก็ต่อเมื่อเปิดแจ้งเตือนไว้เท่านั้น */}
       {state?.announcement && enableNotify && (
         <div className="fixed top-0 w-full bg-blue-600 text-white text-xs py-2.5 px-4 shadow-md flex items-center z-[60]">
           <AlertCircle className="w-4 h-4 mr-2 text-white" />
@@ -1662,7 +1793,6 @@ const exportRegisteredToday = () => {
         </div>
       )}
 
-      {/* 🌟 ปรับระยะขอบของเมนู Navigation ให้เลื่อนตามแถบประกาศที่หายไป */}
       <nav className={`fixed ${(state?.announcement && enableNotify) ? 'top-10' : 'top-0'} w-full bg-white/90 dark:bg-slate-900/90 border-b border-gray-200 dark:border-slate-800 px-4 py-3 backdrop-blur-lg z-50 shadow-sm transition-transform duration-300 ${showNav ? 'translate-y-0' : '-translate-y-full'}`}>
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -1708,11 +1838,10 @@ const exportRegisteredToday = () => {
           </div>
         </div>
       )}
-      {/* 🌟 [เพิ่มใหม่] Modal แจ้งเตือนเซสชันค้าง */}
+
       {showStaleSessionModal && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
           <div className="w-full max-w-sm p-6 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 text-center relative overflow-hidden">
-            {/* ตกแต่งพื้นหลัง */}
             <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-amber-500/20 to-transparent pointer-events-none"></div>
             
             <div className="relative z-10 flex flex-col items-center">
@@ -1738,8 +1867,8 @@ const exportRegisteredToday = () => {
           </div>
         </div>
       )}
+
       <div className={`fixed bottom-0 w-full bg-white/95 dark:bg-slate-900/95 border-t border-gray-200 dark:border-slate-800 px-6 py-3 backdrop-blur-xl z-50 transition-transform duration-300 pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)] ${showNav ? 'translate-y-0' : 'translate-y-full'}`}>
-        
         <div className="max-w-md mx-auto flex justify-between items-center relative">
           <button onClick={() => handleTabClick('home')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'home' ? 'text-blue-600 scale-110' : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}>
             <HomeIcon className={activeTab === 'home' ? 'w-6 h-6' : 'w-5 h-5'} strokeWidth={activeTab === 'home' ? 2.5 : 2} /><span className="text-[9px] font-black uppercase tracking-wider">Home</span>

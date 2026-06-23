@@ -78,7 +78,7 @@ export default function FocusMode(props: any) {
 
                     <div className="absolute top-2 left-2 z-20">
                        <div className={`px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm uppercase tracking-widest ${prepMatch.isManual ? 'bg-blue-200 text-blue-800 dark:bg-blue-400 dark:text-blue-900' : 'bg-emerald-200 text-emerald-800 dark:bg-emerald-400 dark:text-emerald-900 animate-pulse'}`}>
-                          {prepMatch.isManual ? 'MANUAL FIFO' : 'UP NEXT'}
+                          {prepMatch.isManual ? 'จับคู่แล้ว' : 'รอการยืนยัน'}
                        </div>
                     </div>
 
