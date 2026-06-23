@@ -27,7 +27,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.3.6";
+const APP_VERSION = "2.3.9";
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -50,6 +50,13 @@ const Toast = Swal.mixin({
     icon: '!hidden',
   }
 });
+
+// 🌟 [แก้บั๊กการเรียงลำดับ] ดึงเฉพาะเวลาที่เป็น Timestamp ยาวๆ 10-13 หลัก ป้องกันการดึงเลขคิว (auto-1, auto-2) ผิดพลาด
+const extractTimeFromId = (id: string) => {
+  if (!id) return Date.now();
+  const match = id.match(/-(\d{10,})/); // บังคับว่าต้องมีตัวเลขติดกันอย่างน้อย 10 ตัว
+  return match ? parseInt(match[1]) : Date.now();
+};
 
 export default function Home() {
   const [state, setState] = useState<AppState | null>(null)
@@ -86,7 +93,6 @@ export default function Home() {
   const [newCourtName, setNewCourtName] = useState('');
   
   const [showStaleSessionModal, setShowStaleSessionModal] = useState(false);
-  
   const [swapSource, setSwapSource] = useState<{ matchId: string, playerId: string } | null>(null);
 
   const wakeLockRef = useRef<any>(null);
@@ -228,7 +234,7 @@ export default function Home() {
     return [...manualQueue, ...autoQueue];
   }, [manualPreviews, activeWaiting, pausedIds, matchMode, matchHistory, globalPreview]);
 
-  // 🌟 [แก้ไขใหม่] ฟังก์ชันสำหรับสลับตัวผู้เล่นข้ามคู่หรือข้ามทีม (คงสถานะพรีวิวไว้)
+  // 🌟 [แก้ปัญหาคิวกระโดด] ลอจิกการสลับผู้เล่น (Swap) แบบปักหมุดคิวก่อนหน้า
   const executePlayerSwap = async (targetMatchId: string, targetPlayerId: string) => {
     if (!swapSource) return;
     const { matchId: sourceMatchId, playerId: sourcePlayerId } = swapSource;
@@ -250,6 +256,32 @@ export default function Home() {
        return;
     }
 
+    // 🌟 ป้องกันคิวกระโดด: ปักหมุดคิว (Pin) ที่อยู่ก่อนหน้าคิวที่ถูกสลับทั้งหมด 
+    // เพื่อให้มันจัดเรียงเป็น 1, 2, 3 ตามลำดับเหมือนเดิมเป๊ะๆ
+    const maxIdx = Math.max(sMatchIdx, tMatchIdx);
+    const existingManualIds = new Set(manualPreviews.map((m: any) => m.matchId));
+    
+    for (let i = 0; i < maxIdx; i++) {
+      const m = allPreviews[i];
+      if (i === sMatchIdx || i === tMatchIdx) continue; // ข้ามอันที่เรากำลังสลับ
+      
+      // ถ้าคิวก่อนหน้ายังเป็น Auto ให้เซฟลง DB เพื่อปักหมุดไว้
+      if (!existingManualIds.has(m.matchId)) {
+        const timeOffset = Date.now() - 10000 + i; // ให้เวลาเก่ากว่าอันที่เราจะสลับ
+        const newMatchId = `U-pinned-${timeOffset}`; 
+        
+        await fetch('/api/manual-queue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            court_name: newMatchId,
+            p1_id: m.teams[0][0].id, p2_id: m.teams[0][1].id,
+            p3_id: m.teams[1][0].id, p4_id: m.teams[1][1].id
+          })
+        });
+      }
+    }
+
     let pSource: any = null;
     let pTarget: any = null;
     let sTeamIdx = -1, sPlayerIdx = -1;
@@ -257,49 +289,48 @@ export default function Home() {
 
     allPreviews[sMatchIdx].teams.forEach((t: any[], tIdx: number) => {
        const pIdx = t.findIndex((p: any) => p.id === sourcePlayerId);
-       if (pIdx > -1) {
-         pSource = JSON.parse(JSON.stringify(t[pIdx]));
-         sTeamIdx = tIdx;
-         sPlayerIdx = pIdx;
-       }
+       if (pIdx > -1) { pSource = JSON.parse(JSON.stringify(t[pIdx])); sTeamIdx = tIdx; sPlayerIdx = pIdx; }
     });
 
     allPreviews[tMatchIdx].teams.forEach((t: any[], tIdx: number) => {
        const pIdx = t.findIndex((p: any) => p.id === targetPlayerId);
-       if (pIdx > -1) {
-         pTarget = JSON.parse(JSON.stringify(t[pIdx]));
-         tTeamIdx = tIdx;
-         tPlayerIdx = pIdx;
-       }
+       if (pIdx > -1) { pTarget = JSON.parse(JSON.stringify(t[pIdx])); tTeamIdx = tIdx; tPlayerIdx = pIdx; }
     });
 
     if (!pSource || !pTarget) {
-       Toast.fire({ title: '❌ ไม่พบผู้เล่นที่ระบุ' });
-       setSwapSource(null);
-       return;
+       Toast.fire({ title: '❌ เกิดข้อผิดพลาด ไม่พบข้อมูลผู้เล่น' });
+       setSwapSource(null); return;
     }
 
     const sMatch = JSON.parse(JSON.stringify(allPreviews[sMatchIdx]));
     const tMatch = (sourceMatchId === targetMatchId) ? sMatch : JSON.parse(JSON.stringify(allPreviews[tMatchIdx]));
 
+    // สลับใน Array
     if (sTeamIdx > -1 && sPlayerIdx > -1) sMatch.teams[sTeamIdx][sPlayerIdx] = pTarget;
     if (tTeamIdx > -1 && tPlayerIdx > -1) tMatch.teams[tTeamIdx][tPlayerIdx] = pSource;
 
-    // 🌟 ใช้ U- เพื่อระบุว่าเป็น Unlocked (รอยืนยัน) และดึง Timestamp มาเรียงลำดับ
-    const finalSMatchId = sMatch.matchId.startsWith('auto-') ? `U-swapS-${Date.now()}` : sMatch.matchId;
+    // 🌟 ให้ Timestamp ใหม่เรียงตาม Index เพื่อต่อท้ายคิวที่ถูกปักหมุด
+    const baseTime = Date.now() - 5000;
+    
+    const finalSMatchId = sMatch.matchId.startsWith('auto-') ? `U-swap-${baseTime + sMatchIdx}` : sMatch.matchId;
     sMatch.matchId = finalSMatchId;
 
     let finalTMatchId = finalSMatchId;
     if (sourceMatchId !== targetMatchId) {
-       finalTMatchId = tMatch.matchId.startsWith('auto-') ? `U-swapT-${Date.now() + 1}` : tMatch.matchId;
+       finalTMatchId = tMatch.matchId.startsWith('auto-') ? `U-swap-${baseTime + tMatchIdx}` : tMatch.matchId;
        tMatch.matchId = finalTMatchId;
     }
 
-    if (sourceMatchId.startsWith('M-') || sourceMatchId.startsWith('U-')) {
-       await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sourceMatchId }) }).catch(()=>null);
+    const sDeleteId = allPreviews[sMatchIdx].dbId || sourceMatchId;
+    if (sDeleteId && !sourceMatchId.startsWith('auto-')) {
+       await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sDeleteId }) }).catch(()=>null);
     }
-    if (sourceMatchId !== targetMatchId && (targetMatchId.startsWith('M-') || targetMatchId.startsWith('U-'))) {
-       await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: targetMatchId }) }).catch(()=>null);
+
+    if (sourceMatchId !== targetMatchId) {
+       const tDeleteId = allPreviews[tMatchIdx].dbId || targetMatchId;
+       if (tDeleteId && !targetMatchId.startsWith('auto-')) {
+          await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: tDeleteId }) }).catch(()=>null);
+       }
     }
 
     await fetch('/api/manual-queue', {
@@ -324,15 +355,12 @@ export default function Home() {
 
     setSwapSource(null);
     await refresh(false);
-    Toast.fire({ title: '✅ สลับตัวผู้เล่นเรียบร้อย (รอยืนยัน)' });
+    Toast.fire({ title: '✅ สลับตัวผู้เล่นเรียบร้อย (ลำดับเดิม)' });
   }
 
   const myStartLogs = myPlayHistory.filter(h => h.action.toLowerCase().includes('start') || h.action.includes('ลงสนาม'));
   const realPlayCount = myStartLogs.length;
   const realPlayTime = realPlayCount * avgMatchDuration;
-
-  const notifiedStandby = useRef(false);
-  const notifiedPlay = useRef(false);
 
   const withTimeout = async <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
     let t: any;
@@ -532,27 +560,38 @@ export default function Home() {
       const manualRes = await fetch('/api/manual-queue', { cache: 'no-store' });
       const manualData = await manualRes.json();
       if (manualData?.data) {
-         const formattedManuals = manualData.data.map((m: any) => {
-            const p1 = d.waiting?.find((x:any)=>x.id === m.p1_id) || { id: m.p1_id, name: 'Unknown', skill: 0 };
-            const p2 = d.waiting?.find((x:any)=>x.id === m.p2_id) || { id: m.p2_id, name: 'Unknown', skill: 0 };
-            const p3 = d.waiting?.find((x:any)=>x.id === m.p3_id) || { id: m.p3_id, name: 'Unknown', skill: 0 };
-            const p4 = d.waiting?.find((x:any)=>x.id === m.p4_id) || { id: m.p4_id, name: 'Unknown', skill: 0 };
-            return {
-               matchId: m.id, 
-               isManual: !m.id.startsWith('U-'), // 🌟 ถ้าเป็น U- (Unlocked) จะนับว่าเป็นสถานะ Preview รอยืนยัน
-               teams: [[p1, p2], [p3, p4]]
-            }
-         });
+         const formattedManuals = [];
          
-         // 🌟 Sort ลำดับตามเวลาที่ดึงมาจาก ID เพื่อไม่ให้กระโดดไปมา
-         formattedManuals.sort((a: any, b: any) => {
-            const getTime = (id: string) => {
-               const match = id.match(/-(\d+)/);
-               return match ? parseInt(match[1]) : 0;
-            };
-            return getTime(a.matchId) - getTime(b.matchId);
-         });
+         for (const m of manualData.data) {
+            const p1 = d.waiting?.find((x:any)=>x.id === m.p1_id);
+            const p2 = d.waiting?.find((x:any)=>x.id === m.p2_id);
+            const p3 = d.waiting?.find((x:any)=>x.id === m.p3_id);
+            const p4 = d.waiting?.find((x:any)=>x.id === m.p4_id);
+            
+            const missingCount = (!p1 ? 1 : 0) + (!p2 ? 1 : 0) + (!p3 ? 1 : 0) + (!p4 ? 1 : 0);
+            
+            if (missingCount > 0) {
+                fetch('/api/manual-queue', { 
+                  method: 'DELETE', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body: JSON.stringify({ id: m.id }) 
+                }).catch(()=>null);
+                continue; 
+            }
 
+            const customId = m.court_name || m.id;
+            formattedManuals.push({
+               dbId: m.id, 
+               matchId: customId, 
+               isManual: !customId.startsWith('U-'), 
+               teams: [
+                 [p1 || { id: m.p1_id, name: 'Unknown', skill: 0 }, p2 || { id: m.p2_id, name: 'Unknown', skill: 0 }],
+                 [p3 || { id: m.p3_id, name: 'Unknown', skill: 0 }, p4 || { id: m.p4_id, name: 'Unknown', skill: 0 }]
+               ]
+            });
+         }
+         
+         formattedManuals.sort((a: any, b: any) => extractTimeFromId(a.matchId) - extractTimeFromId(b.matchId));
          setManualPreviews(formattedManuals);
       }
     } catch (e) { }
@@ -874,34 +913,35 @@ export default function Home() {
 
   const cancelManualMatch = async (prepMatch: any) => {
     setManualPreviews(prev => prev.filter(m => m.matchId !== prepMatch.matchId));
-    await fetch('/api/manual-queue', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: prepMatch.matchId })
-    }).catch(()=>null);
+    const deleteId = prepMatch.dbId || prepMatch.matchId;
+    if (deleteId && !prepMatch.matchId.startsWith('auto-')) {
+       await fetch('/api/manual-queue', {
+         method: 'DELETE',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ id: deleteId })
+       }).catch(()=>null);
+    }
     Toast.fire({ title: '🗑️ ยกเลิกคิวแล้ว' });
   };
 
-  // 🌟 คงลำดับเมื่อยืนยัน (Lock) โดยเก็บ Timestamp เดิมไว้
   const lockQueue = async (prepMatch: any) => {
     Swal.fire({ title: 'กำลังยืนยันคิว...', toast: true, position: 'top', showConfirmButton: false });
     
-    const match = prepMatch.matchId.match(/-(\d+)$/);
-    const oldTime = match ? match[1] : Date.now();
+    const oldTime = extractTimeFromId(prepMatch.matchId);
     const matchId = `M-locked-${oldTime}`; 
     
     const newManual = { matchId, isManual: true, teams: prepMatch.teams };
-    
     setManualPreviews(prev => {
         const filtered = prev.filter(m => m.matchId !== prepMatch.matchId);
         return [...filtered, newManual];
     });
     
-    if (prepMatch.matchId.startsWith('U-')) {
+    const deleteId = prepMatch.dbId || prepMatch.matchId;
+    if (deleteId && !prepMatch.matchId.startsWith('auto-')) {
        await fetch('/api/manual-queue', {
          method: 'DELETE',
          headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ id: prepMatch.matchId })
+         body: JSON.stringify({ id: deleteId })
        }).catch(()=>null);
     }
     
@@ -917,21 +957,22 @@ export default function Home() {
     Toast.fire({ title: '✅ ยืนยันผลการจัดคู่แล้ว!' });
   };
 
-  // 🌟 สุ่มใหม่ให้กลายเป็นสถานะ Preview เสมอ
+  // 🌟 [แก้ปัญหาสุ่มใหม่แล้วกระโดด] สุ่มใหม่โดยจัดลำดับไว้ที่เดิม
   const triggerReshuffle = async (matchData?: any) => {
     const targetIndex = previewQueue.findIndex((m: any) => m.matchId === matchData?.matchId);
     if (targetIndex === -1) return;
 
     const precedingMatches = previewQueue.slice(0, targetIndex);
     const existingManualIds = new Set(manualPreviews.map(m => m.matchId));
-    const newLockedPreviews = [];
     
+    Swal.fire({ title: 'กำลังสุ่มใหม่...', toast: true, position: 'top', showConfirmButton: false });
+
+    // 1. ปักหมุดคิวก่อนหน้าทั้งหมดให้ล็อคที่เดิม
     for (let i = 0; i < precedingMatches.length; i++) {
       const m = precedingMatches[i];
       if (!existingManualIds.has(m.matchId)) {
-        const newMatchId = `U-pinned-${Date.now() + i}-${i}`; 
-        const pinnedMatch = { ...m, matchId: newMatchId, isManual: false };
-        newLockedPreviews.push(pinnedMatch);
+        const timeOffset = Date.now() - 10000 + i; 
+        const newMatchId = `U-pinned-${timeOffset}`; 
         
         await fetch('/api/manual-queue', {
           method: 'POST',
@@ -945,23 +986,27 @@ export default function Home() {
       }
     }
 
-    const preservedManuals = manualPreviews.filter(m => m.matchId !== matchData.matchId);
-    const combinedManuals = [...preservedManuals, ...newLockedPreviews];
-    const usedIds = new Set(combinedManuals.flatMap(m => m.teams.flat().map((x: any) => x.id)));
-    const availableWaiters = activeWaiting.filter(p => !usedIds.has(p.id));
+    const availableWaiters = activeWaiting.filter(p => !manualPreviews.flatMap(m => m.teams.flat().map((x:any)=>x.id)).includes(p.id));
 
-    if (availableWaiters.length < 4) return Toast.fire({ title: '⚠️ คิวรอว่างไม่พอ 4 คน สำหรับจัดคิวใหม่' });
+    if (availableWaiters.length < 4) {
+       Swal.close();
+       return Toast.fire({ title: '⚠️ คิวรอว่างไม่พอ 4 คน สำหรับสุ่มใหม่' });
+    }
 
     const shuffled = [...availableWaiters].sort(() => 0.5 - Math.random());
     let bestMatch = extractBestMatch(shuffled, matchHistory) || { teams: [[shuffled[0], shuffled[1]], [shuffled[2], shuffled[3]]] };
 
-    const newReshuffledId = `U-reshuffle-${Date.now() + precedingMatches.length}`;
-    const newPreviewMatch = {
-      matchId: newReshuffledId,
-      isManual: false, 
-      courtName: matchData?.courtName || '',
-      teams: bestMatch.teams
-    };
+    // 2. ใช้ Date.now() เป็นรหัสสุ่มใหม่ เพื่อให้มันต่อท้ายพวกที่ปักหมุดไว้ข้างบนพอดี
+    const newReshuffledId = `U-reshuffle-${Date.now()}`;
+
+    const deleteId = matchData.dbId || matchData.matchId;
+    if (deleteId && !matchData.matchId.startsWith('auto-')) {
+      await fetch('/api/manual-queue', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: deleteId })
+      }).catch(()=>null);
+    }
 
     await fetch('/api/manual-queue', {
       method: 'POST',
@@ -973,17 +1018,8 @@ export default function Home() {
       })
     });
 
-    setManualPreviews([...combinedManuals, newPreviewMatch]);
-
-    if (matchData?.matchId && (matchData.matchId.startsWith('M-') || matchData.matchId.startsWith('U-'))) {
-      await fetch('/api/manual-queue', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: matchData.matchId })
-      }).catch(()=>null);
-    }
-
-    Toast.fire({ title: '✅ สุ่มและบันทึกคิวใหม่ (สถานะรอยืนยัน)!' });
+    await refresh(false);
+    Toast.fire({ title: '✅ สุ่มคิวใหม่แล้ว (รอยืนยัน)' });
   };
 
   const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
@@ -1072,15 +1108,14 @@ export default function Home() {
         return;
       }
 
-      setManualPreviews(prev => prev.filter(m => 
-        m.teams[0][0].id !== matchData.teams[0][0].id 
-      ));
+      setManualPreviews(prev => prev.filter(m => m.matchId !== matchData.matchId));
 
-      if (matchData?.matchId && (matchData.matchId.startsWith('M-') || matchData.matchId.startsWith('U-'))) {
+      const deleteId = matchData.dbId || matchData.matchId;
+      if (deleteId && !matchData.matchId.startsWith('auto-')) {
         await fetch('/api/manual-queue', {
           method: 'DELETE', 
           headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ id: matchData.matchId })
+          body: JSON.stringify({ id: deleteId })
         }).catch(()=>null);
       }
 
