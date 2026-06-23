@@ -87,7 +87,6 @@ export default function Home() {
   
   const [showStaleSessionModal, setShowStaleSessionModal] = useState(false);
   
-  // 🌟 [เพิ่มใหม่] State สำหรับเก็บข้อมูลคนที่ถูกคลิกเพื่อสลับตำแหน่ง
   const [swapSource, setSwapSource] = useState<{ matchId: string, playerId: string } | null>(null);
 
   const wakeLockRef = useRef<any>(null);
@@ -229,12 +228,11 @@ export default function Home() {
     return [...manualQueue, ...autoQueue];
   }, [manualPreviews, activeWaiting, pausedIds, matchMode, matchHistory, globalPreview]);
 
-// 🌟 [แก้ไขใหม่] ฟังก์ชันสำหรับสลับตัวผู้เล่นข้ามคู่หรือข้ามทีม
+  // 🌟 [แก้ไขใหม่] ฟังก์ชันสำหรับสลับตัวผู้เล่นข้ามคู่หรือข้ามทีม (คงสถานะพรีวิวไว้)
   const executePlayerSwap = async (targetMatchId: string, targetPlayerId: string) => {
     if (!swapSource) return;
     const { matchId: sourceMatchId, playerId: sourcePlayerId } = swapSource;
 
-    // ถ้ากดคลิกคนเดิม (Toggle off)
     if (sourceMatchId === targetMatchId && sourcePlayerId === targetPlayerId) {
       setSwapSource(null);
       return;
@@ -252,7 +250,6 @@ export default function Home() {
        return;
     }
 
-    // เตรียมตัวแปรหาตำแหน่งเป๊ะๆ (Index) ป้องกันการแทนที่ผิดตัว
     let pSource: any = null;
     let pTarget: any = null;
     let sTeamIdx = -1, sPlayerIdx = -1;
@@ -282,41 +279,29 @@ export default function Home() {
        return;
     }
 
-    // 🔄 Copy Match เพื่อนำมาสลับ
     const sMatch = JSON.parse(JSON.stringify(allPreviews[sMatchIdx]));
-    
-    // 💡 คีย์หลัก: ถ้าสลับในคิวเดียวกัน ให้ชี้ตัวแปร tMatch ไปที่ sMatch เลย จะได้อัปเดตก้อนเดียวกัน
     const tMatch = (sourceMatchId === targetMatchId) ? sMatch : JSON.parse(JSON.stringify(allPreviews[tMatchIdx]));
 
-    // ทำการแทนที่ผู้เล่นในตำแหน่ง Index ตรงๆ
-    if (sTeamIdx > -1 && sPlayerIdx > -1) {
-       sMatch.teams[sTeamIdx][sPlayerIdx] = pTarget;
-    }
-    if (tTeamIdx > -1 && tPlayerIdx > -1) {
-       tMatch.teams[tTeamIdx][tPlayerIdx] = pSource;
-    }
+    if (sTeamIdx > -1 && sPlayerIdx > -1) sMatch.teams[sTeamIdx][sPlayerIdx] = pTarget;
+    if (tTeamIdx > -1 && tPlayerIdx > -1) tMatch.teams[tTeamIdx][tPlayerIdx] = pSource;
 
-    // 🔒 แปลงให้เป็น Manual Match อัตโนมัติ (เพื่อล็อกไม่ให้ระบบจัดใหม่)
-    const finalSMatchId = sMatch.isManual ? sMatch.matchId : `M-swapS-${Date.now()}`;
+    // 🌟 ใช้ U- เพื่อระบุว่าเป็น Unlocked (รอยืนยัน) และดึง Timestamp มาเรียงลำดับ
+    const finalSMatchId = sMatch.matchId.startsWith('auto-') ? `U-swapS-${Date.now()}` : sMatch.matchId;
     sMatch.matchId = finalSMatchId;
-    sMatch.isManual = true;
 
     let finalTMatchId = finalSMatchId;
     if (sourceMatchId !== targetMatchId) {
-       finalTMatchId = tMatch.isManual ? tMatch.matchId : `M-swapT-${Date.now()}`;
+       finalTMatchId = tMatch.matchId.startsWith('auto-') ? `U-swapT-${Date.now() + 1}` : tMatch.matchId;
        tMatch.matchId = finalTMatchId;
-       tMatch.isManual = true;
     }
 
-    // 💾 บันทึกลงฐานข้อมูล API
-    if (allPreviews[sMatchIdx].isManual) {
+    if (sourceMatchId.startsWith('M-') || sourceMatchId.startsWith('U-')) {
        await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sourceMatchId }) }).catch(()=>null);
     }
-    if (sourceMatchId !== targetMatchId && allPreviews[tMatchIdx].isManual) {
+    if (sourceMatchId !== targetMatchId && (targetMatchId.startsWith('M-') || targetMatchId.startsWith('U-'))) {
        await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: targetMatchId }) }).catch(()=>null);
     }
 
-    // Save คู่แรก
     await fetch('/api/manual-queue', {
        method: 'POST', headers: { 'Content-Type': 'application/json' },
        body: JSON.stringify({
@@ -326,7 +311,6 @@ export default function Home() {
        })
     });
 
-    // Save คู่ที่สอง (เฉพาะกรณีที่สลับข้ามคิว)
     if (sourceMatchId !== targetMatchId) {
        await fetch('/api/manual-queue', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -340,7 +324,7 @@ export default function Home() {
 
     setSwapSource(null);
     await refresh(false);
-    Toast.fire({ title: '✅ สลับตัวผู้เล่นเรียบร้อย และถูกล็อคคิวแล้ว!' });
+    Toast.fire({ title: '✅ สลับตัวผู้เล่นเรียบร้อย (รอยืนยัน)' });
   }
 
   const myStartLogs = myPlayHistory.filter(h => h.action.toLowerCase().includes('start') || h.action.includes('ลงสนาม'));
@@ -555,11 +539,20 @@ export default function Home() {
             const p4 = d.waiting?.find((x:any)=>x.id === m.p4_id) || { id: m.p4_id, name: 'Unknown', skill: 0 };
             return {
                matchId: m.id, 
-               isManual: true,
+               isManual: !m.id.startsWith('U-'), // 🌟 ถ้าเป็น U- (Unlocked) จะนับว่าเป็นสถานะ Preview รอยืนยัน
                teams: [[p1, p2], [p3, p4]]
             }
          });
          
+         // 🌟 Sort ลำดับตามเวลาที่ดึงมาจาก ID เพื่อไม่ให้กระโดดไปมา
+         formattedManuals.sort((a: any, b: any) => {
+            const getTime = (id: string) => {
+               const match = id.match(/-(\d+)/);
+               return match ? parseInt(match[1]) : 0;
+            };
+            return getTime(a.matchId) - getTime(b.matchId);
+         });
+
          setManualPreviews(formattedManuals);
       }
     } catch (e) { }
@@ -855,7 +848,7 @@ export default function Home() {
     const selectedPlayers = (selected.map(id => state?.waiting?.find(p => p.id === id)).filter(Boolean) as Player[]) || [];
     if (selectedPlayers.length !== 4) return Toast.fire({ title: '⚠️ ดึงข้อมูลผู้เล่นไม่ครบ' });
 
-    const matchId = `M-${Date.now()}`;
+    const matchId = `M-inserted-${Date.now()}`;
     const matchData = {
       matchId,
       isManual: true,
@@ -889,15 +882,28 @@ export default function Home() {
     Toast.fire({ title: '🗑️ ยกเลิกคิวแล้ว' });
   };
 
+  // 🌟 คงลำดับเมื่อยืนยัน (Lock) โดยเก็บ Timestamp เดิมไว้
   const lockQueue = async (prepMatch: any) => {
     Swal.fire({ title: 'กำลังยืนยันคิว...', toast: true, position: 'top', showConfirmButton: false });
-    const matchId = `M-${Date.now()}`;
+    
+    const match = prepMatch.matchId.match(/-(\d+)$/);
+    const oldTime = match ? match[1] : Date.now();
+    const matchId = `M-locked-${oldTime}`; 
+    
     const newManual = { matchId, isManual: true, teams: prepMatch.teams };
     
     setManualPreviews(prev => {
         const filtered = prev.filter(m => m.matchId !== prepMatch.matchId);
         return [...filtered, newManual];
     });
+    
+    if (prepMatch.matchId.startsWith('U-')) {
+       await fetch('/api/manual-queue', {
+         method: 'DELETE',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ id: prepMatch.matchId })
+       }).catch(()=>null);
+    }
     
     await fetch('/api/manual-queue', {
       method: 'POST',
@@ -911,6 +917,7 @@ export default function Home() {
     Toast.fire({ title: '✅ ยืนยันผลการจัดคู่แล้ว!' });
   };
 
+  // 🌟 สุ่มใหม่ให้กลายเป็นสถานะ Preview เสมอ
   const triggerReshuffle = async (matchData?: any) => {
     const targetIndex = previewQueue.findIndex((m: any) => m.matchId === matchData?.matchId);
     if (targetIndex === -1) return;
@@ -922,9 +929,9 @@ export default function Home() {
     for (let i = 0; i < precedingMatches.length; i++) {
       const m = precedingMatches[i];
       if (!existingManualIds.has(m.matchId)) {
-        const newMatchId = `M-locked-${Date.now()}-${i}`;
-        const lockedMatch = { ...m, matchId: newMatchId, isManual: true };
-        newLockedPreviews.push(lockedMatch);
+        const newMatchId = `U-pinned-${Date.now() + i}-${i}`; 
+        const pinnedMatch = { ...m, matchId: newMatchId, isManual: false };
+        newLockedPreviews.push(pinnedMatch);
         
         await fetch('/api/manual-queue', {
           method: 'POST',
@@ -948,10 +955,10 @@ export default function Home() {
     const shuffled = [...availableWaiters].sort(() => 0.5 - Math.random());
     let bestMatch = extractBestMatch(shuffled, matchHistory) || { teams: [[shuffled[0], shuffled[1]], [shuffled[2], shuffled[3]]] };
 
-    const newReshuffledId = `M-reshuffle-${Date.now()}`;
+    const newReshuffledId = `U-reshuffle-${Date.now() + precedingMatches.length}`;
     const newPreviewMatch = {
       matchId: newReshuffledId,
-      isManual: true, 
+      isManual: false, 
       courtName: matchData?.courtName || '',
       teams: bestMatch.teams
     };
@@ -968,7 +975,7 @@ export default function Home() {
 
     setManualPreviews([...combinedManuals, newPreviewMatch]);
 
-    if (matchData?.isManual && matchData?.matchId) {
+    if (matchData?.matchId && (matchData.matchId.startsWith('M-') || matchData.matchId.startsWith('U-'))) {
       await fetch('/api/manual-queue', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
@@ -976,7 +983,7 @@ export default function Home() {
       }).catch(()=>null);
     }
 
-    Toast.fire({ title: '✅ สุ่มและบันทึกคิวใหม่ลงฐานข้อมูลแล้ว!' });
+    Toast.fire({ title: '✅ สุ่มและบันทึกคิวใหม่ (สถานะรอยืนยัน)!' });
   };
 
   const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
@@ -1069,7 +1076,7 @@ export default function Home() {
         m.teams[0][0].id !== matchData.teams[0][0].id 
       ));
 
-      if (matchData?.isManual && matchData?.matchId) {
+      if (matchData?.matchId && (matchData.matchId.startsWith('M-') || matchData.matchId.startsWith('U-'))) {
         await fetch('/api/manual-queue', {
           method: 'DELETE', 
           headers: { 'Content-Type': 'application/json' }, 
@@ -1703,7 +1710,7 @@ export default function Home() {
     
     availableCourts, manualIdsList, availableWaitingView, autoMatches, allPreviews, previewQueue, 
     
-    swapSource, setSwapSource, executePlayerSwap, // <-- 🌟 ส่งฟังก์ชันสลับตัวใหม่ไปให้ Component ลูกใช้
+    swapSource, setSwapSource, executePlayerSwap,
 
     enableNotify, toggleEnableNotify,
 
@@ -1731,7 +1738,6 @@ export default function Home() {
     
     <div className={`min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-sans pb-24 transition-all duration-300 ${(state?.announcement && enableNotify) ? 'pt-24' : 'pt-16'}`}>
       
-      {/* 🌟 [เพิ่มใหม่] CSS Global สำหรับไฮไลท์ตัวเองและทำ Animation สลับตัว */}
       <style dangerouslySetInnerHTML={{__html: `
         .highlight-me {
           box-shadow: 0 0 0 3px #3b82f6, 0 0 15px rgba(59, 130, 246, 0.5) !important;

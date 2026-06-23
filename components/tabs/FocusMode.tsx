@@ -1,124 +1,216 @@
-import { Monitor, Maximize, Clock, Swords, Check, CheckCircle2 } from 'lucide-react'
+import React, { useState, useEffect } from 'react';
+import { X, Clock, MapPin, Swords, Play, Check, RefreshCw } from 'lucide-react';
 
 export default function FocusMode(props: any) {
-  const {
-    playStartTime, playEndTime, setFullscreen, state, loadingCourts,
-    avgMatchDuration, allPreviews, availableCourts, admin, finish,
-    confirmSpecificMatch, setManualPreviews
-  } = props;
+  const { state, setFullscreen, getSkillColor, myProfile, admin, finish, startGame } = props;
+  
+  // ใช้สำหรับอัปเดตเวลาให้เดินแบบ Real-time บนหน้าจอ
+  const [now, setNow] = useState(Date.now());
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000); // อัปเดตทุก 1 นาที
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleAction = async (id: string, actionFunc: () => Promise<void> | void) => {
+    if (loadingId) return; 
+    setLoadingId(id);
+    try {
+      await actionFunc();
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  // คอมโพเนนต์ย่อยสำหรับวาด "ลูกแม่เหล็ก" 
+  const PlayerMagnet = ({ name, skill, isYou }: { name: string, skill: number, isYou: boolean }) => (
+    <div className="flex flex-col items-center group">
+      <div className={`
+        relative w-16 h-16 md:w-[4.5rem] md:h-[4.5rem] rounded-full flex flex-col items-center justify-center p-1
+        bg-gradient-to-b from-white to-slate-100 border border-slate-300
+        shadow-[0_4px_10px_rgba(0,0,0,0.06),inset_0_-3px_6px_rgba(0,0,0,0.03)]
+        transition-transform duration-300 hover:scale-105
+        ${isYou ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white shadow-blue-500/30' : ''}
+      `}>
+        {/* จุดสีบอกระดับฝีมือ */}
+        <div className={`
+          absolute top-1 md:top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 md:w-3 md:h-3 rounded-full shadow-sm border border-black/10
+          ${getSkillColor(skill)}
+        `}></div>
+        
+        {/* ชื่อผู้เล่น */}
+        <span 
+          className="text-slate-800 font-bold text-[9px] md:text-[10px] text-center leading-[1.1] mt-2 px-1 w-full"
+          style={{ 
+            display: '-webkit-box', 
+            WebkitLineClamp: 2, 
+            WebkitBoxOrient: 'vertical', 
+            overflow: 'hidden',
+            wordBreak: 'break-word'
+          }}
+        >
+          {name}
+        </span>
+
+        {isYou && (
+          <div className="absolute -bottom-1.5 md:-bottom-2 bg-blue-500 text-white text-[8px] md:text-[9px] px-1.5 py-0.5 rounded-full font-black shadow-sm z-10">
+            YOU
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
-      <div className="fixed inset-0 bg-slate-100 dark:bg-slate-950 z-[100] overflow-y-auto p-3 sm:p-6 flex flex-col">
-        <div className="flex justify-between items-center mb-6 pt-2 pb-4 border-b border-slate-300 dark:border-slate-800">
-            <div className="flex flex-col">
-              <h1 className="text-xl sm:text-3xl font-black text-slate-800 dark:text-white tracking-widest flex items-center gap-3">
-                <Monitor className="w-8 h-8 text-blue-600" /> LIVE FOCUS
-              </h1>
-              <span className="text-xs sm:text-sm text-slate-500 font-medium">Play Time: {playStartTime} - {playEndTime}</span>
-            </div>
-            <button onClick={()=>setFullscreen(false)} className="bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 px-4 sm:px-6 py-2 rounded-lg font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition shadow-md text-sm sm:text-base flex items-center gap-2">
-              <Maximize className="w-4 h-4" /> EXIT
-            </button>
+    <div className="fixed inset-0 z-[200] bg-slate-50 text-slate-800 overflow-y-auto overflow-x-hidden font-sans pb-10">
+      
+      {/* 🌟 Background Effects (Light Mode) */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-400/10 rounded-full blur-[100px] pointer-events-none"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-400/10 rounded-full blur-[100px] pointer-events-none"></div>
+
+      {/* Header */}
+      <div className="sticky top-0 w-full bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 sm:px-6 py-3 flex justify-between items-center z-50 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="bg-indigo-100 p-2 rounded-xl text-indigo-600">
+            <Swords className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-lg md:text-xl font-black text-slate-800 tracking-tight leading-none">Live Courts</h1>
+            <p className="text-[10px] text-slate-500 font-bold tracking-widest uppercase mt-0.5">Focus Mode</p>
+          </div>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5 flex-1 pb-10">
-          {(state?.courtNames || []).map((cn: any) => {
-          const m = (state?.playing || []).find((p: any) => p.court === cn);
-          if (loadingCourts.includes(cn)) return <div key={cn} className="bg-slate-900 border border-slate-700 rounded-2xl flex flex-col items-center justify-center min-h-[140px] sm:min-h-[180px] animate-pulse"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div><span className="text-xs font-bold text-slate-400 tracking-widest uppercase">กำลังเตรียมคอร์ท...</span></div>;
-          if (m) {
-              const min = Math.floor((Date.now()-new Date(m.startTime).getTime())/60000); const isLate = min >= avgMatchDuration;
-              return (
-                <div key={cn} className={`bg-white dark:bg-slate-900 border ${isLate ? 'border-red-400 ring-2 ring-red-400/30' : 'border-slate-200 dark:border-slate-800'} rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all`}>
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex text-slate-600 text-sm font-bold bg-slate-100 px-4 py-2 rounded-xl border border-slate-200 shadow-inner">
+            {new Date(now).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+          </div>
+          <button 
+            onClick={() => setFullscreen(false)} 
+            className="bg-white hover:bg-slate-100 text-slate-600 p-2 md:p-2.5 rounded-xl transition-all active:scale-95 border border-slate-200 shadow-sm"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Content Grid */}
+      <div className="max-w-[1400px] mx-auto px-3 sm:px-4 pt-4 sm:pt-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-5">
+          {(state?.courtNames || []).map((cn: string) => {
+            const m = (state?.playing || []).find((p: any) => p.court === cn);
+            const elapsedMin = m ? Math.floor((now - new Date(m.startTime).getTime()) / 60000) : 0;
+            const started = elapsedMin >= 1; // เริ่มจับเวลาแล้ว
+
+            // 🌟 Logic การคำนวณแถบ Progress (อิงฐานที่ 20 นาที)
+            const maxTime = 20;
+            const progressPercent = Math.min(100, (elapsedMin / maxTime) * 100);
+            
+            // เปลี่ยนสีตามเวลา (เขียว -> ส้ม -> แดง)
+            let progressColor = 'bg-emerald-500';
+            let timeBadgeColor = 'text-emerald-600 bg-emerald-100 border-emerald-200';
+            
+            if (elapsedMin >= 18) {
+               progressColor = 'bg-red-500';
+               timeBadgeColor = 'text-red-600 bg-red-100 border-red-200 animate-pulse';
+            } else if (elapsedMin >= 15) {
+               progressColor = 'bg-orange-500';
+               timeBadgeColor = 'text-orange-600 bg-orange-100 border-orange-200';
+            }
+
+            return (
+              <div key={cn} className="relative group">
+                <div className={`
+                  h-full rounded-[1.5rem] border overflow-hidden bg-white shadow-[0_4px_15px_rgba(0,0,0,0.03)] transition-all flex flex-col
+                  ${m ? 'border-indigo-100' : 'border-slate-200 border-dashed bg-slate-50/50'}
+                `}>
                   
-                  <div className="absolute top-2 right-2 z-20">
-                     <div className="bg-slate-100/90 dark:bg-slate-950/80 backdrop-blur border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">
-                        {cn}
-                     </div>
-                  </div>
-                  
-                  <div className="absolute top-2 left-2 z-20">
-                     <div className={`px-2.5 py-1 rounded-lg text-xs font-black shadow-sm flex items-center gap-1 ${isLate?'bg-red-600 text-white animate-pulse':'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                        <Clock className="w-3.5 h-3.5"/> {min}m
-                     </div>
+                  {/* Court Header */}
+                  <div className={`px-4 py-2.5 flex justify-between items-center ${m ? 'border-b border-indigo-50 bg-indigo-50/30' : 'border-slate-100 bg-slate-100/50'}`}>
+                    <span className="font-black text-base text-slate-800 flex items-center gap-1.5">
+                      <MapPin className={`w-4 h-4 ${m ? 'text-indigo-500' : 'text-slate-400'}`} /> {cn}
+                    </span>
+                    {m && (
+                      <span className={`text-xs font-black px-2.5 py-0.5 rounded-md flex items-center gap-1 shadow-sm border ${timeBadgeColor}`}>
+                        <Clock className="w-3.5 h-3.5" /> <span>{elapsedMin} <span className="text-[9px] uppercase tracking-wider opacity-80">min</span></span>
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex-1 flex flex-col justify-center gap-1.5 p-3 pt-12 z-10">
-                    <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-blue-500">
-                      <div className="text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold truncate w-[45%]">{m.p1Name}</div>
-                      <div className="text-blue-500 dark:text-blue-400 font-black text-[10px]">&</div>
-                      <div className="text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p2Name}</div>
+                  {/* 🌟 Progress Bar */}
+                  {m && (
+                    <div className="w-full h-[3px] bg-slate-100">
+                      <div 
+                        className={`h-[3px] transition-all duration-1000 ease-linear ${progressColor}`} 
+                        style={{ width: `${progressPercent}%` }}
+                      ></div>
                     </div>
-                    <div className="flex justify-center -my-3 z-20">
-                      <span className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-400 px-2 py-1 rounded-full font-black text-[9px] shadow-sm flex items-center gap-1"><Swords className="w-3.5 h-3.5"/></span>
-                    </div>
-                    <div className="bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-red-500">
-                      <div className="text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold truncate w-[45%]">{m.p3Name}</div>
-                      <div className="text-red-500 dark:text-red-400 font-black text-[10px]">&</div>
-                      <div className="text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{m.p4Name}</div>
-                    </div>
-                  </div>
-                  {admin && (
-                    <button onClick={() => finish(m.court)} className="mx-3 mb-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-black transition active:scale-95 shadow-md flex items-center justify-center gap-2">
-                      <Check className="w-4 h-4"/> Finish Match
-                    </button>
                   )}
-                </div>
-              )
-            } else {
-              const availIndex = availableCourts.indexOf(cn); const prepMatch = allPreviews[availIndex];
-              if (prepMatch) {
-                return (
-                  <div key={cn} className="bg-emerald-50 dark:bg-slate-900 border border-dashed border-emerald-400 dark:border-emerald-500/50 rounded-2xl flex flex-col min-h-[140px] sm:min-h-[180px] relative overflow-hidden shadow-xl transition-all">
-                    
-                    <div className="absolute top-2 right-2 z-20">
-                       <div className="bg-white/90 dark:bg-slate-950/80 backdrop-blur border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded-lg text-xs font-black shadow-sm uppercase tracking-widest">
-                          {cn}
-                       </div>
-                    </div>
 
-                    <div className="absolute top-2 left-2 z-20">
-                       <div className={`px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm uppercase tracking-widest ${prepMatch.isManual ? 'bg-blue-200 text-blue-800 dark:bg-blue-400 dark:text-blue-900' : 'bg-emerald-200 text-emerald-800 dark:bg-emerald-400 dark:text-emerald-900 animate-pulse'}`}>
-                          {prepMatch.isManual ? 'จับคู่แล้ว' : 'รอการยืนยัน'}
-                       </div>
-                    </div>
+                  {/* Court Body */}
+                  <div className="p-3 sm:p-4 flex flex-col justify-between flex-1 min-h-[140px] md:min-h-[160px]">
+                    {m ? (
+                      <>
+                        <div className="relative flex flex-row items-center justify-between gap-2 sm:gap-3 flex-1 mt-2">
+                          {/* Team 1 */}
+                          <div className="flex gap-2 sm:gap-3 w-[45%] justify-end">
+                            <PlayerMagnet name={m.p1Name} skill={m.p1Skill} isYou={m.p1Id === myProfile?.id} />
+                            <PlayerMagnet name={m.p2Name} skill={m.p2Skill} isYou={m.p2Id === myProfile?.id} />
+                          </div>
 
-                    <div className="flex-1 flex flex-col justify-center gap-1.5 p-3 pt-12 z-10">
-                      <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-slate-400 dark:border-l-slate-500 shadow-sm">
-                        <div className="text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[0][0].name}</div>
-                        <div className="text-slate-400 dark:text-slate-500 font-black text-[10px]">&</div>
-                        <div className="text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[0][1].name}</div>
-                      </div>
-                      <div className="flex justify-center -my-3 z-20">
-                        <span className="bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-400 px-2 py-1 rounded-full font-black text-[9px] shadow-sm flex items-center gap-1"><Swords className="w-3.5 h-3.5"/></span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-2.5 flex justify-between items-center border-l-4 border-l-slate-400 dark:border-l-slate-500 shadow-sm">
-                        <div className="text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%]">{prepMatch.teams[1][0].name}</div>
-                        <div className="text-slate-400 dark:text-slate-500 font-black text-[10px]">&</div>
-                        <div className="text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold truncate w-[45%] text-right">{prepMatch.teams[1][1].name}</div>
-                      </div>
-                    </div>
-                    {admin && (
-                      <div className="flex gap-2 mx-3 mb-3 z-20 mt-4">
-                        <button onClick={()=>confirmSpecificMatch(prepMatch, cn)} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg shadow-sm active:scale-95 transition flex items-center justify-center gap-1.5"><CheckCircle2 className="w-4 h-4"/> Confirm</button>
-                        {prepMatch.isManual && (
-                          <button onClick={() => setManualPreviews((prev: any) => prev.filter((m: any) => m !== prepMatch))} className="px-3 py-2 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-200 rounded-lg text-xs font-black transition active:scale-95 shadow-md">✕</button>
+                          {/* VS Divider */}
+                          <div className="flex flex-col items-center justify-center shrink-0 w-[10%] relative">
+                            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center justify-center -z-10">
+                               <div className="h-[120%] w-px border-l border-dashed border-slate-300"></div>
+                            </div>
+                            <div className="bg-slate-100 text-slate-500 border border-slate-200 font-black text-[9px] sm:text-[10px] px-2 py-0.5 rounded-full tracking-widest shadow-sm">
+                              VS
+                            </div>
+                          </div>
+
+                          {/* Team 2 */}
+                          <div className="flex gap-2 sm:gap-3 w-[45%] justify-start">
+                            <PlayerMagnet name={m.p3Name} skill={m.p3Skill} isYou={m.p3Id === myProfile?.id} />
+                            <PlayerMagnet name={m.p4Name} skill={m.p4Skill} isYou={m.p4Id === myProfile?.id} />
+                          </div>
+                        </div>
+
+                        {/* 🌟 Admin Actions (เริ่มเกม / จบแมตช์) */}
+                        {admin && (
+                          <div className="flex gap-2 mt-5 pt-3 border-t border-slate-100 w-full">
+                            {!started && (
+                              <button 
+                                onClick={() => handleAction(`start-${cn}`, async () => await startGame(cn))} 
+                                disabled={loadingId === `start-${cn}`}
+                                className={`flex-1 py-2.5 text-white text-[10px] md:text-xs font-bold rounded-xl transition-all flex justify-center items-center gap-1.5 shadow-sm ${loadingId === `start-${cn}` ? 'bg-indigo-400 cursor-not-allowed opacity-75' : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'}`}
+                              >
+                                {loadingId === `start-${cn}` ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-white" />}
+                                {loadingId === `start-${cn}` ? 'รอสักครู่...' : 'เริ่มเกม (จับเวลา)'}
+                              </button>
+                            )}
+                            
+                            <button 
+                              onClick={() => finish(cn)} 
+                              className="flex-[0.6] py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-[10px] md:text-xs font-bold rounded-xl shadow-sm active:scale-95 transition-all flex justify-center items-center gap-1.5"
+                            >
+                              <Check className="w-3.5 h-3.5" /> จบแมตช์
+                            </button>
+                          </div>
                         )}
+                      </>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-slate-400 h-full">
+                        <Swords className="w-8 h-8 mb-2 opacity-30 stroke-[1.5px]" />
+                        <span className="text-xs font-bold tracking-widest uppercase">สนามว่าง</span>
                       </div>
                     )}
                   </div>
-                )
-              } else {
-                return (
-                  <div key={cn} className="bg-slate-100 dark:bg-slate-900 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center p-4 relative overflow-hidden min-h-[140px] sm:min-h-[180px]">
-                    <div className="z-10 bg-white/80 dark:bg-slate-800/80 px-4 py-2 rounded-xl backdrop-blur-sm shadow-sm border border-slate-200 dark:border-slate-700">
-                       <h3 className="text-sm sm:text-base font-black text-slate-500 dark:text-slate-400 tracking-widest">{cn}</h3>
-                    </div>
-                  </div>
-                )
-              }
-            }
+                </div>
+              </div>
+            );
           })}
         </div>
       </div>
-  )
+    </div>
+  );
 }
