@@ -107,8 +107,8 @@ function isBlockedByHistory(
 }
 
 /**
- * Soft penalty (ใช้เฉพาะ candidate ที่ไม่ติด block)
- * ช่วยเลือกอันที่ซ้ำน้อยกว่า ถ้าจำเป็น
+ * คำนวณค่า Penalty ของคู่เล่น
+ * ยิ่ง Penalty สูง ยิ่งไม่ควรเลือก (เพราะเคยเจอกันบ่อยแล้ว)
  */
 function checkHistoryPenalty(
   t1: Player[],
@@ -116,33 +116,44 @@ function checkHistoryPenalty(
   history: MatchHistory[],
   targetDate = new Date()
 ): number {
-  const recentHistory = getTodayRecentHistory(history, targetDate, 15);
+  const recentHistory = getTodayRecentHistory(history, targetDate, 30); // เพิ่ม history เป็น 30 แมตช์
   if (recentHistory.length === 0) return 0;
 
   let penalty = 0;
-  const t1Ids = [t1[0].id, t1[1].id];
-  const t2Ids = [t2[0].id, t2[1].id];
+  const currentMatchPlayers = [...t1, ...t2];
+
+  // เก็บ ID ของผู้เล่นในปัจจุบัน
+  const currentIds = currentMatchPlayers.map(p => p.id);
 
   for (const h of recentHistory) {
-    if (isSameTeam(h.t1, t1Ids) || isSameTeam(h.t2, t1Ids)) penalty += 100;
-    if (isSameTeam(h.t1, t2Ids) || isSameTeam(h.t2, t2Ids)) penalty += 100;
-
-    if (isExactSameMatch(t1Ids, t2Ids, h)) {
-      penalty += 500;
-    }
-
-    const currentMatchPlayers = [...t1Ids, ...t2Ids];
-    let togetherCount = 0;
-
-    for (let i = 0; i < currentMatchPlayers.length; i++) {
-      for (let j = i + 1; j < currentMatchPlayers.length; j++) {
-        if (playedTogether(currentMatchPlayers[i], currentMatchPlayers[j], h)) {
-          togetherCount++;
-        }
+    const historyPlayers = [...h.t1, ...h.t2];
+    
+    // นับจำนวนคนที่เคยเจอกันมาก่อนในแมตช์นี้
+    let meetCount = 0;
+    for (const pid of currentIds) {
+      if (historyPlayers.includes(pid)) {
+        meetCount++;
       }
     }
 
-    penalty += togetherCount * 15;
+    // 🔥 LOGIC ใหม่: 
+    // ถ้าในแมตช์นี้ มีคนจากแมตช์เก่ามาเจอกันเยอะ Penalty จะยิ่งสูง
+    // ถ้าเคยเจอกัน 2 คนในแมตช์เก่า = +100
+    // ถ้าเคยเจอกัน 3 คนในแมตช์เก่า = +300
+    // ถ้าเคยเจอกัน 4 คน (ครบชุดเดิม) = +1000 (Block หนัก)
+    if (meetCount >= 2) {
+      if (meetCount === 2) penalty += 150;
+      if (meetCount === 3) penalty += 400;
+      if (meetCount === 4) penalty += 1200;
+    }
+
+    // Penalty พิเศษ: ทีมเดิม (ถ้าเคยอยู่ทีมเดียวกันเป๊ะๆ)
+    const isSameTeam1 = isSameTeam(h.t1, [t1[0].id, t1[1].id]) || isSameTeam(h.t2, [t1[0].id, t1[1].id]);
+    const isSameTeam2 = isSameTeam(h.t1, [t2[0].id, t2[1].id]) || isSameTeam(h.t2, [t2[0].id, t2[1].id]);
+    
+    if (isSameTeam1 || isSameTeam2) {
+      penalty += 200; 
+    }
   }
 
   return penalty;

@@ -23,44 +23,58 @@ export default function FocusMode(props: any) {
     }
   };
 
-  // คอมโพเนนต์ย่อยสำหรับวาด "ลูกแม่เหล็ก" 
-  const PlayerMagnet = ({ name, skill, isYou }: { name: string, skill: number, isYou: boolean }) => (
-    <div className="flex flex-col items-center group">
-      <div className={`
-        relative w-16 h-16 md:w-[4.5rem] md:h-[4.5rem] rounded-full flex flex-col items-center justify-center p-1
-        bg-gradient-to-b from-white to-slate-100 border border-slate-300
-        shadow-[0_4px_10px_rgba(0,0,0,0.06),inset_0_-3px_6px_rgba(0,0,0,0.03)]
-        transition-transform duration-300 hover:scale-105
-        ${isYou ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white shadow-blue-500/30' : ''}
-      `}>
-        {/* จุดสีบอกระดับฝีมือ */}
-        <div className={`
-          absolute top-1 md:top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 md:w-3 md:h-3 rounded-full shadow-sm border border-black/10
-          ${getSkillColor(skill)}
-        `}></div>
-        
-        {/* ชื่อผู้เล่น */}
-        <span 
-          className="text-slate-800 font-bold text-[9px] md:text-[10px] text-center leading-[1.1] mt-2 px-1 w-full"
-          style={{ 
-            display: '-webkit-box', 
-            WebkitLineClamp: 2, 
-            WebkitBoxOrient: 'vertical', 
-            overflow: 'hidden',
-            wordBreak: 'break-word'
-          }}
-        >
-          {name}
-        </span>
+const PlayerMagnet = ({ name, skill, isYou }: { name: string, skill: number, isYou: boolean }) => {
+    // ปรับ Logic การแสดงผลให้ฟอนต์ใหญ่ขึ้น
+    // ถ้าชื่อสั้น (<= 6) ใช้ text-base (16px) 
+    // ถ้าชื่อยาวขึ้น ระบบจะค่อยๆ ลดขนาดลงตามความเหมาะสม
+    const len = name.length;
+    let textClass = "text-[13px] md:text-[14px]"; 
+    if (len <= 6) {
+      textClass = "text-[16px] md:text-[18px] font-black"; // ใหญ่พิเศษสำหรับชื่อสั้น
+    } else if (len <= 10) {
+      textClass = "text-[12px] md:text-[14px]";
+    }
 
-        {isYou && (
-          <div className="absolute -bottom-1.5 md:-bottom-2 bg-blue-500 text-white text-[8px] md:text-[9px] px-1.5 py-0.5 rounded-full font-black shadow-sm z-10">
-            YOU
-          </div>
-        )}
+    return (
+      <div className="flex flex-col items-center shrink-0">
+        <div className={`
+          relative w-16 h-16 md:w-20 md:h-20 rounded-full flex flex-col items-center justify-center p-1
+          bg-gradient-to-b from-white to-slate-100 border border-slate-300
+          shadow-[0_4px_12px_rgba(0,0,0,0.08)]
+          transition-transform duration-300 hover:scale-105
+          ${isYou ? 'ring-2 ring-blue-500 ring-offset-2 shadow-blue-500/30' : ''}
+        `}>
+          {/* จุดสีบอกระดับฝีมือ */}
+          <div className={`
+            absolute top-2 md:top-2.5 left-1/2 -translate-x-1/2 w-3 h-3 md:w-3.5 md:h-3.5 rounded-full shadow-sm border border-black/10
+            ${getSkillColor(skill)}
+          `}></div>
+          
+          {/* ชื่อผู้เล่น: ปรับให้ใหญ่และกว้างขึ้น */}
+          <span 
+            className={`text-slate-800 font-bold text-center px-1 w-full tracking-tight mt-3 md:mt-4 ${textClass}`}
+            style={{ 
+              display: '-webkit-box', 
+              WebkitLineClamp: 2, 
+              WebkitBoxOrient: 'vertical', 
+              overflow: 'hidden',
+              wordBreak: 'break-word',
+              lineHeight: '1.1' 
+            }}
+          >
+            {name}
+          </span>
+
+          {/* ป้าย YOU */}
+          {isYou && (
+            <div className="absolute -bottom-1.5 md:-bottom-2 bg-blue-500 text-white text-[8px] md:text-[9px] px-2 py-0.5 rounded-full font-black shadow-md z-10 border border-white">
+              YOU
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-[200] bg-slate-50 text-slate-800 overflow-y-auto overflow-x-hidden font-sans pb-10">
@@ -148,7 +162,7 @@ export default function FocusMode(props: any) {
                   )}
 
                   {/* Court Body */}
-                  <div className="p-3 sm:p-4 flex flex-col justify-between flex-1 min-h-[140px] md:min-h-[160px]">
+                  <div className="p-3 sm:p-5 flex flex-col justify-between flex-1 min-h-[160px] md:min-h-[180px]">
                     {m ? (
                       <>
                         <div className="relative flex flex-row items-center justify-between gap-2 sm:gap-3 flex-1 mt-2">
@@ -163,7 +177,7 @@ export default function FocusMode(props: any) {
                             <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center justify-center -z-10">
                                <div className="h-[120%] w-px border-l border-dashed border-slate-300"></div>
                             </div>
-                            <div className="bg-slate-100 text-slate-500 border border-slate-200 font-black text-[9px] sm:text-[10px] px-2 py-0.5 rounded-full tracking-widest shadow-sm">
+                            <div className="bg-slate-100 text-slate-500 border border-slate-200 font-black text-[9px] sm:text-[10px] px-2 py-0.5 rounded-full tracking-widest shadow-sm z-10">
                               VS
                             </div>
                           </div>
@@ -177,7 +191,7 @@ export default function FocusMode(props: any) {
 
                         {/* 🌟 Admin Actions (เริ่มเกม / จบแมตช์) */}
                         {admin && (
-                          <div className="flex gap-2 mt-5 pt-3 border-t border-slate-100 w-full">
+                          <div className="flex gap-2 mt-6 pt-4 border-t border-slate-100 w-full">
                             {!started && (
                               <button 
                                 onClick={() => handleAction(`start-${cn}`, async () => await startGame(cn))} 
@@ -199,7 +213,7 @@ export default function FocusMode(props: any) {
                         )}
                       </>
                     ) : (
-                      <div className="flex flex-col items-center justify-center text-slate-400 h-full">
+                      <div className="flex flex-col items-center justify-center text-slate-400 h-full py-4">
                         <Swords className="w-8 h-8 mb-2 opacity-30 stroke-[1.5px]" />
                         <span className="text-xs font-bold tracking-widest uppercase">สนามว่าง</span>
                       </div>
