@@ -86,6 +86,9 @@ export default function Home() {
   const [isCourtManagerOpen, setIsCourtManagerOpen] = useState(false);
   const [newCourtName, setNewCourtName] = useState('');
 
+  // 🌟 [เพิ่มใหม่] State ควบคุมป๊อปอัปแจ้งเตือนเซสชันค้าง
+  const [showStaleSessionModal, setShowStaleSessionModal] = useState(false);
+
   const wakeLockRef = useRef<any>(null);
   const [isAwake, setIsAwake] = useState(false);
   const [notifyPerm, setNotifyPerm] = useState<string>('default');
@@ -232,6 +235,7 @@ export default function Home() {
   const notifiedStandby = useRef(false);
   const notifiedPlay = useRef(false);
   const autoFillingRef = useRef(false);
+  const isConfirmingMatchRef = useRef(false);
 
   const withTimeout = async <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
     let t: any;
@@ -449,6 +453,48 @@ export default function Home() {
     } catch (e) { }
     finally { setIsLoading(false); }
   }
+
+// 🌟 [เพิ่มใหม่] ฟังก์ชันยืนยันการเคลียร์คิวที่ค้างอยู่
+  const handleForceSignOut = async () => {
+    if (myProfile?.id) {
+      Toast.fire({ title: 'ℹ️ กำลังออกจากระบบ...' });
+      await fetch('/api/checkout', { 
+        method: 'POST', 
+        headers: { 'content-type': 'application/json' }, 
+        body: JSON.stringify({ id: myProfile.id }) 
+      });
+    }
+    localStorage.removeItem('myProfile');
+    localStorage.removeItem('myProfileSkill');
+    sessionStorage.removeItem('justCheckedIn');
+    setMyProfile(null);
+    setShowStaleSessionModal(false);
+    Toast.fire({ title: '✅ ออกจากระบบเรียบร้อย กรุณา Check-in ใหม่' });
+    setTimeout(() => window.location.reload(), 1500);
+  };
+
+  // 🌟 [เพิ่มใหม่] ตรวจสอบสถานะว่าชื่อหลุดจากระบบหรือยัง (เช็คจาก Waiting, Pending, Playing)
+  useEffect(() => {
+    // ต้องมีข้อมูล Profile ในเครื่อง และดึง State จาก Backend สำเร็จแล้วเท่านั้น
+    if (!myProfile || !state) return;
+
+    // ตรวจสอบว่าอยู่ในคิวรอหรือไม่
+    const isInWaiting = (state.waiting || []).some(p => p.id === myProfile.id);
+    // ตรวจสอบว่าอยู่ในคิวรออนุมัติหรือไม่
+    const isInPending = (state.pending || []).some(p => p.id === myProfile.id);
+    // ตรวจสอบว่าอยู่ในคอร์ทหรือไม่
+    const isPlaying = (state.playing || []).some(c => 
+      c.p1Id === myProfile.id || c.p2Id === myProfile.id || 
+      c.p3Id === myProfile.id || c.p4Id === myProfile.id
+    );
+
+    // ถ้าไม่มีชื่อที่ไหนเลย แสดงว่า Session ค้าง ให้เด้งป๊อปอัป
+    if (!isInWaiting && !isInPending && !isPlaying) {
+      setShowStaleSessionModal(true);
+    } else {
+      setShowStaleSessionModal(false);
+    }
+  }, [state, myProfile]);
 
   const handleTabClick = (tab: any) => {
     refresh(true, true);
@@ -832,10 +878,60 @@ const handleApproveProcess = async (p: any) => {
     Toast.fire({ title: '✅ สุ่มและบันทึกคิวใหม่ลงฐานข้อมูลแล้ว!' });
   };
 
-const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
+  const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) => {
+    // 🛑 1. ป้องกันการกดซ้ำ (Lock UI)
+    if (isConfirmingMatchRef.current) {
+      Toast.fire({ title: '⏳ กำลังประมวลผลคิวก่อนหน้า กรุณารอสักครู่...' });
+      return;
+    }
+    isConfirmingMatchRef.current = true;
+
     const courtToLoad = targetCourtName || '';
     if (courtToLoad) setLoadingCourts(prev => [...prev, courtToLoad]);
 
+    // ⏳ 2. Countdown Delay 3 วินาที ด้วย SweetAlert2 (ให้โอกาสกดยกเลิก)
+    let isCancelled = false;
+    let timerInterval: NodeJS.Timeout;
+
+    await Swal.fire({
+      title: 'เตรียมส่งลงสนาม!',
+      html: `กำลังจัดคิวลง <b>${targetCourtName || 'สนามว่าง'}</b><br/><br/>ในอีก <b>3</b> วินาที...`,
+      icon: 'info',
+      timer: 3000,
+      timerProgressBar: true,
+      showCancelButton: true,
+      cancelButtonText: 'ยกเลิก (Cancel)',
+      cancelButtonColor: '#ef4444',
+      showConfirmButton: false,
+      allowOutsideClick: false,
+      didOpen: () => {
+        const b = Swal.getHtmlContainer()?.querySelector('b:nth-of-type(2)');
+        timerInterval = setInterval(() => {
+          const timeLeft = Swal.getTimerLeft();
+          if (b && timeLeft) {
+            b.textContent = Math.ceil(timeLeft / 1000).toString();
+          }
+        }, 100);
+      },
+      willClose: () => {
+        clearInterval(timerInterval);
+      }
+    }).then((result) => {
+      // ถ้ายูสเซอร์กดยกเลิกใน 3 วินาที
+      if (result.dismiss === Swal.DismissReason.cancel) {
+        isCancelled = true;
+      }
+    });
+
+    // หากถูกยกเลิก ให้คืนค่า UI กลับเป็นปกติและหยุดทำงาน
+    if (isCancelled) {
+      isConfirmingMatchRef.current = false;
+      if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
+      Toast.fire({ title: '🚫 ยกเลิกการส่งคิวแล้ว' });
+      return;
+    }
+
+    // ✅ 3. ลอจิกส่งข้อมูลลงฐานข้อมูล (ทำงานต่อเมื่อครบ 3 วิ และไม่ถูกยกเลิก)
     const ids = [
       matchData.teams[0][0].id,
       matchData.teams[0][1].id,
@@ -846,6 +942,8 @@ const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) =>
     recordMatchToHistory(ids);
 
     try {
+      Swal.fire({ title: 'กำลังบันทึก...', toast: true, position: 'top', showConfirmButton: false, didOpen: () => Swal.showLoading() });
+      
       const res = await fetch('/api/manual-match', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -858,7 +956,7 @@ const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) =>
         return;
       }
 
-      // 🌟 1. ลบออกจาก manualPreviews ทันที โดยเช็คจาก ID คนแรกในคิวเป็นหลักเพื่อความชัวร์
+      // 🌟 1. ลบออกจาก manualPreviews ทันที
       setManualPreviews(prev => prev.filter(m => 
         m.teams[0][0].id !== matchData.teams[0][0].id 
       ));
@@ -879,6 +977,8 @@ const confirmSpecificMatch = async (matchData: any, targetCourtName?: string) =>
       Toast.fire({ title: '❌ Network error ระหว่างลงสนาม' });
     } finally {
       if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
+      // 🔓 ปลดล็อคปุ่มให้กดคิวถัดไปได้
+      isConfirmingMatchRef.current = false;
     }
   };
 
@@ -1608,8 +1708,38 @@ const exportRegisteredToday = () => {
           </div>
         </div>
       )}
-
+      {/* 🌟 [เพิ่มใหม่] Modal แจ้งเตือนเซสชันค้าง */}
+      {showStaleSessionModal && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
+          <div className="w-full max-w-sm p-6 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 text-center relative overflow-hidden">
+            {/* ตกแต่งพื้นหลัง */}
+            <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-amber-500/20 to-transparent pointer-events-none"></div>
+            
+            <div className="relative z-10 flex flex-col items-center">
+              <div className="w-16 h-16 bg-amber-100 dark:bg-amber-500/20 rounded-full flex items-center justify-center mb-4 shadow-inner">
+                <AlertCircle className="w-8 h-8 text-amber-500" />
+              </div>
+              
+              <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">
+                ไม่พบชื่อในระบบคิว
+              </h3>
+              
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+                ระบบตรวจพบโปรไฟล์ <span className="font-bold text-slate-800 dark:text-white">"{myProfile?.name}"</span> ค้างอยู่ แต่ไม่มีรายชื่อในคิวหรือในสนาม <br/>กรุณายืนยันการออกจากระบบ เพื่อ Check-in ใหม่อีกครั้ง
+              </p>
+              
+              <button
+                onClick={handleForceSignOut}
+                className="w-full py-3.5 px-4 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold rounded-xl transition-all shadow-md flex justify-center items-center gap-2"
+              >
+                ยืนยันการ Sign Out และ Check-in ใหม่
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className={`fixed bottom-0 w-full bg-white/95 dark:bg-slate-900/95 border-t border-gray-200 dark:border-slate-800 px-6 py-3 backdrop-blur-xl z-50 transition-transform duration-300 pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)] ${showNav ? 'translate-y-0' : 'translate-y-full'}`}>
+        
         <div className="max-w-md mx-auto flex justify-between items-center relative">
           <button onClick={() => handleTabClick('home')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'home' ? 'text-blue-600 scale-110' : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}>
             <HomeIcon className={activeTab === 'home' ? 'w-6 h-6' : 'w-5 h-5'} strokeWidth={activeTab === 'home' ? 2.5 : 2} /><span className="text-[9px] font-black uppercase tracking-wider">Home</span>

@@ -93,9 +93,20 @@ export async function POST(req: Request) {
   const matchMode = requestedMode || (matchModeConf ? String(matchModeConf.value).trim().toLowerCase() : 'balanced');
 
   const allCourts = courtsConf ? String(courtsConf.value).split(',').map(x => x.trim()) : ['Court 1'];
-  const { data: playing } = await s.from('active_courts').select('court');
+  
+  // ✅ FIX 1: ดึงข้อมูลคอร์ทที่กำลังเล่นอยู่ทั้งหมด เพื่อตรวจสอบรายชื่อคนที่เล่นอยู่แล้ว
+  const { data: playing } = await s.from('active_courts').select('*');
   const playingNames = playing?.map(p => p.court) || [];
   const availableCourts = allCourts.filter(c => !playingNames.includes(c));
+
+  // เก็บ ID ของคนที่กำลังลงเล่นอยู่ เพื่อป้องกันการซ้ำซ้อน
+  const activePlayerIds = new Set<string>();
+  playing?.forEach(c => {
+    if (c.p1_id) activePlayerIds.add(c.p1_id);
+    if (c.p2_id) activePlayerIds.add(c.p2_id);
+    if (c.p3_id) activePlayerIds.add(c.p3_id);
+    if (c.p4_id) activePlayerIds.add(c.p4_id);
+  });
 
   if (availableCourts.length === 0) return NextResponse.json({ status: 'warning', message: 'No courts available' });
   if (forceMatches && availableCourts.length < forceMatches) return NextResponse.json({ status: 'warning', message: `Need at least ${forceMatches} empty court(s)` });
@@ -104,7 +115,9 @@ export async function POST(req: Request) {
 
   // ดึงคิวทั้งหมด เรียงตามเวลาเข้าคิว (มาก่อนได้ก่อน)
   const { data: queueRaw } = await s.from('player_queue').select('*').order('ts', { ascending: true });
-  let queue = queueRaw || [];
+  
+  // ✅ FIX 1.1: กรองรายชื่อคนที่กำลังเล่นอยู่ออกไปจาก Queue ทันที ป้องกันปัญหาคนลง 2 คอร์ทพร้อมกัน
+  let queue = (queueRaw || []).filter((p: any) => !activePlayerIds.has(p.id));
 
   let matchesCreated = 0;
 
@@ -177,14 +190,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // เอาคนที่ถูกเลือกทั้ง 4 คนออกจาก Array ของ Queue
-    // ต้องเรียงลำดับ Index จากมากไปน้อยก่อนลบ (เช่น ลบคนที่ 5 ก่อนค่อยลบคนที่ 1) เพื่อไม่ให้ตำแหน่งใน Array เลื่อน
-    groupIndices.sort((a,b) => b - a).forEach(idx => {
-       queue.splice(idx, 1);
-    });
-
-    // บันทึกคนทั้ง 4 เข้าสู่คอร์ทสนาม
-    await s.from('active_courts').insert({
+    // ✅ FIX 2: บันทึกคนทั้ง 4 เข้าสู่คอร์ทสนาม (นำ Insert มาทำก่อน Delete)
+    const { error: insertError } = await s.from('active_courts').insert({
       court,
       p1_id: bestTeams[0].id, p1_name: bestTeams[0].name, p1_skill: bestTeams[0].skill,
       p2_id: bestTeams[1].id, p2_name: bestTeams[1].name, p2_skill: bestTeams[1].skill,
@@ -193,11 +200,23 @@ export async function POST(req: Request) {
       start_time: new Date().toISOString()
     });
 
-    // ลบคนที่ลงสนามแล้วออกจากฐานข้อมูลคิวรอ
+    if (insertError) {
+      // ถ้าการแทรกลงคอร์ทล้มเหลว (เช่น คอร์ทไม่ว่าง) ให้ข้ามไปเลย ผู้เล่นจะไม่ถูกลบออกจาก Queue ทำให้ไม่หายสาบสูญ
+      console.error(`Failed to insert players to court ${court}:`, insertError);
+      continue; 
+    }
+
+    // ✅ FIX 2.1: ถ้า Insert คอร์ทผ่านแล้วเท่านั้น ถึงจะลบคนที่ลงสนามแล้วออกจากฐานข้อมูลคิวรอ
     if (selectedGroup) {
       await s.from('player_queue').delete().in('id', (selectedGroup as any[]).map(x => x.id));
+      
+      // เอาคนที่ถูกเลือกทั้ง 4 คนออกจาก Array ของ Queue ໃນ Memory ป้องกันการจับซ้ำใน loop ถัดไป
+      groupIndices.sort((a,b) => b - a).forEach(idx => {
+         queue.splice(idx, 1);
+      });
+      
+      matchesCreated++;
     }
-    matchesCreated++;
   }
 
   return NextResponse.json({ status: 'success', message: `Started ${matchesCreated} matches` });
