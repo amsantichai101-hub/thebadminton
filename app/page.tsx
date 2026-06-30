@@ -168,10 +168,10 @@ export default function Home() {
     if (myQueueData) return myQueueData.skill;
     if (myPending) return myPending.skill;
     if (myActiveCourt) {
-      if (myActiveCourt.p1Id === myProfile?.id) return myActiveCourt.p1Skill;
-      if (myActiveCourt.p2Id === myProfile?.id) return myActiveCourt.p2Skill;
-      if (myActiveCourt.p3Id === myProfile?.id) return myActiveCourt.p3Skill;
-      if (myActiveCourt.p4Id === myProfile?.id) return myActiveCourt.p4Skill;
+      if (myActiveCourt.p1Id === myProfile?.id) return Math.floor(myActiveCourt.p1Skill);
+      if (myActiveCourt.p2Id === myProfile?.id) return Math.floor(myActiveCourt.p2Skill);
+      if (myActiveCourt.p3Id === myProfile?.id) return Math.floor(myActiveCourt.p3Skill);
+      if (myActiveCourt.p4Id === myProfile?.id) return Math.floor(myActiveCourt.p4Skill);
     }
     const stored = localStorage.getItem('myProfileSkill');
     if (stored) return Number(stored);
@@ -182,7 +182,7 @@ export default function Home() {
 
   function isSimilarSkillGroup(players: any[]): boolean {
     if (players.length !== 4) return false;
-    const skills = players.map(p => Number(p.skill));
+    const skills = players.map(p => Number(Math.floor(p.skill)));
     return Math.max(...skills) - Math.min(...skills) <= 1;
   }
 
@@ -206,7 +206,7 @@ export default function Home() {
           currentPlayers = currentPlayers.slice(4);
           continue;
         }
-        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(p.skill) })), history);
+        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(Math.floor(p.skill)) })), history);
         matches.push({
           matchNumber: i + 1,
           teams: [[balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]]],
@@ -851,9 +851,13 @@ export default function Home() {
           <div><label class="text-[10px] font-bold text-slate-500">Skill Level</label>
             <select id="apSkill" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
               <option value="1" ${playerInDb.skill == 1 ? 'selected' : ''}>1 (มือใหม่)</option>
+              <option value="1.5" ${playerInDb.skill == 1.5 ? 'selected' : ''}>1.5 (มือใหม่ เริ่มได้)</option>
               <option value="2" ${playerInDb.skill == 2 ? 'selected' : ''}>2 (เริ่มมีทรง)</option>
-              <option value="3" ${playerInDb.skill == 3 ? 'selected' : ''}>3 (พื้นฐาน)</option>
+              <option value="2.5" ${playerInDb.skill == 2.5 ? 'selected' : ''}>2.5 (เริ่มมีทรงแล้วหละ)</option>
+              <option value="3" ${playerInDb.skill == 3 ? 'selected' : ''}>3 (มีพื้นฐาน)</option>
+              <option value="3.5" ${playerInDb.skill == 3.5 ? 'selected' : ''}>3.5 (มีพื้นฐานกว่า แบบเริ่ด)</option>
               <option value="4" ${playerInDb.skill == 4 ? 'selected' : ''}>4 (สายคุม)</option>
+              <option value="4.5" ${playerInDb.skill == 4.5 ? 'selected' : ''}>4.5 (สายคุมเกมส์)</option>
               <option value="5" ${playerInDb.skill == 5 ? 'selected' : ''}>5 (ปีศาจ)</option>
             </select>
           </div>
@@ -911,7 +915,7 @@ export default function Home() {
     const newName = isPaused ? p.name.replace(' (พัก)', '') : p.name + ' (พัก)';
     setIsGlobalProcessing(true);
     try {
-      await fetch('/api/update-player', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ oldId: p.id, newId: p.id, name: newName, skill: p.skill }) });
+      await fetch('/api/update-player', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ oldId: p.id, newId: p.id, name: newName, skill: Math.floor(p.skill) }) });
       await refresh(false); 
       Toast.fire({ title: isPaused ? '✅ กลับเข้าคิวปกติแล้ว' : '⏸️ พักคิวแล้ว' });
     } finally {
@@ -1312,10 +1316,10 @@ export default function Home() {
         const hidSkill = document.getElementById('hidSkill') as HTMLInputElement;
 
         const lockFields = (p: any) => {
-          hidId.value = p.id; hidName.value = p.name; hidSkill.value = p.skill;
+          hidId.value = p.id; hidName.value = p.name; hidSkill.value = Math.floor(p.skill);
           document.getElementById('previewId')!.textContent = 'ID: ' + p.id;
           document.getElementById('previewName')!.textContent = p.name;
-          document.getElementById('previewSkill')!.textContent = 'Lv ' + p.skill;
+          document.getElementById('previewSkill')!.textContent = 'Lv ' + Math.floor(p.skill);
           searchSelectedPreview.classList.remove('hidden'); swSearch.classList.add('hidden'); swTableContainer.classList.add('hidden'); swClearBtn.classList.remove('hidden');
         };
 
@@ -1347,7 +1351,7 @@ export default function Home() {
                   tr.onmousedown = (e) => { e.preventDefault(); lockFields(p); };
                   const tdId = document.createElement('td'); tdId.className = 'p-2 font-bold text-blue-600'; tdId.textContent = p.id;
                   const tdName = document.createElement('td'); tdName.className = 'p-2 font-medium'; tdName.textContent = p.name;
-                  const tdLv = document.createElement('td'); tdLv.className = 'p-2 text-center'; tdLv.innerHTML = `<span class="bg-slate-200 px-1.5 py-0.5 rounded shadow-inner font-bold">${p.skill}</span>`;
+                  const tdLv = document.createElement('td'); tdLv.className = 'p-2 text-center'; tdLv.innerHTML = `<span class="bg-slate-200 px-1.5 py-0.5 rounded shadow-inner font-bold">${Math.floor(p.skill)}</span>`;
                   const tdAction = document.createElement('td'); tdAction.className = 'p-2 text-center';
                   const btn = document.createElement('button'); btn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform'; btn.textContent = 'Select';
                   tdAction.appendChild(btn); tr.append(tdId, tdName, tdLv, tdAction); tbody.appendChild(tr);
@@ -1397,7 +1401,7 @@ export default function Home() {
                     e.preventDefault();
                     const profileData = { id: p.id, name: p.name };
                     localStorage.setItem('myProfile', JSON.stringify(profileData));
-                    localStorage.setItem('myProfileSkill', p.skill.toString());
+                    localStorage.setItem('myProfileSkill', Math.floor(p.skill).toString());
                     sessionStorage.setItem('justCheckedIn', 'true');
                     setMyProfile(profileData);
                     Swal.close(); Toast.fire({ title: '✅ กู้คืนโปรไฟล์สำเร็จ!' }); setTimeout(() => window.location.reload(), 1000);
@@ -1575,9 +1579,13 @@ export default function Home() {
           <div><label class="text-[10px] font-bold text-slate-500">Skill</label>
             <select id="editSkill" class="w-full p-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
               <option value="1" ${p.skill === 1 ? 'selected' : ''}>1</option>
+              <option value="1.5" ${p.skill === 1.5 ? 'selected' : ''}>1.5</option>
               <option value="2" ${p.skill === 2 ? 'selected' : ''}>2</option>
+              <option value="2.5" ${p.skill === 2.5 ? 'selected' : ''}>2.5</option>
               <option value="3" ${p.skill === 3 ? 'selected' : ''}>3</option>
+              <option value="3.5" ${p.skill === 3.5 ? 'selected' : ''}>3.5</option>
               <option value="4" ${p.skill === 4 ? 'selected' : ''}>4</option>
+              <option value="4.5" ${p.skill === 4.5 ? 'selected' : ''}>4.5</option>
               <option value="5" ${p.skill === 5 ? 'selected' : ''}>5</option>
             </select>
           </div>
@@ -1725,8 +1733,8 @@ export default function Home() {
             uniquePlayers.forEach((p: any) => {
               const pDate = p.timestamp || p.last_seen || p.created_at;
               const timeStr = pDate ? new Date(pDate).toLocaleTimeString('th-TH') : '-';
-              csv += `"${p.id}","${p.name}","${p.skill}","${p.type || 'Emp'}","${timeStr}"\n`;
-              tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-2.5 font-mono text-slate-500">${p.id}</td><td class="p-2.5 font-bold text-slate-700">${p.name}</td><td class="p-2.5 text-center"><span class="bg-slate-200 px-2 py-0.5 rounded-md font-bold">${p.skill}</span></td><td class="p-2.5 text-slate-500">${timeStr}</td></tr>`;
+              csv += `"${p.id}","${p.name}","${Math.floor(p.skill)}","${p.type || 'Emp'}","${timeStr}"\n`;
+              tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-2.5 font-mono text-slate-500">${p.id}</td><td class="p-2.5 font-bold text-slate-700">${p.name}</td><td class="p-2.5 text-center"><span class="bg-slate-200 px-2 py-0.5 rounded-md font-bold">${Math.floor(p.skill)}</span></td><td class="p-2.5 text-slate-500">${timeStr}</td></tr>`;
             });
             tableHtml += `</tbody></table></div>`;
 

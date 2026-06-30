@@ -116,8 +116,38 @@ export async function POST(req: Request) {
   // ดึงคิวทั้งหมด เรียงตามเวลาเข้าคิว (มาก่อนได้ก่อน)
   const { data: queueRaw } = await s.from('player_queue').select('*').order('ts', { ascending: true });
   
-  // ✅ FIX 1.1: กรองรายชื่อคนที่กำลังเล่นอยู่ออกไปจาก Queue ทันที ป้องกันปัญหาคนลง 2 คอร์ทพร้อมกัน
+  // ✅ FIX 1.1: กรองรายชื่อคนที่กำลังเล่นอยู่ออกไปจาก Queue ทันที
   let queue = (queueRaw || []).filter((p: any) => !activePlayerIds.has(p.id));
+
+  // 🌟 [เพิ่มใหม่] ดึงประวัติการเล่นล่าสุดเพื่อมาใช้คิด Penalty กันหน้าเดิมซ้ำ
+  const { data: recentLogs } = await s.from('match_logs')
+    .select('player_id, match_group')
+    .not('match_group', 'is', null)
+    .order('ts', { ascending: false })
+    .limit(100);
+    
+  const historyGroups: Record<string, string[]> = {};
+  (recentLogs || []).forEach((log: any) => {
+    if (!historyGroups[log.match_group]) historyGroups[log.match_group] = [];
+    historyGroups[log.match_group].push(log.player_id);
+  });
+  const recentMatches = Object.values(historyGroups);
+
+  // ฟังก์ชันคำนวณ Penalty การเล่นซ้ำหน้าเดิม
+  const getHistoryPenalty = (candidates: any[]) => {
+    let penalty = 0;
+    const ids = candidates.map(c => c.id);
+    for (const matchPlayers of recentMatches) {
+      let overlap = 0;
+      for (const id of ids) {
+        if (matchPlayers.includes(id)) overlap++;
+      }
+      if (overlap === 4) penalty += 50000; // ซ้ำครบ 4 คนชุดเดิมเป๊ะ (พยายามหลีกเลี่ยงขั้นสุด)
+      else if (overlap === 3) penalty += 5000; // ซ้ำ 3 คน (หลีกเลี่ยงหนัก)
+      else if (overlap === 2) penalty += 500; // ซ้ำ 2 คน (เคยเจอกันแล้ว พยายามจัดคู่ใหม่ถ้ามี)
+    }
+    return penalty;
+  };
 
   let matchesCreated = 0;
 
@@ -148,46 +178,52 @@ export async function POST(req: Request) {
       groupIndices = evaluation.indices;
     };
 
-    // --- 🌟 Smart Matchmaking Logic 🌟 ---
-    const first = evaluateGroup([0,1,2,3]);
+    // --- 🌟 Smart Matchmaking Logic V2 (Queue Priority & Anti-Repeat) 🌟 ---
+    const searchDepth = Math.min(queue.length, 12); // ค้นหาเจาะลึกลงไป 12 คิวแรก
+    let bestValidGroup: any = null;
+    let bestScore = Infinity;
 
-    if (first.modeOk) {
-      tryUseGroup(first);
-    } else {
-      // ค้นหาใน range ลึกขึ้นเพื่อให้เข้าสู่โหมดที่กำหนด
-      let found = false;
-      const searchDepth = Math.min(queue.length, 10);
+    // วนลูปหาความเป็นไปได้ทั้งหมด (Combinations) ของ 4 คน
+    for (let a = 0; a < searchDepth - 3; a++) {
+      for (let b = a + 1; b < searchDepth - 2; b++) {
+        for (let c = b + 1; c < searchDepth - 1; c++) {
+          for (let d = c + 1; d < searchDepth; d++) {
+            const candidateIndices = [a, b, c, d];
+            const ev = evaluateGroup(candidateIndices);
 
-      for (let i = 0; i < 4 && !found; i++) {
-        for (let j = 4; j < searchDepth && !found; j++) {
-          const candidateIndices = [0,1,2,3].map(k => (k===i ? j : k));
-          const ev = evaluateGroup(candidateIndices);
-          if (ev.modeOk) {
-            tryUseGroup(ev);
-            found = true;
-          }
-        }
-      }
+            // ถ้า 4 คนนี้สามารถจัดลงสนามกันได้ตามโหมดที่ตั้งไว้
+            if (ev.modeOk) {
+              
+              // 1. Queue Penalty: คะแนนจากลำดับคิว 
+              // ให้คิวแรก (a) สำคัญสุด ถ้า a หาคู่ไม่ได้จริงๆ โค้ดจะเลื่อนลงไปที่ a=1 (เพราะค่า a*10000 จะดีดคะแนนสูงกว่า)
+              const queuePenalty = (a * 10000) + (b * 1000) + (c * 100) + (d * 10);
+              
+              // 2. Diff Penalty: หักคะแนนความไม่สูสี 
+              const diffPenalty = ev.diff * 500;
 
-      // ถ้ายังไม่พอใจ mode ที่ “เข้มที่สุด” ให้ fallback เป็น balanced
-      if (!found) {
-        const fallback = evaluateGroup([0,1,2,3]);
-        if (matchMode === 'strict' || matchMode === 'balanced') {
-          if (!fallback.modeOk) {
-            // บังคับให้ output ยังสำเร็จโดยใช้ balanced network
-            const relaxed = modeCheck(fallback.candidate, 'balanced');
-            if (relaxed.ok) {
-              tryUseGroup(fallback);
-              found = true;
+              // 3. History Penalty: หักคะแนนถ้าเคยเจอกันมาบ่อยแล้ว
+              const historyPenalty = getHistoryPenalty(ev.candidate);
+
+              // รวมคะแนน ยิ่งน้อยยิ่งแปลว่า "คู่ควรจะได้ลงสนามที่สุด"
+              const totalScore = queuePenalty + diffPenalty + historyPenalty;
+
+              if (totalScore < bestScore) {
+                bestScore = totalScore;
+                bestValidGroup = ev;
+              }
             }
           }
         }
       }
+    }
 
-      if (!found) {
-        // สุดท้ายให้ใช้กลุ่มแรกเสมอเพื่อไม่ให้คิวติด
-        tryUseGroup(first);
-      }
+    if (bestValidGroup) {
+      // ได้กลุ่มที่ดีที่สุด (อิงตามคิวแรกสุด + ไม่ซ้ำหน้า + สูสี)
+      tryUseGroup(bestValidGroup);
+    } else {
+      // ถ้าหาคู่ไม่ได้เลย (โหมดอาจจะ strict เกินไป) Fallback จับ 4 คนแรกยัดลงสนามเหมือนเดิม
+      const fallback = evaluateGroup([0, 1, 2, 3]);
+      tryUseGroup(fallback);
     }
 
     // ✅ FIX 2: บันทึกคนทั้ง 4 เข้าสู่คอร์ทสนาม (นำ Insert มาทำก่อน Delete)
@@ -201,7 +237,6 @@ export async function POST(req: Request) {
     });
 
     if (insertError) {
-      // ถ้าการแทรกลงคอร์ทล้มเหลว (เช่น คอร์ทไม่ว่าง) ให้ข้ามไปเลย ผู้เล่นจะไม่ถูกลบออกจาก Queue ทำให้ไม่หายสาบสูญ
       console.error(`Failed to insert players to court ${court}:`, insertError);
       continue; 
     }

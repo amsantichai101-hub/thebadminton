@@ -61,19 +61,34 @@ export async function POST(req: Request) {
     })
   }
 
-  // อัปเดตข้อมูลผู้เล่นในฐานข้อมูลหลัก (Registry)
-  await s.from('player_registry').upsert({ 
-    id: String(finalId), 
-    name, 
-    latest_skill: Number(skill), 
-    last_seen: new Date().toISOString()
-  }, { onConflict: 'id', ignoreDuplicates: false })
+  // 🌟 [ส่วนที่แก้ไข] ดึงข้อมูลเดิมจาก Registry เพื่อดูว่าเคยมีประวัติไหม
+  const { data: existingPlayer } = await s.from('player_registry').select('latest_skill, name').eq('id', String(finalId)).single();
 
-  // นำผู้เล่นเข้าสู่คิวรออนุมัติ (Pending Queue)
+  // กำหนดค่า skill ที่จะใช้ โดยถ้ามีประวัติแล้ว ให้ใช้ค่าจาก DB เสมอ (เพื่อรักษาค่าทศนิยมของ Admin)
+  const finalSkill = existingPlayer ? existingPlayer.latest_skill : Number(skill);
+  // (Optional) ใช้ชื่อเดิมจาก DB ด้วย เพื่อป้องกันคนเปลี่ยนชื่อเองตอน Check-in
+  const finalName = existingPlayer ? existingPlayer.name : name;
+
+  if (existingPlayer) {
+    // 🌟 ถ้ามีประวัติแล้ว อัปเดตแค่เวลาใช้งานล่าสุด (ไม่แตะต้อง latest_skill)
+    await s.from('player_registry').update({ 
+      last_seen: new Date().toISOString() 
+    }).eq('id', String(finalId));
+  } else {
+    // 🌟 ถ้ายังไม่มีประวัติ (คนใหม่) ให้ insert ใหม่ทั้งหมด
+    await s.from('player_registry').insert({ 
+      id: String(finalId), 
+      name: finalName, 
+      latest_skill: finalSkill, 
+      last_seen: new Date().toISOString()
+    });
+  }
+
+  // นำผู้เล่นเข้าสู่คิวรออนุมัติ (Pending Queue) โดยใช้ finalSkill ที่ถูกต้อง
   await s.from('pending_queue').insert({ 
     id: String(finalId), 
-    name, 
-    skill: Number(skill), 
+    name: finalName, 
+    skill: finalSkill, 
     ts: new Date().toISOString(), 
     type, 
     play_count: 0 

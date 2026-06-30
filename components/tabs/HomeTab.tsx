@@ -44,12 +44,74 @@ export default function HomeTab(props: any) {
     }
   };
 
+  // --- 🌟 คำนวณข้อมูลสำหรับแสดงบน Header 🌟 ---
+  const activeCourtsCount = (state?.playing || []).length;
+  const myQueueIndex = (state?.waiting || []).findIndex((p: any) => p.id === myProfile?.id);
+  const myQueueNumber = myQueueIndex !== -1 ? myQueueIndex + 1 : null;
+  const playTime = state?.playTime || '20.00 - 22.30'; // fallback สามารถแก้เชื่อมกับ config ได้
+  // ------------------------------------------
+
   return (
     <div className="space-y-8 pt-4 pb-20 px-2 sm:px-0">
 
+      {/* 🌟 ส่วน Header ใหม่: แสดงเวลา, Active Court, และข้อมูลผู้เล่น/เลขคิว 🌟 */}
+      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/80 dark:border-slate-700/80 rounded-[1.5rem] p-4 shadow-sm flex items-center justify-between mb-4">
+        {/* ด้านซ้าย: เวลา และ จำนวนคอร์ทที่ Active */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-1.5 text-sm font-black text-slate-700 dark:text-slate-200 tracking-tight">
+            <Clock className="w-4 h-4 text-indigo-500" />
+            {playTime}
+          </div>
+          <div className="flex items-center gap-1.5">
+             <span className="text-[10px] sm:text-[11px] font-black bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+               <Swords className="w-3 h-3" /> Active {activeCourtsCount} คอร์ท
+             </span>
+          </div>
+        </div>
+
+        {/* ด้านขวา: ชื่อผู้เล่น, คิว, และปุ่ม Check In / Out */}
+        <div className="flex items-center justify-end text-right">
+          {myProfile ? (
+            <div className="flex items-center gap-3">
+              <div className="flex flex-col items-end">
+                <span className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-1.5 tracking-tight">
+                   <span className={`w-2.5 h-2.5 rounded-full inline-block shrink-0 shadow-inner ${getSkillColor(Math.floor(getMySkillLevel()))}`}></span>
+                   {myProfile.name}
+                </span>
+                {myQueueNumber ? (
+                  <span className="text-[11px] font-black text-blue-600 dark:text-blue-400 mt-0.5 tracking-tight">
+                    คิวที่ #{myQueueNumber}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-0.5 tracking-tight">
+                    อยู่ระหว่างเล่น / ไม่อยู่ในคิว
+                  </span>
+                )}
+              </div>
+              <button 
+                onClick={openSignOut}
+                className="bg-red-50 hover:bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-2 sm:px-3 sm:py-1.5 rounded-full sm:rounded-xl transition-all active:scale-95 shadow-sm border border-red-100 dark:border-red-900/50 flex items-center gap-1"
+                title="Check Out"
+              >
+                <X className="w-4 h-4" /> <span className="hidden sm:inline text-[11px] font-black">Check Out</span>
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={openCheckIn}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2 sm:px-5 sm:py-2.5 rounded-full text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all flex items-center gap-2"
+            >
+              <span className="text-base leading-none">👋</span> <span className="hidden sm:inline">เข้าสู่ระบบ</span> Check In
+            </button>
+          )}
+        </div>
+      </div>
+      {/* 🌟 จบส่วน Header 🌟 */}
+
+
       {/* แบนเนอร์การแจ้งเตือนต่างๆ (จะซ่อนตัวเองถ้าระบบแจ้งเตือนถูกแอดมินปิดไว้) */}
       {enableNotify && (
-        <div className="space-y-3">
+        <div className="space-y-3 mt-4">
           {!isStandalone && (
             <div className="bg-gradient-to-br from-amber-50 to-orange-100 dark:from-amber-900/40 dark:to-orange-900/30 border border-amber-200/60 dark:border-amber-700/50 rounded-2xl p-4 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex items-start gap-3 backdrop-blur-sm transition-all hover:shadow-md">
               <div className="bg-white/80 dark:bg-amber-800/80 p-2.5 rounded-xl text-amber-600 dark:text-amber-400 shrink-0 shadow-sm border border-amber-100 dark:border-amber-700">
@@ -98,32 +160,9 @@ export default function HomeTab(props: any) {
         </div>
       )}
 
-      {/* ส่วนเช็คสถานะ Check In / Check Out */}
-      <div className="flex justify-end mt-2">
-        {myProfile ? (
-          <div className="flex items-center gap-3 bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border border-slate-200/80 dark:border-slate-700/80 pl-4 pr-1.5 py-1.5 rounded-full shadow-sm">
-            <span className={`w-3 h-3 rounded-full inline-block shrink-0 shadow-inner ${getSkillColor(getMySkillLevel())}`}></span>
-            <span className="font-bold text-sm text-slate-700 dark:text-slate-200 tracking-tight">{myProfile.name}</span>
-            <button 
-              onClick={openSignOut}
-              className="ml-2 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-3 py-1.5 rounded-full text-[11px] font-black transition-all active:scale-95 shadow-sm"
-            >
-              Check Out
-            </button>
-          </div>
-        ) : (
-          <button 
-            onClick={openCheckIn}
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-5 py-2.5 rounded-full text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all flex items-center gap-2"
-          >
-            <span className="text-lg leading-none">👋</span> เข้าสู่ระบบ (Check In)
-          </button>
-        )}
-      </div>
-
       {/* 1. ส่วน Preview Courts: โชว์คิวจำลอง */}
       {globalPreview && previewQueue && previewQueue.length > 0 && (
-        <section className="animate-in slide-in-from-bottom-4 duration-500 ease-out">
+        <section className="animate-in slide-in-from-bottom-4 duration-500 ease-out mt-4">
           <div className="flex items-center justify-between mb-5">
             <h2 className="font-black text-xl text-slate-800 dark:text-white flex items-center gap-2 tracking-tight">
               <Eye className="w-6 h-6 text-blue-500" /> Preview Mode
@@ -168,7 +207,7 @@ export default function HomeTab(props: any) {
                           className={`
                             relative px-3 py-3 rounded-xl text-xs sm:text-sm font-bold text-center shadow-sm 
                             transition-all duration-200 ease-out cursor-pointer active:scale-95
-                            ${getSkillColor(p.skill)}
+                            ${getSkillColor(Math.floor(p.skill))}
                             ${p.id === myProfile?.id ? 'ring-[3px] ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 shadow-lg scale-105 z-10' : 'border border-white/20'} 
                             ${swapSource?.playerId === p.id ? 'ring-4 ring-amber-500 ring-offset-2 animate-pulse scale-105 z-20 shadow-amber-500/50' : ''} 
                           `}
@@ -205,7 +244,7 @@ export default function HomeTab(props: any) {
                           className={`
                             relative px-3 py-3 rounded-xl text-xs sm:text-sm font-bold text-center shadow-sm 
                             transition-all duration-200 ease-out cursor-pointer active:scale-95
-                            ${getSkillColor(p.skill)}
+                            ${getSkillColor(Math.floor(p.skill))}
                             ${p.id === myProfile?.id ? 'ring-[3px] ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 shadow-lg scale-105 z-10' : 'border border-white/20'} 
                             ${swapSource?.playerId === p.id ? 'ring-4 ring-amber-500 ring-offset-2 animate-pulse scale-105 z-20 shadow-amber-500/50' : ''} 
                           `}

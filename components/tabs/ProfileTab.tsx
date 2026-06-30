@@ -55,11 +55,11 @@ export default function ProfileTab(props: any) {
                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm mb-6 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
                   <div className="flex items-center gap-4 mb-6 relative z-10">
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black shadow-lg ${getSkillColor(getMySkillLevel())}`}>{myProfile.name.charAt(0)}</div>
+                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black shadow-lg ${getSkillColor(Math.floor(getMySkillLevel()))}`}>{myProfile.name.charAt(0)}</div>
                     <div>
                       <h3 className="font-black text-xl text-slate-800 dark:text-white">{myProfile.name}</h3>
                       <div className="text-xs font-mono text-slate-500 mt-0.5">ID: {myProfile.id}</div>
-                      <div className="mt-1.5"><span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 shadow-sm">{getSkillName(getMySkillLevel())}</span></div>
+                      <div className="mt-1.5"><span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full border border-blue-200 dark:border-blue-800 shadow-sm">{getSkillName(Math.floor(getMySkillLevel()))}</span></div>
                     </div>
                   </div>
                   
