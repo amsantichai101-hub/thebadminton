@@ -1316,7 +1316,7 @@ export default function Home() {
         const hidSkill = document.getElementById('hidSkill') as HTMLInputElement;
 
         const lockFields = (p: any) => {
-          hidId.value = p.id; hidName.value = p.name; hidSkill.value = Math.floor(p.skill);
+          hidId.value = p.id; hidName.value = p.name; hidSkill.value = Math.floor(p.skill).toString();
           document.getElementById('previewId')!.textContent = 'ID: ' + p.id;
           document.getElementById('previewName')!.textContent = p.name;
           document.getElementById('previewSkill')!.textContent = 'Lv ' + Math.floor(p.skill);
