@@ -231,13 +231,15 @@ export default function HomeTab(props: any) {
                             {loadingId === `lock-${m.matchId}` ? 'รอสักครู่...' : 'ยืนยันผล'}
                           </button>
 
-                          <button 
-                            onClick={() => handleAction(`reshuffle-${m.matchId}`, async () => await triggerReshuffle(m))} 
-                            disabled={loadingId === `reshuffle-${m.matchId}`}
-                            className={`px-4 py-2.5 rounded-xl border-2 transition-all flex justify-center items-center ${loadingId === `reshuffle-${m.matchId}` ? 'bg-slate-100 cursor-not-allowed opacity-75 border-slate-200' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 active:scale-95'}`}
-                          >
-                            <RefreshCw className={`w-4 h-4 ${loadingId === `reshuffle-${m.matchId}` ? 'animate-spin text-blue-500' : 'text-slate-500 dark:text-slate-400'}`} />
-                          </button>
+                          {false && (
+                            <button 
+                              onClick={() => handleAction(`reshuffle-${m.matchId}`, async () => await triggerReshuffle(m))} 
+                              disabled={loadingId === `reshuffle-${m.matchId}`}
+                              className={`px-4 py-2.5 rounded-xl border-2 transition-all flex justify-center items-center ${loadingId === `reshuffle-${m.matchId}` ? 'bg-slate-100 cursor-not-allowed opacity-75 border-slate-200' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 active:scale-95'}`}
+                            >
+                              <RefreshCw className={`w-4 h-4 ${loadingId === `reshuffle-${m.matchId}` ? 'animate-spin text-blue-500' : 'text-slate-500 dark:text-slate-400'}`} />
+                            </button>
+                          )}
                         </>
                       ) : (
                         <>

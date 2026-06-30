@@ -48,30 +48,121 @@ export default function QueueTab(props: any) {
                 const isAutoPrev = autoMatches.flatMap((m: any) => m.teams.flat().map((ap: any) => ap.id)).includes(p.id);
                 const inPreviewStatus = isManualPrev ? 'จับคู่แล้ว' : isAutoPrev ? 'รอการยืนยัน' : null;
 
-                return (
-                  <div key={p.id} onClick={() => toggleSelect(p.id)} className={`cursor-pointer p-3.5 rounded-2xl border ${isSel ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md ring-1 ring-blue-400/50' : isPaused ? 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 opacity-60' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm'} flex items-center justify-between transition-all hover:shadow-md`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md ${getSkillColor(p.skill)}`}>{p.name.charAt(0)}</div>
-                      <div>
-                        <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
-                          <span className={isPaused ? 'line-through' : ''}>{p.name}</span>
-                          {teamBadge}
-                          {p.playCount > 0 && <span className="bg-slate-200 dark:bg-slate-700 text-[9px] px-1.5 py-0.5 rounded-md text-slate-600 dark:text-slate-300 font-mono shadow-inner">{p.playCount}P</span>}
-                          {isMe && <span className="text-[9px] bg-amber-400 text-white font-bold px-1.5 py-0.5 rounded shadow-sm">YOU</span>}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[10px] text-slate-400 font-mono font-bold">คิวที่ {i+1} • Lv {p.skill}</span>
-                          {inPreviewStatus && <span className={`text-[9px] px-1.5 py-0.5 rounded shadow-sm font-bold flex items-center gap-1 ${inPreviewStatus === 'จับคู่แล้ว' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'}`}><Eye className="w-3 h-3"/> {inPreviewStatus}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2" onClick={e=>e.stopPropagation()}>
-                      {admin && <button onClick={()=>togglePause(p)} className="w-8 h-8 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-amber-100 dark:border-amber-800">{isPaused ? <Play className="w-4 h-4"/> : <Pause className="w-4 h-4"/>}</button>}
-                      {admin && <button onClick={()=>openAdminEditPlayer(p)} className="w-8 h-8 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-blue-100 dark:border-blue-800"><Edit3 className="w-4 h-4"/></button>}
-                      {admin && <button onClick={async()=>{ await fetch('/api/checkout',{method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id:p.id})}); refresh(false); }} className="w-8 h-8 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-red-100 dark:border-red-800"><X className="w-4 h-4"/></button>}
-                    </div>
-                  </div>
-                )
+              return (
+  <div
+    key={p.id}
+    onClick={() => {
+      if (inPreviewStatus === 'จับคู่แล้ว') return;
+      toggleSelect(p.id);
+    }}
+    className={`
+      p-3.5 rounded-2xl border
+      flex items-center justify-between gap-3
+      transition-all
+      ${
+        inPreviewStatus === 'จับคู่แล้ว'
+          ? 'cursor-not-allowed opacity-70'
+          : 'cursor-pointer hover:shadow-md'
+      }
+      ${
+        isSel
+          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-md ring-1 ring-blue-400/50'
+          : isPaused
+          ? 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 opacity-60'
+          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm'
+      }
+    `}
+  >
+    {/* Left: Player Info */}
+    <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md shrink-0 ${getSkillColor(p.skill)}`}>
+        {p.name.charAt(0)}
+      </div>
+
+      <div className="min-w-0">
+        <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2 flex-wrap">
+          <span className={isPaused ? 'line-through truncate' : 'truncate'}>
+            {p.name}
+          </span>
+
+          {teamBadge}
+
+          {p.playCount > 0 && (
+            <span className="bg-slate-200 dark:bg-slate-700 text-[9px] px-1.5 py-0.5 rounded-md text-slate-600 dark:text-slate-300 font-mono shadow-inner">
+              {p.playCount}P
+            </span>
+          )}
+
+          {isMe && (
+            <span className="text-[9px] bg-amber-400 text-white font-bold px-1.5 py-0.5 rounded shadow-sm">
+              YOU
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          <span className="text-[10px] text-slate-400 font-mono font-bold">
+            คิวที่ {i + 1} • Lv {p.skill}
+          </span>
+
+          {inPreviewStatus && (
+            <span
+              className={`
+                text-[9px] px-1.5 py-0.5 rounded shadow-sm font-bold flex items-center gap-1
+                ${
+                  inPreviewStatus === 'จับคู่แล้ว'
+                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
+                }
+              `}
+            >
+              <Eye className="w-3 h-3" />
+              {inPreviewStatus}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+
+    {/* Right: Admin Actions */}
+    <div className="flex gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+      {admin && (
+        <button
+          onClick={() => togglePause(p)}
+          className="w-8 h-8 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-amber-100 dark:border-amber-800"
+        >
+          {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+        </button>
+      )}
+
+      {admin && (
+        <button
+          onClick={() => openAdminEditPlayer(p)}
+          className="w-8 h-8 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-blue-100 dark:border-blue-800"
+        >
+          <Edit3 className="w-4 h-4" />
+        </button>
+      )}
+
+      {admin && (
+        <button
+          onClick={async () => {
+            await fetch('/api/checkout', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: p.id }),
+            });
+
+            refresh(false);
+          }}
+          className="w-8 h-8 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg flex items-center justify-center text-xs active:scale-90 transition shadow-sm border border-red-100 dark:border-red-800"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  </div>
+);
               })
             ) : (
               (state?.pending || []).length === 0 ? <div className="text-center py-10 text-slate-400 font-bold text-sm flex flex-col items-center gap-2"><UserCheck className="w-10 h-10 opacity-30"/> ไม่มีรายการรออนุมัติ</div> 
