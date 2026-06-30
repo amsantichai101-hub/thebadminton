@@ -130,7 +130,7 @@ export default function Home() {
     };
 
     if (myWaitIndex >= 0 && myWaitIndex < 4 && !notifiedStandby.current) {
-      fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว (อยู่ใน 4 คิวแรก)', [200, 100, 200]);
+      fireNotification('🔥 เตรียมตัววอร์ม!', 'ใกล้ถึงคิวของคุณแล้ว ตรวจสอบคิวของของคุณที่หน้า Home และคิวอาจมีการเปลี่ยนแปลงตามความเหมาะสม', [200, 100, 200]);
       notifiedStandby.current = true;
     }
 

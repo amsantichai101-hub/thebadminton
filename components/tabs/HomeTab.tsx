@@ -182,7 +182,7 @@ export default function HomeTab(props: any) {
                 <div className={`px-4 py-2.5 flex justify-between items-center border-b ${m.isManual ? 'border-emerald-100 dark:border-emerald-800/50 bg-emerald-100/50 dark:bg-emerald-800/30' : 'border-blue-100 dark:border-blue-800/50 bg-blue-100/50 dark:bg-blue-800/30'}`}>
                   <span className={`text-[11px] font-black uppercase tracking-wider ${m.isManual ? 'text-emerald-700 dark:text-emerald-400' : 'text-blue-700 dark:text-blue-400'} flex items-center gap-1`}>
                     {m.isManual ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />} 
-                    {m.isManual ? "ยืนยันแล้ว" : "รอการยืนยัน"}
+                    {m.isManual ? "ยืนยันแล้วและเตรียมพร้อม" : "รอการยืนยันทีมและอาจมีการเปลี่ยนแปลง"}
                   </span>
                   <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 bg-white/60 dark:bg-slate-800/60 px-2 py-0.5 rounded-md shadow-sm">
                     Queue #{idx + 1}
