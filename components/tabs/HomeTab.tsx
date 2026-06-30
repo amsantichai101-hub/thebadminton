@@ -165,7 +165,7 @@ export default function HomeTab(props: any) {
         <section className="animate-in slide-in-from-bottom-4 duration-500 ease-out mt-4">
           <div className="flex items-center justify-between mb-5">
             <h2 className="font-black text-xl text-slate-800 dark:text-white flex items-center gap-2 tracking-tight">
-              <Eye className="w-6 h-6 text-blue-500" /> Preview Mode
+              <Bell className="w-6 h-6 text-blue-500" /> คู่ถัดไป ({previewQueue.length} คู่)
             </h2>
             {swapSource && (
                <span className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-full animate-pulse border border-amber-200 flex items-center gap-1">
@@ -312,100 +312,113 @@ export default function HomeTab(props: any) {
       {/* 2. ส่วน Active Courts */}
       <section className="animate-in slide-in-from-bottom-6 duration-700 ease-out">
         <h2 className="font-black text-xl text-slate-800 dark:text-white mb-5 flex items-center gap-2 tracking-tight">
-          <Swords className="w-6 h-6 text-indigo-500" /> Active Courts
+          <Play className="w-6 h-6 text-indigo-500" /> คอร์ทที่กำลังเล่นอยู่ ({activeCourtsCount} คอร์ท)
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {(state?.courtNames || []).map((cn: string) => {
-            const m = (state?.playing || []).find((p: any) => p.court === cn);
-            const min = m ? Math.floor((Date.now() - new Date(m.startTime).getTime()) / 60000) : 0;
-            const started = m ? ((Date.now() - new Date(m.startTime).getTime()) / 60000 > 1) : false;
+  {(state?.courtNames || []).map((cn: string) => {
+    const m = (state?.playing || []).find((p: any) => p.court === cn);
+    const min = m ? Math.floor((Date.now() - new Date(m.startTime).getTime()) / 60000) : 0;
+    const started = m ? ((Date.now() - new Date(m.startTime).getTime()) / 60000 > 1) : false;
 
-            return (
-              <div key={cn} className={`relative overflow-hidden rounded-[1.5rem] border shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all ${m ? 'border-indigo-100 dark:border-indigo-900/30 bg-white dark:bg-slate-800/90' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50'}`}>
+    return (
+      <div key={cn} className={`relative overflow-hidden rounded-[1.5rem] border shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all ${m ? 'border-indigo-100 dark:border-indigo-900/30 bg-white dark:bg-slate-800/90' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50'}`}>
+        
+        {/* 🌟 Status Header */}
+        <div className={`relative px-4 py-3 flex justify-center items-center border-b ${m ? 'border-slate-100 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30' : 'border-slate-200 dark:border-slate-800'}`}>
+          
+          {/* Badge ชื่อคอร์ทตรงกลาง */}
+          <span className="font-black text-base text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800/50 px-5 py-1 rounded-full flex items-center gap-2 shadow-sm">
+            <MapPin className="w-4 h-4" /> {cn}
+          </span>
+
+          {/* เวลาถูกดรอปความเด่นลง (เอาพื้นหลังออก เปลี่ยนเป็นข้อความสีเทา) */}
+          {m && (
+            <div className="absolute right-4 flex items-center gap-1 text-slate-400 dark:text-slate-500 font-medium text-[11px]">
+              <Clock className="w-3.5 h-3.5 opacity-70" /> 
+              <span>{min} min</span>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 sm:p-5">
+          {m ? (
+            <div className="space-y-0"> {/* ปรับระยะห่างให้ชิดกันเพื่อใช้ป้าย VS คั่นกลาง */}
+              
+              {/* 🔵 ทีม A (กรอบสีน้ำเงินอ่อน) */}
+              <div className="bg-blue-50/50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 rounded-2xl p-2.5 pb-5 relative">
                 
-                {/* Status Header */}
-                <div className={`px-4 py-3 flex justify-between items-center border-b ${m ? 'border-indigo-50 dark:border-slate-700/50 bg-indigo-50/50 dark:bg-indigo-900/10' : 'border-slate-200 dark:border-slate-800'}`}>
-                  <span className="font-black text-base text-slate-800 dark:text-white flex items-center gap-2">
-                    <MapPin className={`w-4 h-4 ${m ? 'text-indigo-500' : 'text-slate-400'}`} /> {cn}
-                  </span>
-                  {m && (
-                    <span className="text-[11px] font-black text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/50 px-2.5 py-1 rounded-md flex items-center gap-1 shadow-sm">
-                      <Clock className="w-3.5 h-3.5" /> <span>{min} <span className="text-[9px] uppercase">min</span></span>
-                    </span>
-                  )}
-                </div>
-
-                <div className="p-4 sm:p-5">
-                  {m ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-3 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200">
-                        <div className="bg-slate-50 dark:bg-slate-900/50 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-800 relative">
-                          {m.p1Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl"></div>}
-                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(m.p1Skill)}`}></span>
-                          <span className="truncate">{m.p1Name}</span>
-                        </div>
-                        <div className="bg-slate-50 dark:bg-slate-900/50 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-800 relative">
-                          {m.p2Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl"></div>}
-                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(m.p2Skill)}`}></span>
-                          <span className="truncate">{m.p2Name}</span>
-                        </div>
-                      </div>                  
-                      
-                      <div className="relative flex items-center justify-center my-1">
-                        <div className="absolute inset-0 flex items-center">
-                          <div className="w-full border-t border-slate-200 dark:border-slate-700"></div>
-                        </div>
-                        <div className="relative bg-white dark:bg-slate-800 px-2 py-0.5 text-slate-300 dark:text-slate-600 text-[10px] font-black tracking-widest z-10">
-                          VS
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200">
-                        <div className="bg-slate-50 dark:bg-slate-900/50 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-800 relative">
-                          {m.p3Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl"></div>}
-                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(m.p3Skill)}`}></span>
-                          <span className="truncate">{m.p3Name}</span>
-                        </div>
-                        <div className="bg-slate-50 dark:bg-slate-900/50 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-800 relative">
-                          {m.p4Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl"></div>}
-                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(m.p4Skill)}`}></span>
-                          <span className="truncate">{m.p4Name}</span>
-                        </div>
-                      </div>
-
-                      {admin && (
-                        <div className="flex gap-3 mt-5 pt-4 border-t border-slate-100 dark:border-slate-800">
-                          {!started && (
-                            <button 
-                              onClick={() => handleAction(`start-${cn}`, async () => await startGame(cn))} 
-                              disabled={loadingId === `start-${cn}`}
-                              className={`flex-1 py-2.5 text-white text-xs font-black rounded-xl transition-all flex justify-center items-center gap-1.5 shadow-md ${loadingId === `start-${cn}` ? 'bg-indigo-400 cursor-not-allowed opacity-75' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20 active:scale-95'}`}
-                            >
-                              {loadingId === `start-${cn}` ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-white" />}
-                              {loadingId === `start-${cn}` ? 'รอสักครู่...' : 'เริ่มเกม (จับเวลา)'}
-                            </button>
-                          )}
-                          
-                          <button 
-                            onClick={() => finish(cn)} 
-                            className="flex-[0.5] py-2.5 bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-black rounded-xl shadow-md active:scale-95 transition-all flex justify-center items-center gap-1.5"
-                          >
-                            <Check className="w-4 h-4" /> จบเกม
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="py-10 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50/50 dark:bg-slate-900/20">
-                      <Swords className="w-8 h-8 mb-2 opacity-50" />
-                      <span className="text-sm font-bold tracking-wide uppercase">สนามว่าง</span>
-                    </div>
-                  )}
+                <div className="grid grid-cols-2 gap-3 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200">
+                  <div className="bg-white dark:bg-slate-800 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-700 relative">
+                    {m.p1Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl z-10"></div>}
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.floor(m.p1Skill))}`}></span>
+                    <span className="truncate">{m.p1Name}</span>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-700 relative">
+                    {m.p2Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl z-10"></div>}
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.floor(m.p2Skill))}`}></span>
+                    <span className="truncate">{m.p2Name}</span>
+                  </div>
                 </div>
               </div>
-            );
-          })}
+
+              {/* ⚡ ป้าย VS คั่นกลาง (ลอยทับระหว่างสองทีม) */}
+              <div className="relative flex justify-center -my-3 z-10">
+                <div className="bg-slate-800 text-white dark:bg-white dark:text-slate-800 text-[11px] font-black italic px-4 py-1 rounded-full shadow-lg border-[3px] border-white dark:border-slate-800">
+                  VS
+                </div>
+              </div>
+
+              {/* 🔴 ทีม B (กรอบสีแดงอ่อน) */}
+              <div className="bg-rose-50/50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800/50 rounded-2xl p-2.5 pt-5 relative">
+                <div className="grid grid-cols-2 gap-3 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200">
+                  <div className="bg-white dark:bg-slate-800 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-700 relative">
+                    {m.p3Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl z-10"></div>}
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.floor(m.p3Skill))}`}></span>
+                    <span className="truncate">{m.p3Name}</span>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-700 relative">
+                    {m.p4Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl z-10"></div>}
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.floor(m.p4Skill))}`}></span>
+                    <span className="truncate">{m.p4Name}</span>
+                  </div>
+                </div>
+                
+              </div>
+
+              {/* ส่วนปุ่มของ Admin */}
+              {admin && (
+                <div className="flex gap-3 mt-5 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  {!started && (
+                    <button 
+                      onClick={() => handleAction(`start-${cn}`, async () => await startGame(cn))} 
+                      disabled={loadingId === `start-${cn}`}
+                      className={`flex-1 py-2.5 text-white text-xs font-black rounded-xl transition-all flex justify-center items-center gap-1.5 shadow-md ${loadingId === `start-${cn}` ? 'bg-indigo-400 cursor-not-allowed opacity-75' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20 active:scale-95'}`}
+                    >
+                      {loadingId === `start-${cn}` ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-white" />}
+                      {loadingId === `start-${cn}` ? 'รอสักครู่...' : 'เริ่มเกม (จับเวลา)'}
+                    </button>
+                  )}
+                  
+                  <button 
+                    onClick={() => finish(cn)} 
+                    className="flex-[0.5] py-2.5 bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs font-black rounded-xl shadow-md active:scale-95 transition-all flex justify-center items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" /> จบเกม
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="py-10 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50/50 dark:bg-slate-900/20">
+              <Swords className="w-8 h-8 mb-2 opacity-50" />
+              <span className="text-sm font-bold tracking-wide uppercase">สนามว่าง</span>
+            </div>
+          )}
         </div>
+      </div>
+    );
+  })}
+</div>
       </section>
 
       {/* 🌟 3. Admin Settings (ส่วนของแอดมินสำหรับเปิด/ปิด ระบบแจ้งเตือน) */}
