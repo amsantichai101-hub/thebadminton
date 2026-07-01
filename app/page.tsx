@@ -27,7 +27,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.4.1"; // 🌟 อัปเดตเวอร์ชันแก้ไขระบบเพิ่มลบคอร์ท
+const APP_VERSION = "2.6.3"; // 🌟 อัปเดตเวอร์ชันแก้ไขระบบเพิ่มลบคอร์ท
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -646,12 +646,13 @@ export default function Home() {
   }, [state, myProfile]);
 
   const handleTabClick = (tab: any) => {
-    refresh(true, true);
+    refresh(false, true); 
     if (tab === 'profile') fetchProfileHistory();
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // 🌟 แก้ไข: แทนที่ useEffect ของเดิมด้วยตัวนี้ (Smart Polling)
   useEffect(() => {
     setAdmin(localStorage.getItem('adminAuth') === 'true');
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' || 'light';
@@ -668,9 +669,30 @@ export default function Home() {
     if (savedHistory) setMatchHistory(JSON.parse(savedHistory));
 
     refresh(true);
-    const t = setInterval(() => refresh(false), Number(process.env.NEXT_PUBLIC_AUTO_REFRESH_MS || 5000));
-    return () => clearInterval(t);
-  }, [])
+
+    // Smart Polling: หยุดดึงข้อมูลเมื่อไม่ได้ใช้งานหน้าจอนี้ (Tab is hidden)
+    let interval: NodeJS.Timeout;
+    const startPolling = () => {
+      interval = setInterval(() => refresh(false), Number(process.env.NEXT_PUBLIC_AUTO_REFRESH_MS || 5000));
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        clearInterval(interval);
+      } else {
+        refresh(false); // อัปเดตทันทีที่กลับมาเปิดจอ
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   const lastScrollY = useRef(0);
 
@@ -684,6 +706,32 @@ export default function Home() {
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const [onlineCount, setOnlineCount] = useState<number>(1);
+  // 🌟 ระบบ Heartbeat ส่งสัญญาณว่ากำลังออนไลน์
+  useEffect(() => {
+    const pingOnlineStatus = () => {
+      // 1. ดึงจำนวนคนออนไลน์มาแสดง
+      fetch('/api/online').then(res => res.json()).then(data => {
+        if(data.online) setOnlineCount(data.online);
+      }).catch(()=>null);
+
+      // 2. ส่งสัญญาณว่าตัวเองยังเปิดแอปอยู่
+      const profileStr = localStorage.getItem('myProfile');
+      if (profileStr) {
+        const { id } = JSON.parse(profileStr);
+        fetch('/api/online', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }) 
+        }).catch(()=>null);
+      }
+    };
+
+    pingOnlineStatus(); // ทำงานทันทีตอนเปิดแอป
+    const interval = setInterval(pingOnlineStatus, 60000); // ทำซ้ำทุกๆ 1 นาที
+    return () => clearInterval(interval);
   }, []);
 
   const recordMatchToHistory = (ids: string[]) => {
@@ -1062,64 +1110,20 @@ export default function Home() {
     const courtToLoad = targetCourtName || '';
     if (courtToLoad) setLoadingCourts(prev => [...prev, courtToLoad]);
 
-    let isCancelled = false;
-    let timerInterval: NodeJS.Timeout;
-
-    await Swal.fire({
-      html: `
-        <div class="flex flex-col items-center justify-center pt-2">
-          <div class="relative w-20 h-20 mb-4 flex items-center justify-center bg-slate-50 dark:bg-slate-800 rounded-full border-[4px] border-blue-100 dark:border-slate-700 shadow-inner">
-            <div id="swal-timer" class="text-4xl font-black text-blue-600 dark:text-blue-400 z-10 animate-pulse">5</div>
-          </div>
-          <h3 class="text-xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">เตรียมลงสนาม</h3>
-          <p class="text-sm text-slate-500 dark:text-slate-400">
-            จัดคิวลง <span class="font-bold text-blue-600 px-2 py-1 bg-blue-50 dark:bg-blue-900/30 rounded-lg">${targetCourtName || 'สนามว่าง'}</span>
-          </p>
-        </div>
-      `,
-      timer: 5000,
-      timerProgressBar: true,
-      showCancelButton: true,
-      cancelButtonText: 'ยกเลิก',
-      showConfirmButton: false,
-      allowOutsideClick: false,
-      background: 'transparent',
-      customClass: {
-        popup: '!bg-white dark:!bg-slate-900 !rounded-[2rem] !shadow-2xl !border !border-slate-100 dark:!border-slate-800',
-        cancelButton: '!bg-slate-100 hover:!bg-red-50 !text-slate-600 hover:!text-red-600 !rounded-xl !font-bold !px-8 !py-3 !transition-all active:!scale-95',
-        timerProgressBar: '!bg-blue-500'
-      },
-      didOpen: () => {
-        const timerEl = document.getElementById('swal-timer');
-        timerInterval = setInterval(() => {
-          const timeLeft = Swal.getTimerLeft();
-          if (timerEl && timeLeft) {
-            timerEl.textContent = Math.ceil(timeLeft / 1000).toString();
-          }
-        }, 100);
-      },
-      willClose: () => {
-        clearInterval(timerInterval);
-      }
-    }).then((result) => {
-      if (result.dismiss === Swal.DismissReason.cancel) {
-        isCancelled = true;
-      }
-    });
-
-    if (isCancelled) {
-      isConfirmingMatchRef.current = false;
-      if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
-      Toast.fire({ title: '🚫 ยกเลิกการส่งคิวแล้ว' });
-      return;
-    }
-
+    // ลบส่วนนับถอยหลัง 5 วินาที (Swal.fire timer) ออกทั้งหมด
+    // และให้แสดงสถานะโหลด (Processing) ทันทีที่กด
     setIsGlobalProcessing(true);
+    
     try {
       const ids = [matchData.teams[0][0].id, matchData.teams[0][1].id, matchData.teams[1][0].id, matchData.teams[1][1].id];
       recordMatchToHistory(ids);
 
-      const res = await fetch('/api/manual-match', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids, court: targetCourtName }) });
+      const res = await fetch('/api/manual-match', { 
+        method: 'POST', 
+        headers: { 'content-type': 'application/json' }, 
+        body: JSON.stringify({ ids, court: targetCourtName }) 
+      });
+      
       if (!res.ok) {
         Toast.fire({ title: `❌ ลงสนามไม่สำเร็จ` });
         return;
@@ -1127,7 +1131,11 @@ export default function Home() {
 
       const deleteId = matchData.dbId || matchData.matchId;
       if (deleteId && !matchData.matchId.startsWith('auto-')) {
-        await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deleteId }) }).catch(()=>null);
+        await fetch('/api/manual-queue', { 
+          method: 'DELETE', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ id: deleteId }) 
+        }).catch(()=>null);
       }
 
       await refresh(false);
@@ -1153,16 +1161,71 @@ export default function Home() {
   };
 
   const finish = (court: string) => {
-    Swal.fire({title: `จบแมทช์ที่ ${court}?`, showCancelButton: true}).then(async r => {
+    // 1. ป๊อปอัปยืนยันแบบสวยงาม
+    Swal.fire({
+      title: 'จบการแข่งขัน?',
+      html: `ต้องการจบแมทช์ที่ <b class="text-blue-600">${court}</b> ใช่หรือไม่?<br/><span class="text-sm text-gray-500 mt-2 block">ระบบจะทำการเคลียร์สนามเพื่อรับคิวถัดไป</span>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#3b82f6',
+      cancelButtonColor: '#ef4444',
+      confirmButtonText: '✅ ใช่, จบแมทช์เลย!',
+      cancelButtonText: '❌ ยกเลิก',
+      reverseButtons: true, // สลับปุ่มยืนยันไว้ด้านขวา
+      customClass: {
+        popup: '!rounded-[2rem] !shadow-2xl border border-slate-100',
+        title: 'text-2xl font-black text-slate-800',
+        confirmButton: 'font-bold rounded-xl px-6 py-3 shadow-lg hover:shadow-blue-500/50 transition-all active:scale-95',
+        cancelButton: 'font-bold rounded-xl px-6 py-3 shadow-lg hover:shadow-red-500/50 transition-all active:scale-95'
+      }
+    }).then(async r => {
       if(!r.isConfirmed) return;
-      setIsGlobalProcessing(true);
+      
+      // 2. โชว์ Loading สวยๆ ที่มี Progress bar วิ่งระหว่างรอ
+      Swal.fire({
+        title: 'กำลังเคลียร์สนาม...',
+        html: 'โปรดรอสักครู่ ระบบกำลังอัปเดตข้อมูล',
+        timer: 1500, // หน่วงเวลาให้ UI ดูสมูทขึ้น
+        timerProgressBar: true,
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        didOpen: () => {
+          Swal.showLoading();
+        },
+        customClass: {
+          popup: '!rounded-[2rem] !shadow-2xl',
+          title: 'text-xl font-bold text-slate-800',
+          timerProgressBar: '!bg-blue-500'
+        }
+      });
+
       try {
         await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
         await refresh(false);
-        fetchProfileHistory();
-        Toast.fire({ title: '✅ Match Finished' });
-      } finally {
-        setIsGlobalProcessing(false);
+        fetchProfileHistory(); // ฟังก์ชันดึงประวัติเดิมของคุณ
+        
+        // 3. แจ้งเตือนเมื่อสำเร็จ
+        Swal.fire({
+          icon: 'success',
+          title: 'เคลียร์สนามเรียบร้อย!',
+          text: `${court} พร้อมรับคิวใหม่แล้ว`,
+          showConfirmButton: false,
+          timer: 1500,
+          customClass: {
+            popup: '!rounded-[2rem] !shadow-2xl',
+            title: 'text-xl font-bold text-green-600'
+          }
+        });
+      } catch (e) {
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: 'ไม่สามารถจบแมทช์ได้',
+          confirmButtonColor: '#ef4444',
+          customClass: {
+            popup: '!rounded-[2rem] !shadow-2xl'
+          }
+        });
       }
     });
   }
@@ -1854,7 +1917,7 @@ export default function Home() {
       `}} />
 
       <div
-        className={`fixed top-14 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 cursor-pointer ${capsuleAlert.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-10 scale-95 pointer-events-none'}`}
+        className={`fixed top-14 left-1/2 -translate-x-1/2 z-[9999] transition-all duration-500 cursor-pointer ${capsuleAlert.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-10 scale-95 pointer-events-none'}`}
         onClick={() => { if (capsuleAlert.onClick) capsuleAlert.onClick(); setCapsuleAlert(prev => ({ ...prev, visible: false })); }}
       >
         <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 w-max max-w-[90vw]">
@@ -1996,7 +2059,7 @@ export default function Home() {
     <>
       {/* 🌟 Global Processing Overlay */}
       {isGlobalProcessing && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-900/30 dark:bg-slate-950/50 backdrop-blur-[3px] transition-all duration-300">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/30 dark:bg-slate-950/50 backdrop-blur-[3px] transition-all duration-300">
           <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] shadow-2xl flex flex-col items-center gap-4 border border-slate-100 dark:border-slate-700 animate-in zoom-in-95">
             <div className="relative flex items-center justify-center">
               <div className="w-14 h-14 border-[5px] border-blue-100 dark:border-slate-700 border-t-blue-600 dark:border-t-blue-500 rounded-full animate-spin"></div>
@@ -2010,6 +2073,14 @@ export default function Home() {
       )}
       
       {MainContent}
+      {/* 🌟 แสดงจำนวนคนออนไลน์ด้านล่างสุด */}
+      <div className="py-8 flex items-center justify-center gap-2 text-xs font-black text-slate-400 dark:text-slate-500 tracking-wide">
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
+        </span>
+        ผู้ใช้งานออนไลน์ขณะนี้ {onlineCount} คน
+      </div>
     </>
   );
 }

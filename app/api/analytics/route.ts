@@ -11,14 +11,15 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin.from('match_logs').select('*');
 
-    // บังคับ Timezone ไทย (+07:00) 
+    // 🌟 เอาการแปลง Timezone ออก และส่งรูปแบบ YYYY-MM-DD HH:mm:ss ไปให้ Database ตรงๆ
     if (start && end) {
-      const startTs = new Date(`${start}T00:00:00+07:00`).toISOString();
-      const endTs = new Date(`${end}T23:59:59.999+07:00`).toISOString();
+      const startTs = `${start} 00:00:00`;
+      const endTs = `${end} 23:59:59.999`;
       query = query.gte('ts', startTs).lte('ts', endTs);
     } else {
+      // ดึงวันที่ปัจจุบันแบบ Local
       const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 10);
-      const startTs = new Date(`${today}T00:00:00+07:00`).toISOString();
+      const startTs = `${today} 00:00:00`;
       query = query.gte('ts', startTs);
     }
 
@@ -31,9 +32,16 @@ export async function GET(req: NextRequest) {
 
     if (logsError || playersError) throw new Error('Query Error');
 
-    const matchesEnded = logs?.filter(l => l.action.toLowerCase().includes('end')) || [];
-    const uniqueMatches = new Set(matchesEnded.map(l => `${l.court}_${l.ts}`)).size;
-    const uniquePlayers = new Set(logs?.map(l => l.player_id).filter(Boolean)).size;
+    // 🌟 1. นับจำนวนแมทช์ทั้งหมด (Total Matches)
+    // นับจากจังหวะที่ "เริ่มเกม" หรือ "ลงสนาม" แล้วจับกลุ่มด้วย ชื่อคอร์ท+เวลา(ระดับนาที)
+    // การใช้ substring(0, 16) คือการตัดเอาแค่ YYYY-MM-DDTHH:mm เพื่อป้องกันการนับซ้ำ
+    const matchesStarted = logs?.filter(l => l.action?.toLowerCase().includes('start') || l.action?.includes('ลงสนาม')) || [];
+    const uniqueMatches = new Set(matchesStarted.map(l => `${l.court}_${l.ts.substring(0, 16)}`)).size;
+
+    // 🌟 2. นับคนที่เข้ามาทั้งหมดในวันนี้ (Unique Players)
+    // เก็บรายชื่อคนที่ไม่ซ้ำกันจาก "ทุกๆ Action" ที่เกิดขึ้นในวันนั้น (เช็คอิน, ลงสนาม, เข้าคิว)
+    // เผื่อบาง log ไม่มี player_id ให้ดึง player_name มาเผื่อด้วย
+    const uniquePlayers = new Set(logs?.map(l => l.player_id || l.player_name).filter(Boolean)).size;
 
     return NextResponse.json({
       totalMatches: uniqueMatches,

@@ -14,9 +14,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Missing date parameters' }, { status: 400 })
     }
 
-    // 🌟 บังคับ Timezone เป็นโซนเวลาของไทย (+07:00) แล้วแปลงกลับเป็น UTC (ISO) เพื่อคุยกับ Supabase
-    const startTs = new Date(`${startDate}T00:00:00+07:00`).toISOString()
-    const endTs = new Date(`${endDate}T23:59:59.999+07:00`).toISOString()
+    // 🌟 1. เอาการแปลง Timezone +07:00 ออก (ใช้เวลา Local ส่งไปตรงๆ)
+    const startTs = `${startDate} 00:00:00`
+    const endTs = `${endDate} 23:59:59.999`
 
     const { data: logs, error } = await supabaseAdmin
       .from('match_logs')
@@ -33,26 +33,31 @@ export async function GET(req: NextRequest) {
     const tableData = validLogs.map(l => ({
       ts: l.ts,
       time: new Date(l.ts).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+      empno: l.player_id || '-', 
       name: l.player_name || l.match_group || '-',
       action: l.action || '-',
       court: l.court || '-'
     }))
 
-    // สร้างข้อมูลสำหรับ Export เป็น CSV
-    let csv = '\uFEFFTime,Name,Action,Court\n' 
+    // สร้างข้อมูลสำหรับ Export เป็น CSV (รวม EmpNo ไว้แล้ว)
+    let csv = '\uFEFFTime,EmpNo,Name,Action,Court\n' 
     tableData.forEach(r => {
-      csv += `"${r.time}","${r.name}","${r.action}","${r.court}"\n`
+      csv += `"${r.time}","${r.empno}","${r.name}","${r.action}","${r.court}"\n`
     })
 
-    // ส่วนคำนวณ Analytics สถิติ
-    // นับจำนวนแมทช์ตามจริง (ยึดจากการกด Start/ลงสนาม) และ Group ด้วยเวลาเพื่อกันข้อมูลซ้ำ
+    // 🌟 2. ส่วนคำนวณ Analytics สถิติที่ถูกต้อง
+
+    // นับจำนวนแมทช์ตามจริง (ยึดจากการกด Start/ลงสนาม) และ Group ด้วยเวลา "ระดับนาที" 
+    // l.ts.substring(0, 16) = "YYYY-MM-DD HH:mm" เพื่อให้คนที่ลงสนามพร้อมกันนับเป็นแค่ 1 แมทช์
     const matchesStarted = validLogs.filter(l => l.action?.toLowerCase().includes('start') || l.action?.includes('ลงสนาม'));
-    const uniqueMatches = new Set(matchesStarted.map(l => `${l.court}_${l.ts.substring(0, 13)}`)); 
+    const uniqueMatches = new Set(matchesStarted.map(l => `${l.court}_${l.ts.substring(0, 16)}`)); 
     const totalMatches = uniqueMatches.size;
 
-    // นับจำนวนคนที่เข้าร่วมตามจริง โดยทุกอย่างให้ทำการ group ด้วย "ชื่อคน" ไม่ว่าจะเข้าระบบหรือออกระบบ
-    const playerNames = new Set(validLogs.map(l => l.player_name?.trim()).filter(Boolean));
-    const totalPlayers = playerNames.size;
+    // นับจำนวนคนที่เข้ามาในระบบทั้งหมด (ทุกการกระทำ ไม่ใช่แค่คนเล่น)
+    // ดึงรหัสพนักงาน หรือ ชื่อ มาหาค่า Unique เพื่อดูยอดคนที่มาที่คอร์ทจริงๆ ในวันนี้
+    const allPlayers = validLogs.map(l => (l.player_id || l.player_name)?.trim()).filter(Boolean);
+    const uniquePlayers = new Set(allPlayers);
+    const totalPlayers = uniquePlayers.size;
 
     return NextResponse.json({
       totalMatches,
