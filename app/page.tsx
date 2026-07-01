@@ -1080,7 +1080,7 @@ export default function Home() {
       timer: 5000,
       timerProgressBar: true,
       showCancelButton: true,
-      cancelButtonText: 'ยกเลิก',
+      // cancelButtonText: 'ยกเลิก',
       showConfirmButton: false,
       allowOutsideClick: false,
       background: 'transparent',
