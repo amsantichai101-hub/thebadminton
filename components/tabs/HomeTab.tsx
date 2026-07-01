@@ -75,7 +75,7 @@ export default function HomeTab(props: any) {
             <div className="flex items-center gap-3">
               <div className="flex flex-col items-end">
                 <span className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-1.5 tracking-tight">
-                   <span className={`w-2.5 h-2.5 rounded-full inline-block shrink-0 shadow-inner ${getSkillColor(Math.floor(getMySkillLevel()))}`}></span>
+                   <span className={`w-2.5 h-2.5 rounded-full inline-block shrink-0 shadow-inner ${getSkillColor(Math.ceil(getMySkillLevel()))}`}></span>
                    {myProfile.name}
                 </span>
                 {myQueueNumber ? (
@@ -207,7 +207,7 @@ export default function HomeTab(props: any) {
                           className={`
                             relative px-3 py-3 rounded-xl text-xs sm:text-sm font-bold text-center shadow-sm 
                             transition-all duration-200 ease-out cursor-pointer active:scale-95
-                            ${getSkillColor(Math.floor(p.skill))}
+                            ${getSkillColor(Math.ceil(p.skill))}
                             ${p.id === myProfile?.id ? 'ring-[3px] ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 shadow-lg scale-105 z-10' : 'border border-white/20'} 
                             ${swapSource?.playerId === p.id ? 'ring-4 ring-amber-500 ring-offset-2 animate-pulse scale-105 z-20 shadow-amber-500/50' : ''} 
                           `}
@@ -244,7 +244,7 @@ export default function HomeTab(props: any) {
                           className={`
                             relative px-3 py-3 rounded-xl text-xs sm:text-sm font-bold text-center shadow-sm 
                             transition-all duration-200 ease-out cursor-pointer active:scale-95
-                            ${getSkillColor(Math.floor(p.skill))}
+                            ${getSkillColor(Math.ceil(p.skill))}
                             ${p.id === myProfile?.id ? 'ring-[3px] ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 shadow-lg scale-105 z-10' : 'border border-white/20'} 
                             ${swapSource?.playerId === p.id ? 'ring-4 ring-amber-500 ring-offset-2 animate-pulse scale-105 z-20 shadow-amber-500/50' : ''} 
                           `}
@@ -350,12 +350,12 @@ export default function HomeTab(props: any) {
                 <div className="grid grid-cols-2 gap-3 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200">
                   <div className="bg-white dark:bg-slate-800 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-700 relative">
                     {m.p1Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl z-10"></div>}
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.floor(m.p1Skill))}`}></span>
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.ceil(m.p1Skill))}`}></span>
                     <span className="truncate">{m.p1Name}</span>
                   </div>
                   <div className="bg-white dark:bg-slate-800 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-700 relative">
                     {m.p2Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl z-10"></div>}
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.floor(m.p2Skill))}`}></span>
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.ceil(m.p2Skill))}`}></span>
                     <span className="truncate">{m.p2Name}</span>
                   </div>
                 </div>
@@ -373,12 +373,12 @@ export default function HomeTab(props: any) {
                 <div className="grid grid-cols-2 gap-3 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200">
                   <div className="bg-white dark:bg-slate-800 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-700 relative">
                     {m.p3Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl z-10"></div>}
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.floor(m.p3Skill))}`}></span>
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.ceil(m.p3Skill))}`}></span>
                     <span className="truncate">{m.p3Name}</span>
                   </div>
                   <div className="bg-white dark:bg-slate-800 px-3 py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm border border-slate-100 dark:border-slate-700 relative">
                     {m.p4Id === myProfile?.id && <div className="absolute inset-0 ring-2 ring-blue-500 rounded-xl z-10"></div>}
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.floor(m.p4Skill))}`}></span>
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-inner ${getSkillColor(Math.ceil(m.p4Skill))}`}></span>
                     <span className="truncate">{m.p4Name}</span>
                   </div>
                 </div>
