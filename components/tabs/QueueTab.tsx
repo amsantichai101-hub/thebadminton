@@ -75,7 +75,7 @@ export default function QueueTab(props: any) {
   >
     {/* Left: Player Info */}
     <div className="flex items-center gap-3 min-w-0 flex-1">
-      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md shrink-0 ${getSkillColor(Math.floor(p.skill))}`}>
+      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md shrink-0 ${getSkillColor(Math.ceil(p.skill))}`}>
         {p.name.charAt(0)}
       </div>
 
@@ -102,7 +102,7 @@ export default function QueueTab(props: any) {
 
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           <span className="text-[10px] text-slate-400 font-mono font-bold">
-            คิวที่ {i + 1} • Lv {Math.floor(p.skill)}
+            คิวที่ {i + 1} • Lv {Math.ceil(p.skill)}
           </span>
 
           {inPreviewStatus && (
@@ -177,10 +177,10 @@ export default function QueueTab(props: any) {
                             {selectedPending.includes(p.id) && <Check className="w-4 h-4 text-green-500" />}
                          </div>
                       )}
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md ${getSkillColor(Math.floor(p.skill))}`}>{p.name.charAt(0)}</div>
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shadow-md ${getSkillColor(Math.ceil(p.skill))}`}>{p.name.charAt(0)}</div>
                       <div>
                         <div className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">{p.name} {(!p.playCount || p.playCount === 0 || !p.timestamp) && <span className="bg-amber-100 text-amber-600 text-[8px] px-1 rounded uppercase font-bold shadow-sm">New</span>}</div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 font-bold">Lv {Math.floor(p.skill)} • ID: {p.id}</div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 font-bold">Lv {Math.ceil(p.skill)} • ID: {p.id}</div>
                       </div>
                     </div>
                     {admin && (

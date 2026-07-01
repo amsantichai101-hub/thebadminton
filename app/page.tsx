@@ -168,10 +168,10 @@ export default function Home() {
     if (myQueueData) return myQueueData.skill;
     if (myPending) return myPending.skill;
     if (myActiveCourt) {
-      if (myActiveCourt.p1Id === myProfile?.id) return Math.floor(myActiveCourt.p1Skill);
-      if (myActiveCourt.p2Id === myProfile?.id) return Math.floor(myActiveCourt.p2Skill);
-      if (myActiveCourt.p3Id === myProfile?.id) return Math.floor(myActiveCourt.p3Skill);
-      if (myActiveCourt.p4Id === myProfile?.id) return Math.floor(myActiveCourt.p4Skill);
+      if (myActiveCourt.p1Id === myProfile?.id) return Math.ceil(myActiveCourt.p1Skill);
+      if (myActiveCourt.p2Id === myProfile?.id) return Math.ceil(myActiveCourt.p2Skill);
+      if (myActiveCourt.p3Id === myProfile?.id) return Math.ceil(myActiveCourt.p3Skill);
+      if (myActiveCourt.p4Id === myProfile?.id) return Math.ceil(myActiveCourt.p4Skill);
     }
     const stored = localStorage.getItem('myProfileSkill');
     if (stored) return Number(stored);
@@ -182,7 +182,7 @@ export default function Home() {
 
   function isSimilarSkillGroup(players: any[]): boolean {
     if (players.length !== 4) return false;
-    const skills = players.map(p => Number(Math.floor(p.skill)));
+    const skills = players.map(p => Number(Math.ceil(p.skill)));
     return Math.max(...skills) - Math.min(...skills) <= 1;
   }
 
@@ -206,7 +206,7 @@ export default function Home() {
           currentPlayers = currentPlayers.slice(4);
           continue;
         }
-        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(Math.floor(p.skill)) })), history);
+        const balanced = balanceTeams(group.map(p => ({ id: p.id, name: p.name, skill: Number(Math.ceil(p.skill)) })), history);
         matches.push({
           matchNumber: i + 1,
           teams: [[balanced.teams[0], balanced.teams[1]], [balanced.teams[2], balanced.teams[3]]],
@@ -963,7 +963,7 @@ export default function Home() {
     const newName = isPaused ? p.name.replace(' (พัก)', '') : p.name + ' (พัก)';
     setIsGlobalProcessing(true);
     try {
-      await fetch('/api/update-player', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ oldId: p.id, newId: p.id, name: newName, skill: Math.floor(p.skill) }) });
+      await fetch('/api/update-player', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ oldId: p.id, newId: p.id, name: newName, skill: Math.ceil(p.skill) }) });
       await refresh(false); 
       Toast.fire({ title: isPaused ? '✅ กลับเข้าคิวปกติแล้ว' : '⏸️ พักคิวแล้ว' });
     } finally {
@@ -1379,10 +1379,10 @@ export default function Home() {
         const hidSkill = document.getElementById('hidSkill') as HTMLInputElement;
 
         const lockFields = (p: any) => {
-          hidId.value = p.id; hidName.value = p.name; hidSkill.value = Math.floor(p.skill).toString();
+          hidId.value = p.id; hidName.value = p.name; hidSkill.value = Math.ceil(p.skill).toString();
           document.getElementById('previewId')!.textContent = 'ID: ' + p.id;
           document.getElementById('previewName')!.textContent = p.name;
-          document.getElementById('previewSkill')!.textContent = 'Lv ' + Math.floor(p.skill);
+          document.getElementById('previewSkill')!.textContent = 'Lv ' + Math.ceil(p.skill);
           searchSelectedPreview.classList.remove('hidden'); swSearch.classList.add('hidden'); swTableContainer.classList.add('hidden'); swClearBtn.classList.remove('hidden');
         };
 
@@ -1414,7 +1414,7 @@ export default function Home() {
                   tr.onmousedown = (e) => { e.preventDefault(); lockFields(p); };
                   const tdId = document.createElement('td'); tdId.className = 'p-2 font-bold text-blue-600'; tdId.textContent = p.id;
                   const tdName = document.createElement('td'); tdName.className = 'p-2 font-medium'; tdName.textContent = p.name;
-                  const tdLv = document.createElement('td'); tdLv.className = 'p-2 text-center'; tdLv.innerHTML = `<span class="bg-slate-200 px-1.5 py-0.5 rounded shadow-inner font-bold">${Math.floor(p.skill)}</span>`;
+                  const tdLv = document.createElement('td'); tdLv.className = 'p-2 text-center'; tdLv.innerHTML = `<span class="bg-slate-200 px-1.5 py-0.5 rounded shadow-inner font-bold">${Math.ceil(p.skill)}</span>`;
                   const tdAction = document.createElement('td'); tdAction.className = 'p-2 text-center';
                   const btn = document.createElement('button'); btn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded shadow-sm font-bold transition-transform'; btn.textContent = 'Select';
                   tdAction.appendChild(btn); tr.append(tdId, tdName, tdLv, tdAction); tbody.appendChild(tr);
@@ -1464,7 +1464,7 @@ export default function Home() {
                     e.preventDefault();
                     const profileData = { id: p.id, name: p.name };
                     localStorage.setItem('myProfile', JSON.stringify(profileData));
-                    localStorage.setItem('myProfileSkill', Math.floor(p.skill).toString());
+                    localStorage.setItem('myProfileSkill', Math.ceil(p.skill).toString());
                     sessionStorage.setItem('justCheckedIn', 'true');
                     setMyProfile(profileData);
                     Swal.close(); Toast.fire({ title: '✅ กู้คืนโปรไฟล์สำเร็จ!' }); setTimeout(() => window.location.reload(), 1000);
@@ -1796,8 +1796,8 @@ export default function Home() {
             uniquePlayers.forEach((p: any) => {
               const pDate = p.timestamp || p.last_seen || p.created_at;
               const timeStr = pDate ? new Date(pDate).toLocaleTimeString('th-TH') : '-';
-              csv += `"${p.id}","${p.name}","${Math.floor(p.skill)}","${p.type || 'Emp'}","${timeStr}"\n`;
-              tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-2.5 font-mono text-slate-500">${p.id}</td><td class="p-2.5 font-bold text-slate-700">${p.name}</td><td class="p-2.5 text-center"><span class="bg-slate-200 px-2 py-0.5 rounded-md font-bold">${Math.floor(p.skill)}</span></td><td class="p-2.5 text-slate-500">${timeStr}</td></tr>`;
+              csv += `"${p.id}","${p.name}","${Math.ceil(p.skill)}","${p.type || 'Emp'}","${timeStr}"\n`;
+              tableHtml += `<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="p-2.5 font-mono text-slate-500">${p.id}</td><td class="p-2.5 font-bold text-slate-700">${p.name}</td><td class="p-2.5 text-center"><span class="bg-slate-200 px-2 py-0.5 rounded-md font-bold">${Math.ceil(p.skill)}</span></td><td class="p-2.5 text-slate-500">${timeStr}</td></tr>`;
             });
             tableHtml += `</tbody></table></div>`;
 
