@@ -56,7 +56,7 @@ export async function POST(req: Request) {
           name: p.name,
           skill: p.skill,
           ts: new Date().toISOString(), // ⏰ อัปเดตเวลาปัจจุบัน เพื่อให้หล่นไปอยู่ "ท้ายคิว"
-          type: p.id.startsWith('G') ? 'Guest' : 'Emp',
+          type: p.id.startsWith('9') ? 'Guest' : 'Emp', // ✅ เปลี่ยนเงื่อนไขตรวจจับ Guest เป็นขึ้นต้นด้วย 9
           play_count: (count || 0) + 1 // รอบเดิม + รอบที่เพิ่งตีจบ
        });
 
@@ -70,6 +70,42 @@ export async function POST(req: Request) {
 
     // 5. เคลียร์คอร์ทให้ว่าง
     await supabaseAdmin.from('active_courts').delete().eq('court', court)
+    
+    // ========================================================
+    // 🌟 ระบบยิง Push ทะลุจอ แจ้งเตือน 4 คนแรกให้เตรียมวอร์ม เมื่อจบแมตช์
+    // ========================================================
+    try {
+      // 1. ดึงข้อมูล 4 คนแรกที่รออยู่ในคิว (และข้ามคนที่กำลัง "พัก" อยู่)
+      const { data: waitingPlayers } = await supabaseAdmin
+        .from('player_queue')
+        .select('id, name')
+        .not('name', 'like', '%(พัก)%')
+        .order('id', { ascending: true }) 
+        .limit(4);
+
+      if (waitingPlayers && waitingPlayers.length > 0) {
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        
+        // 2. วนลูปยิง Push ไปบอกให้ทั้ง 4 คนเตรียมตัว
+        for (const p of waitingPlayers) {
+          fetch(`${baseUrl}/api/webpush`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send',
+              userId: p.id,
+              title: '🔥 เตรียมตัววอร์ม!',
+              message: `มีคอร์ทเพิ่งจบแมตช์! คุณ ${p.name} กรุณาเตรียมตัวลุกขึ้นยืดเส้นได้เลย และตรวจสอบคิวของคุณที่หน้า Home (คิวอาจมีการเปลี่ยนแปลงตามความเหมาะสม)`,
+              url: '/?tab=queue',
+              vibrate: [200, 100, 200] 
+            })
+          }).catch(err => console.error('Push prepare error:', err));
+        }
+      }
+    } catch (e) {
+      console.error('Error sending prepare push:', e);
+    }
+    // ========================================================
 
     return NextResponse.json({ status: 'success' })
   } catch (error: any) {

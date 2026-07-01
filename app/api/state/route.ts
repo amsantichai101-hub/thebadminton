@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
 
-export const dynamic = 'force-dynamic'
+// 🌟 แก้ไข: เปลี่ยนจาก 'force-dynamic' เป็น Micro-caching 
+// Cache ข้อมูลไว้ 2 วินาที (ลดโหลด Database ลง 90-99% เมื่อมีคนใช้งานพร้อมกันจำนวนมาก)
+export const revalidate = 2;
 
 export async function GET() {
   try {
@@ -43,6 +45,7 @@ export async function GET() {
       announcement: getConfig('Announcement') || '',
       autoMatch: getConfig('AutoMatch') === 'true',
       globalShowPreview: getConfig('GlobalShowPreview') !== 'false', 
+      enableNotify: getConfig('EnableNotify') !== 'false',
       playStartTime: getConfig('PlayStartTime') || '20:00',
       playEndTime: getConfig('PlayEndTime') || '22:30',
       courtCount: courtNames.length,
