@@ -28,7 +28,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.6.6"; // 🌟 อัปเดตแก้บั๊กคิวล่วงหน้าหาย
+const APP_VERSION = "2.6.7"; // 🌟 ถอดระบบ Auto-Delete คิวล่วงหน้า (ป้องกันคิวที่ยืนยันแล้วหาย 100%)
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -344,7 +344,6 @@ export default function Home() {
          tMatch.matchId = finalTMatchId;
       }
 
-      // 🌟 ส่ง dbId ไปด้วยเพื่อความแม่นยำในการลบ
       const sDeleteId = allPreviews[sMatchIdx].dbId;
       if (sDeleteId && !sourceMatchId.startsWith('auto-')) {
          await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sDeleteId, court_name: sourceMatchId }) }).catch(()=>null);
@@ -596,33 +595,15 @@ export default function Home() {
       if (manualData?.data) {
          const formattedManuals = [];
          
-         // 🌟 การป้องกันชั้นที่ 1: ตรวจสอบว่า d.waiting โหลดมาสมบูรณ์ ไม่มีข้อผิดพลาด
-         const isStateValid = !d.error && Array.isArray(d.waiting);
-         
          for (const m of manualData.data) {
-            let isMissing = false;
-            let p1, p2, p3, p4;
+            // 🌟 ปิดระบบลบคิวล่วงหน้าอัตโนมัติ 100%
+            // คิวที่ถูกจองไว้จะไม่มีวันหายไปจากการรีเฟรชเด็ดขาด
+            // แอดมินต้องเป็นคนกดกากบาทลบเอง หรือกดส่งลงสนามเองเท่านั้น
             
-            if (isStateValid) {
-                p1 = d.waiting.find((x:any)=>x.id === m.p1_id);
-                p2 = d.waiting.find((x:any)=>x.id === m.p2_id);
-                p3 = d.waiting.find((x:any)=>x.id === m.p3_id);
-                p4 = d.waiting.find((x:any)=>x.id === m.p4_id);
-                
-                const missingCount = (!p1 ? 1 : 0) + (!p2 ? 1 : 0) + (!p3 ? 1 : 0) + (!p4 ? 1 : 0);
-                
-                // 🌟 การป้องกันชั้นที่ 2: ลบคิวอัตโนมัติก็ต่อเมื่อคน "ทั้ง 4 คน" หายไปจาก Waiting แล้วจริงๆ (ลงคอร์ทไปแล้ว)
-                if (missingCount >= 4) {
-                    isMissing = true;
-                    fetch('/api/manual-queue', { 
-                      method: 'DELETE', 
-                      headers: { 'Content-Type': 'application/json' }, 
-                      body: JSON.stringify({ id: m.id, court_name: m.court_name }) 
-                    }).catch(()=>null);
-                }
-            }
-
-            if (isMissing) continue;
+            const p1 = d.waiting?.find((x:any)=>x.id === m.p1_id);
+            const p2 = d.waiting?.find((x:any)=>x.id === m.p2_id);
+            const p3 = d.waiting?.find((x:any)=>x.id === m.p3_id);
+            const p4 = d.waiting?.find((x:any)=>x.id === m.p4_id);
 
             const customId = m.court_name || m.id;
             formattedManuals.push({
@@ -630,8 +611,8 @@ export default function Home() {
                matchId: customId, 
                isManual: !customId.startsWith('U-'), 
                teams: [
-                 [p1 || { id: m.p1_id, name: 'Unknown', skill: 0 }, p2 || { id: m.p2_id, name: 'Unknown', skill: 0 }],
-                 [p3 || { id: m.p3_id, name: 'Unknown', skill: 0 }, p4 || { id: m.p4_id, name: 'Unknown', skill: 0 }]
+                 [p1 || { id: m.p1_id, name: '❓ ไม่พบตัว', skill: 0 }, p2 || { id: m.p2_id, name: '❓ ไม่พบตัว', skill: 0 }],
+                 [p3 || { id: m.p3_id, name: '❓ ไม่พบตัว', skill: 0 }, p4 || { id: m.p4_id, name: '❓ ไม่พบตัว', skill: 0 }]
                ]
             });
          }
