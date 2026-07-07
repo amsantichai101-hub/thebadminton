@@ -29,8 +29,8 @@ export async function GET(req: NextRequest) {
 
     const validLogs = logs || []
 
-    // ตารางรายงานการกระทำ
-    const tableData = validLogs.map(l => ({
+    // ตารางรายงานการกระทำ (เติม : any ให้กับ l)
+    const tableData = validLogs.map((l: any) => ({
       ts: l.ts,
       time: new Date(l.ts).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
       empno: l.player_id || '-', 
@@ -41,7 +41,8 @@ export async function GET(req: NextRequest) {
 
     // สร้างข้อมูลสำหรับ Export เป็น CSV (รวม EmpNo ไว้แล้ว)
     let csv = '\uFEFFTime,EmpNo,Name,Action,Court\n' 
-    tableData.forEach(r => {
+    // 🌟 แก้ไขตรงนี้ เติม (r: any)
+    tableData.forEach((r: any) => {
       csv += `"${r.time}","${r.empno}","${r.name}","${r.action}","${r.court}"\n`
     })
 
@@ -49,13 +50,13 @@ export async function GET(req: NextRequest) {
 
     // นับจำนวนแมทช์ตามจริง (ยึดจากการกด Start/ลงสนาม) และ Group ด้วยเวลา "ระดับนาที" 
     // l.ts.substring(0, 16) = "YYYY-MM-DD HH:mm" เพื่อให้คนที่ลงสนามพร้อมกันนับเป็นแค่ 1 แมทช์
-    const matchesStarted = validLogs.filter(l => l.action?.toLowerCase().includes('start') || l.action?.includes('ลงสนาม'));
-    const uniqueMatches = new Set(matchesStarted.map(l => `${l.court}_${l.ts.substring(0, 16)}`)); 
+    const matchesStarted = validLogs.filter((l: any) => l.action?.toLowerCase().includes('start') || l.action?.includes('ลงสนาม'));
+    const uniqueMatches = new Set(matchesStarted.map((l: any) => `${l.court}_${l.ts.substring(0, 16)}`)); 
     const totalMatches = uniqueMatches.size;
 
     // นับจำนวนคนที่เข้ามาในระบบทั้งหมด (ทุกการกระทำ ไม่ใช่แค่คนเล่น)
     // ดึงรหัสพนักงาน หรือ ชื่อ มาหาค่า Unique เพื่อดูยอดคนที่มาที่คอร์ทจริงๆ ในวันนี้
-    const allPlayers = validLogs.map(l => (l.player_id || l.player_name)?.trim()).filter(Boolean);
+    const allPlayers = validLogs.map((l: any) => (l.player_id || l.player_name)?.trim()).filter(Boolean);
     const uniquePlayers = new Set(allPlayers);
     const totalPlayers = uniquePlayers.size;
 

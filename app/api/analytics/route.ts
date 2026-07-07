@@ -33,15 +33,13 @@ export async function GET(req: NextRequest) {
     if (logsError || playersError) throw new Error('Query Error');
 
     // 🌟 1. นับจำนวนแมทช์ทั้งหมด (Total Matches)
-    // นับจากจังหวะที่ "เริ่มเกม" หรือ "ลงสนาม" แล้วจับกลุ่มด้วย ชื่อคอร์ท+เวลา(ระดับนาที)
-    // การใช้ substring(0, 16) คือการตัดเอาแค่ YYYY-MM-DDTHH:mm เพื่อป้องกันการนับซ้ำ
-    const matchesStarted = logs?.filter(l => l.action?.toLowerCase().includes('start') || l.action?.includes('ลงสนาม')) || [];
-    const uniqueMatches = new Set(matchesStarted.map(l => `${l.court}_${l.ts.substring(0, 16)}`)).size;
+    // เพิ่ม (l: any) เพื่อแก้ไข Error ตอน Build
+    const matchesStarted = logs?.filter((l: any) => l.action?.toLowerCase().includes('start') || l.action?.includes('ลงสนาม')) || [];
+    const uniqueMatches = new Set(matchesStarted.map((l: any) => `${l.court}_${l.ts.substring(0, 16)}`)).size;
 
     // 🌟 2. นับคนที่เข้ามาทั้งหมดในวันนี้ (Unique Players)
-    // เก็บรายชื่อคนที่ไม่ซ้ำกันจาก "ทุกๆ Action" ที่เกิดขึ้นในวันนั้น (เช็คอิน, ลงสนาม, เข้าคิว)
-    // เผื่อบาง log ไม่มี player_id ให้ดึง player_name มาเผื่อด้วย
-    const uniquePlayers = new Set(logs?.map(l => l.player_id || l.player_name).filter(Boolean)).size;
+    // เพิ่ม (l: any) เพื่อแก้ไข Error ตอน Build
+    const uniquePlayers = new Set(logs?.map((l: any) => l.player_id || l.player_name).filter(Boolean)).size;
 
     return NextResponse.json({
       totalMatches: uniqueMatches,

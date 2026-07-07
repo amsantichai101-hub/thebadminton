@@ -96,12 +96,12 @@ export async function POST(req: Request) {
   
   // ✅ FIX 1: ดึงข้อมูลคอร์ทที่กำลังเล่นอยู่ทั้งหมด เพื่อตรวจสอบรายชื่อคนที่เล่นอยู่แล้ว
   const { data: playing } = await s.from('active_courts').select('*');
-  const playingNames = playing?.map(p => p.court) || [];
+  const playingNames = playing?.map((p: any) => p.court) || [];
   const availableCourts = allCourts.filter(c => !playingNames.includes(c));
 
   // เก็บ ID ของคนที่กำลังลงเล่นอยู่ เพื่อป้องกันการซ้ำซ้อน
   const activePlayerIds = new Set<string>();
-  playing?.forEach(c => {
+  playing?.forEach((c: any) => {
     if (c.p1_id) activePlayerIds.add(c.p1_id);
     if (c.p2_id) activePlayerIds.add(c.p2_id);
     if (c.p3_id) activePlayerIds.add(c.p3_id);
@@ -245,7 +245,7 @@ export async function POST(req: Request) {
     if (selectedGroup) {
       await s.from('player_queue').delete().in('id', (selectedGroup as any[]).map(x => x.id));
       
-      // เอาคนที่ถูกเลือกทั้ง 4 คนออกจาก Array ของ Queue ໃນ Memory ป้องกันการจับซ้ำใน loop ถัดไป
+      // เอาคนที่ถูกเลือกทั้ง 4 คนออกจาก Array ของ Queue ใน Memory ป้องกันการจับซ้ำใน loop ถัดไป
       groupIndices.sort((a,b) => b - a).forEach(idx => {
          queue.splice(idx, 1);
       });
