@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
 
-// 🌟 แก้ไข: เปลี่ยนจาก 'force-dynamic' เป็น Micro-caching 
-// Cache ข้อมูลไว้ 2 วินาที (ลดโหลด Database ลง 90-99% เมื่อมีคนใช้งานพร้อมกันจำนวนมาก)
-export const revalidate = 2;
+// 🌟 ปิดระบบ Cache บน Vercel 100% บังคับดึงข้อมูลใหม่เสมอ
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 export async function GET() {
   try {
@@ -20,21 +20,17 @@ export async function GET() {
     ]);
 
     const configs = configRes.data || [];
-    // 🌟 เติม (c: any) 
     const getConfig = (key: string) => configs.find((c: any) => c.key === key)?.value;
     const courtNames = (getConfig('Courts') || 'Court 1, Court 2').split(',').map((s: string) => s.trim());
     
     let avgMatchDuration = 15;
-    // 🌟 เติม (l: any)
     const durations = logsRes.data?.map((l: any) => Number(l.duration)) || [];
     if (durations.length > 0) {
-      // 🌟 เติม (a: number, b: number)
       const sum = durations.reduce((a: number, b: number) => a + b, 0);
       avgMatchDuration = Math.round(sum / durations.length);
       avgMatchDuration = Math.max(5, Math.min(avgMatchDuration, 45)); 
     }
 
-    // 🌟 เติม (c: any)
     const playing = playingRes.data?.map((c: any) => ({
       court: c.court,
       p1Id: c.p1_id, p1Name: c.p1_name, p1Skill: c.p1_skill,

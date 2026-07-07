@@ -95,8 +95,9 @@ export default function HomeTab(props: any) {
       } catch (e) {
         Toast.fire({ icon: 'error', title: 'เกิดข้อผิดพลาดในการจบแมทช์' });
       } finally {
-        // ปิด Skeleton
-        setLocalClearing(prev => prev.filter(c => c !== court));
+        setTimeout(() => {
+          setLocalClearing(prev => prev.filter(c => c !== court));
+        }, 2500);
       }
     });
   }
