@@ -71,7 +71,7 @@ export default function HomeTab(props: any) {
             <div className="flex items-center gap-2">
               <div className="flex flex-col items-end">
                 <span className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center gap-1.5 tracking-tight">
-                   <span className={`w-2.5 h-2.5 rounded-full inline-block shrink-0 shadow-inner ${getSkillColor(Math.floor(getMySkillLevel()))}`}></span>
+                   <span className={`w-2.5 h-2.5 rounded-full inline-block shrink-0 shadow-inner ${getSkillColor(Math.ceil(getMySkillLevel()))}`}></span>
                    {myProfile.name}
                 </span>
                 {myQueueNumber ? (
@@ -143,7 +143,7 @@ export default function HomeTab(props: any) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {(state?.courtNames || []).map((cn: string) => {
             const m = (state?.playing || []).find((p: any) => p.court === cn);
-            const min = m ? Math.floor((Date.now() - new Date(m.startTime).getTime()) / 60000) : 0;
+            const min = m ? Math.ceil((Date.now() - new Date(m.startTime).getTime()) / 60000) : 0;
             const started = m ? ((Date.now() - new Date(m.startTime).getTime()) / 60000 > 1) : false;
 
             return (
@@ -178,12 +178,12 @@ export default function HomeTab(props: any) {
                           <div className="bg-white dark:bg-slate-800 px-2 py-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm border border-slate-100 dark:border-slate-700 relative">
                             {/* 🌟 2. ไฮไลท์ตัวเอง (เอาพื้นหลังออกเหลือแต่เส้นกรอบ) */}
                             {m.p1Id === myProfile?.id && <div className="absolute inset-0 ring-[2px] ring-yellow-400 rounded-lg z-10 animate-pulse pointer-events-none shadow-[0_0_8px_rgba(250,204,21,0.6)]"></div>}
-                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getSkillColor(Math.floor(m.p1Skill))}`}></span>
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getSkillColor(Math.ceil(m.p1Skill))}`}></span>
                             <span className="text-base font-black truncate text-slate-800 dark:text-slate-100">{m.p1Name}</span>
                           </div>
                           <div className="bg-white dark:bg-slate-800 px-2 py-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm border border-slate-100 dark:border-slate-700 relative">
                             {m.p2Id === myProfile?.id && <div className="absolute inset-0 ring-[2px] ring-yellow-400 rounded-lg z-10 animate-pulse pointer-events-none shadow-[0_0_8px_rgba(250,204,21,0.6)]"></div>}
-                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getSkillColor(Math.floor(m.p2Skill))}`}></span>
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getSkillColor(Math.ceil(m.p2Skill))}`}></span>
                             <span className="text-base font-black truncate text-slate-800 dark:text-slate-100">{m.p2Name}</span>
                           </div>
                         </div>
@@ -192,12 +192,12 @@ export default function HomeTab(props: any) {
                         <div className="grid grid-cols-2 gap-1.5 p-1.5 rounded-xl bg-red-50/60 dark:bg-red-900/10 border border-red-100 dark:border-red-800/30">
                           <div className="bg-white dark:bg-slate-800 px-2 py-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm border border-slate-100 dark:border-slate-700 relative">
                             {m.p3Id === myProfile?.id && <div className="absolute inset-0 ring-[2px] ring-yellow-400 rounded-lg z-10 animate-pulse pointer-events-none shadow-[0_0_8px_rgba(250,204,21,0.6)]"></div>}
-                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getSkillColor(Math.floor(m.p3Skill))}`}></span>
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getSkillColor(Math.ceil(m.p3Skill))}`}></span>
                             <span className="text-base font-black truncate text-slate-800 dark:text-slate-100">{m.p3Name}</span>
                           </div>
                           <div className="bg-white dark:bg-slate-800 px-2 py-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm border border-slate-100 dark:border-slate-700 relative">
                             {m.p4Id === myProfile?.id && <div className="absolute inset-0 ring-[2px] ring-yellow-400 rounded-lg z-10 animate-pulse pointer-events-none shadow-[0_0_8px_rgba(250,204,21,0.6)]"></div>}
-                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getSkillColor(Math.floor(m.p4Skill))}`}></span>
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getSkillColor(Math.ceil(m.p4Skill))}`}></span>
                             <span className="text-base font-black truncate text-slate-800 dark:text-slate-100">{m.p4Name}</span>
                           </div>
                         </div>
@@ -288,7 +288,7 @@ export default function HomeTab(props: any) {
                             }}
                             className={`
                               relative px-2 py-2.5 rounded-lg text-sm font-black text-center shadow-sm cursor-pointer active:scale-95 transition-all
-                              ${getSkillColor(Math.floor(p.skill))}
+                              ${getSkillColor(Math.ceil(p.skill))}
                               ${p.id === myProfile?.id ? 'ring-[2.5px] ring-yellow-400 animate-pulse scale-105 z-10 shadow-[0_0_8px_rgba(250,204,21,0.6)]' : 'border border-black/5'} 
                               ${swapSource?.playerId === p.id ? 'ring-2 ring-emerald-500 animate-bounce scale-105 z-20' : ''} 
                             `}
@@ -312,7 +312,7 @@ export default function HomeTab(props: any) {
                             }}
                             className={`
                               relative px-2 py-2.5 rounded-lg text-sm font-black text-center shadow-sm cursor-pointer active:scale-95 transition-all
-                              ${getSkillColor(Math.floor(p.skill))}
+                              ${getSkillColor(Math.ceil(p.skill))}
                               ${p.id === myProfile?.id ? 'ring-[2.5px] ring-yellow-400 animate-pulse scale-105 z-10 shadow-[0_0_8px_rgba(250,204,21,0.6)]' : 'border border-black/5'} 
                               ${swapSource?.playerId === p.id ? 'ring-2 ring-emerald-500 animate-bounce scale-105 z-20' : ''} 
                             `}

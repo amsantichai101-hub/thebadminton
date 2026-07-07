@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import Swal from 'sweetalert2'
 import type { AppState, WaitingPlayer as Player } from '@/lib/types'
 import { balanceTeams, extractBestMatch, MatchHistory } from '@/utils/matchmaking'
+import { supabase } from '@/lib/supabaseClient'
 import {
   Home as HomeIcon,
   Users,
@@ -27,7 +28,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.6.3"; // 🌟 อัปเดตเวอร์ชันแก้ไขระบบเพิ่มลบคอร์ท
+const APP_VERSION = "2.6.5"; // 🌟 อัปเดตเวอร์ชันปรับระบบแจ้งเตือน 8 คิวล่วงหน้า + Realtime
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -103,6 +104,9 @@ export default function Home() {
   
   const autoFillingRef = useRef(false);
   const isConfirmingMatchRef = useRef(false); 
+
+  // 🌟 Ref สำหรับเก็บสถานะการแจ้งเตือน เพื่อไม่ให้แจ้งเตือนเด้งซ้ำ
+  const prevStatusRef = useRef<string>('idle');
 
   const activeWaiting = (state?.waiting || []).filter(p => !p.name.includes('(พัก)'));
   const myWaitIndex = activeWaiting.findIndex(p => p.id === myProfile?.id);
@@ -235,6 +239,38 @@ export default function Home() {
         
     return [...manualQueue, ...autoQueue];
   }, [manualPreviews, activeWaiting, pausedIds, matchMode, matchHistory, globalPreview]);
+
+  // 🌟 ระบบตรวจจับคิวและแจ้งเตือน (อัปเดตเป็น 8 คิว)
+  useEffect(() => {
+    if (!myProfile || !state || !enableNotifyRef.current) return;
+
+    const isPlaying = amIPlaying;
+    const isInPreview = previewQueue.some((m: any) => m.teams.flat().some((p: any) => p.id === myProfile.id));
+    
+    // ตรวจสอบว่าอยู่ใน 8 คิวแรกหรือไม่
+    const isApproaching = myWaitIndex >= 0 && myWaitIndex < 8; 
+
+    // กำหนดสถานะปัจจุบัน
+    let currentStatus = 'waiting'; 
+    if (isPlaying) {
+      currentStatus = 'playing';
+    } else if (isInPreview) {
+      currentStatus = 'preview'; // โดนจับลงคิวถัดไปแล้ว
+    } else if (isApproaching) {
+      currentStatus = 'approaching'; // ใกล้ถึงคิว (1 ใน 8 คนแรก)
+    }
+
+    // ถ้าสถานะมีการเลื่อนขึ้น ให้ยิงแจ้งเตือน
+    if (currentStatus !== prevStatusRef.current) {
+      if (currentStatus === 'approaching' && prevStatusRef.current === 'waiting') {
+        triggerNotification('ใกล้ถึงคิวของคุณแล้ว! 🏸', 'คุณอยู่ใน 8 คิวแรก เตรียมตัววอร์มร่างกายได้เลยครับ', [200, 100, 200], 'queue');
+      } 
+      else if (currentStatus === 'preview' && prevStatusRef.current !== 'preview' && prevStatusRef.current !== 'playing') {
+        triggerNotification('ถึงคิวของคุณแล้ว! 🔥', 'รายชื่อถูกจัดลงทีมเตรียมลงสนามแล้ว กรุณาสแตนด์บาย', [300, 100, 300, 100, 300], 'home');
+      }
+      prevStatusRef.current = currentStatus;
+    }
+  }, [state, myProfile, myWaitIndex, previewQueue, amIPlaying]);
 
   const executePlayerSwap = async (targetMatchId: string, targetPlayerId: string) => {
     if (!swapSource) return;
@@ -652,7 +688,7 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 🌟 แก้ไข: แทนที่ useEffect ของเดิมด้วยตัวนี้ (Smart Polling)
+  // 🌟 ผสานระบบ Real-time (WebSocket) เข้ากับ Smart Polling
   useEffect(() => {
     setAdmin(localStorage.getItem('adminAuth') === 'true');
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' || 'light';
@@ -670,17 +706,24 @@ export default function Home() {
 
     refresh(true);
 
-    // Smart Polling: หยุดดึงข้อมูลเมื่อไม่ได้ใช้งานหน้าจอนี้ (Tab is hidden)
     let interval: NodeJS.Timeout;
     const startPolling = () => {
       interval = setInterval(() => refresh(false), Number(process.env.NEXT_PUBLIC_AUTO_REFRESH_MS || 5000));
     };
 
+    // 🌟 ดึงข้อมูลทันทีเมื่อมี Action ผ่าน Supabase Realtime
+    const realtimeChannel = supabase
+      .channel('public-schema-changes')
+      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+        refresh(false);
+      })
+      .subscribe();
+
     const handleVisibilityChange = () => {
       if (document.hidden) {
         clearInterval(interval);
       } else {
-        refresh(false); // อัปเดตทันทีที่กลับมาเปิดจอ
+        refresh(false);
         startPolling();
       }
     };
@@ -691,6 +734,7 @@ export default function Home() {
     return () => {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      supabase.removeChannel(realtimeChannel);
     };
   }, []);
 
@@ -709,15 +753,12 @@ export default function Home() {
   }, []);
 
   const [onlineCount, setOnlineCount] = useState<number>(1);
-  // 🌟 ระบบ Heartbeat ส่งสัญญาณว่ากำลังออนไลน์
   useEffect(() => {
     const pingOnlineStatus = () => {
-      // 1. ดึงจำนวนคนออนไลน์มาแสดง
       fetch('/api/online').then(res => res.json()).then(data => {
         if(data.online) setOnlineCount(data.online);
       }).catch(()=>null);
 
-      // 2. ส่งสัญญาณว่าตัวเองยังเปิดแอปอยู่
       const profileStr = localStorage.getItem('myProfile');
       if (profileStr) {
         const { id } = JSON.parse(profileStr);
@@ -729,8 +770,8 @@ export default function Home() {
       }
     };
 
-    pingOnlineStatus(); // ทำงานทันทีตอนเปิดแอป
-    const interval = setInterval(pingOnlineStatus, 60000); // ทำซ้ำทุกๆ 1 นาที
+    pingOnlineStatus(); 
+    const interval = setInterval(pingOnlineStatus, 60000); 
     return () => clearInterval(interval);
   }, []);
 
@@ -851,7 +892,6 @@ export default function Home() {
     }
   }
 
-  // 🌟 [แก้บั๊ก] ตรวจสอบว่าคอร์ทนี้มีคนกำลังเล่นอยู่หรือไม่ ถ้ามีให้บล็อกการลบทันที
   const handleRemoveCourt = async (courtToRemove: string) => {
     const isCourtActive = (state?.playing || []).some((p: any) => p.court === courtToRemove);
     
@@ -1110,8 +1150,6 @@ export default function Home() {
     const courtToLoad = targetCourtName || '';
     if (courtToLoad) setLoadingCourts(prev => [...prev, courtToLoad]);
 
-    // ลบส่วนนับถอยหลัง 5 วินาที (Swal.fire timer) ออกทั้งหมด
-    // และให้แสดงสถานะโหลด (Processing) ทันทีที่กด
     setIsGlobalProcessing(true);
     
     try {
@@ -1161,7 +1199,6 @@ export default function Home() {
   };
 
   const finish = (court: string) => {
-    // 1. ป๊อปอัปยืนยันแบบสวยงาม
     Swal.fire({
       title: 'จบการแข่งขัน?',
       html: `ต้องการจบแมทช์ที่ <b class="text-blue-600">${court}</b> ใช่หรือไม่?<br/><span class="text-sm text-gray-500 mt-2 block">ระบบจะทำการเคลียร์สนามเพื่อรับคิวถัดไป</span>`,
@@ -1171,7 +1208,7 @@ export default function Home() {
       cancelButtonColor: '#ef4444',
       confirmButtonText: '✅ ใช่, จบแมทช์เลย!',
       cancelButtonText: '❌ ยกเลิก',
-      reverseButtons: true, // สลับปุ่มยืนยันไว้ด้านขวา
+      reverseButtons: true, 
       customClass: {
         popup: '!rounded-[2rem] !shadow-2xl border border-slate-100',
         title: 'text-2xl font-black text-slate-800',
@@ -1181,11 +1218,10 @@ export default function Home() {
     }).then(async r => {
       if(!r.isConfirmed) return;
       
-      // 2. โชว์ Loading สวยๆ ที่มี Progress bar วิ่งระหว่างรอ
       Swal.fire({
         title: 'กำลังเคลียร์สนาม...',
         html: 'โปรดรอสักครู่ ระบบกำลังอัปเดตข้อมูล',
-        timer: 1500, // หน่วงเวลาให้ UI ดูสมูทขึ้น
+        timer: 1500, 
         timerProgressBar: true,
         allowOutsideClick: false,
         showConfirmButton: false,
@@ -1202,9 +1238,8 @@ export default function Home() {
       try {
         await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
         await refresh(false);
-        fetchProfileHistory(); // ฟังก์ชันดึงประวัติเดิมของคุณ
+        fetchProfileHistory(); 
         
-        // 3. แจ้งเตือนเมื่อสำเร็จ
         Swal.fire({
           icon: 'success',
           title: 'เคลียร์สนามเรียบร้อย!',
