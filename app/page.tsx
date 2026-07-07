@@ -28,7 +28,13 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.6.9"; // 🌟 อัปเดตแก้บั๊กคิวหาย (สร้าง Unique ID ให้คิวที่ยืนยันแล้ว ป้องกันการลบทับซ้อน)
+const APP_VERSION = "2.7.0"; // 🌟 หน่วงเวลา Skeleton ป้องกันข้อมูลเก่ากระพริบ
+
+const extractTimeFromId = (id: string) => {
+  if (!id) return 9999999999999;
+  const match = id.match(/-(\d{10,})/); 
+  return match ? parseInt(match[1]) : 9999999999999;
+};
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -51,13 +57,6 @@ const Toast = Swal.mixin({
     icon: '!hidden',
   }
 });
-
-// 🌟 แก้ไข: ดึงเวลาเพื่อใช้เรียงลำดับ ถ้าไม่มีให้คืนค่าสูงๆ จะได้ไปต่อท้าย ไม่สลับมั่ว
-const extractTimeFromId = (id: string) => {
-  if (!id) return 9999999999999;
-  const match = id.match(/-(\d{10,})/); 
-  return match ? parseInt(match[1]) : 9999999999999;
-};
 
 export default function Home() {
   const [state, setState] = useState<AppState | null>(null)
@@ -295,7 +294,6 @@ export default function Home() {
         const m = allPreviews[i];
         if (i === sMatchIdx || i === tMatchIdx) continue;
         if (!existingManualIds.has(m.matchId)) {
-          // 🌟 สร้าง Unique ID ให้คิวที่ถูกยึด
           const timeOffset = Date.now() - 10000 + i; 
           const newMatchId = `U-pinned-${timeOffset}-${Math.floor(Math.random() * 10000)}`; 
           await fetch('/api/manual-queue', {
@@ -336,7 +334,6 @@ export default function Home() {
       if (sTeamIdx > -1 && sPlayerIdx > -1) sMatch.teams[sTeamIdx][sPlayerIdx] = pTarget;
       if (tTeamIdx > -1 && tPlayerIdx > -1) tMatch.teams[tTeamIdx][tPlayerIdx] = pSource;
 
-      // 🌟 สร้าง Unique ID ให้คิวที่สลับ
       const baseTime = Date.now() - 5000;
       const finalSMatchId = sMatch.matchId.startsWith('auto-') ? `U-swap-${baseTime + sMatchIdx}-${Math.floor(Math.random() * 10000)}` : sMatch.matchId;
       sMatch.matchId = finalSMatchId;
@@ -613,7 +610,7 @@ export default function Home() {
             formattedManuals.push({
                dbId: m.id, 
                matchId: customId, 
-               isManual: true, // บังคับว่าเป็นคิวยืนยันแล้วเสมอ
+               isManual: true, 
                teams: [
                  [p1 || { id: p1Id, name: '❓ ไม่พบตัว', skill: 0 }, p2 || { id: p2Id, name: '❓ ไม่พบตัว', skill: 0 }],
                  [p3 || { id: p3Id, name: '❓ ไม่พบตัว', skill: 0 }, p4 || { id: p4Id, name: '❓ ไม่พบตัว', skill: 0 }]
@@ -1019,7 +1016,7 @@ export default function Home() {
 
     setIsGlobalProcessing(true);
     try {
-      // 🌟 สร้าง Unique ID ให้คิวจับยัด
+      // 🌟 สร้าง Unique ID ป้องกันการโดนลบผิด
       const matchId = `M-inserted-${Date.now()}-${Math.floor(Math.random()*10000)}`;
       await fetch('/api/manual-queue', {
         method: 'POST',
@@ -1055,7 +1052,7 @@ export default function Home() {
   const lockQueue = async (prepMatch: any) => {
     setIsGlobalProcessing(true);
     try {
-      // 🌟 สร้าง Unique ID ให้คิวที่ยืนยัน (ป้องกัน ID ทับกัน)
+      // 🌟 สร้าง Unique ID ใหม่ตอนยืนยันคิว Auto (ป้องกันชื่อทับกันจนพัง)
       const baseTime = prepMatch.matchId.startsWith('auto-') ? Date.now() : extractTimeFromId(prepMatch.matchId);
       const matchId = `M-locked-${baseTime}-${Math.floor(Math.random() * 10000)}`; 
       
@@ -1115,7 +1112,7 @@ export default function Home() {
       const shuffled = [...availableWaiters].sort(() => 0.5 - Math.random());
       let bestMatch = extractBestMatch(shuffled, matchHistory) || { teams: [[shuffled[0], shuffled[1]], [shuffled[2], shuffled[3]]] };
 
-      // 🌟 สร้าง Unique ID ให้คิวสุ่มใหม่
+      // 🌟 สร้าง Unique ID ให้คิวที่ถูกสุ่มใหม่
       const baseTime = matchData.matchId.startsWith('auto-') ? Date.now() : extractTimeFromId(matchData.matchId);
       const newReshuffledId = `U-reshuffle-${baseTime}-${Math.floor(Math.random() * 10000)}`;
 
@@ -1163,7 +1160,7 @@ export default function Home() {
 
       const deleteId = matchData.dbId || matchData.matchId;
       if (deleteId && !matchData.matchId.startsWith('auto-')) {
-        // 🌟 ลบเฉพาะคิวที่ถูกส่งลงสนามเท่านั้น! ไม่กระทบคิวอื่นแน่นอน
+        // 🌟 ใช้วิธีลบโดยระบุทั้ง ID และชื่อคอร์ท เพื่อความแม่นยำ 100% ไม่โดนตัวอื่น
         await fetch('/api/manual-queue', { 
           method: 'DELETE', 
           headers: { 'Content-Type': 'application/json' }, 
@@ -1171,14 +1168,17 @@ export default function Home() {
         }).catch(()=>null);
       }
 
-      await refresh(false);
+      await refresh(false, true);
       Toast.fire({ title: '✅ ส่งลงสนามเรียบร้อย!' });
     } catch (e) {
       Toast.fire({ title: '❌ Network error ระหว่างลงสนาม' });
     } finally {
-      if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
       isConfirmingMatchRef.current = false;
       setIsGlobalProcessing(false);
+      // 🌟 หน่วงเวลา Skeleton ให้ยาวขึ้น ปิดรอยต่อตอนอัปเดตข้อมูล
+      setTimeout(() => {
+        if (courtToLoad) setLoadingCourts(prev => prev.filter(c => c !== courtToLoad));
+      }, 3500);
     }
   };
 
@@ -1874,7 +1874,7 @@ export default function Home() {
   }
 
   const availableCourts = (state?.courtNames || []).filter((cn: string) => !(state?.playing || []).some((p: any) => p.court === cn));
-  const manualIdsList = manualPreviews.flatMap((m: any) => m.teams.flat().map((p: any) => p.id));
+  const manualIdsList = manualPreviews.flatMap((m: any) => m.teams.flat().map((p: any) => String(p.id)));
   const availableWaitingView = activeWaiting.filter((p: any) => !manualIdsList.includes(String(p.id)) && !pausedIds.includes(p.id));
   const autoMatches = previewQueue ? previewQueue.filter((m: any) => !m.isManual) : [];
   const allPreviews = previewQueue || [];
