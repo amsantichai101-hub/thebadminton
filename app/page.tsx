@@ -28,7 +28,14 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.6.7"; // 🌟 ถอดระบบ Auto-Delete คิวล่วงหน้า (ป้องกันคิวที่ยืนยันแล้วหาย 100%)
+const APP_VERSION = "2.6.8"; // 🌟 ถอดระบบเคลียร์คิวขยะทิ้ง ล็อคให้คิวแอดมินอยู่ยงคงกระพัน
+
+// 🌟 ป้องกันการสลับคิวมั่วจากการดึงเวลา ถ้าไม่มีเวลาให้ไปต่อท้ายคิวเสมอ ไม่ใช่สลับตำแหน่ง
+const extractTimeFromId = (id: string) => {
+  if (!id) return 9999999999999;
+  const match = id.match(/-(\d{10,})/); 
+  return match ? parseInt(match[1]) : 9999999999999;
+};
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -51,12 +58,6 @@ const Toast = Swal.mixin({
     icon: '!hidden',
   }
 });
-
-const extractTimeFromId = (id: string) => {
-  if (!id) return Date.now();
-  const match = id.match(/-(\d{10,})/); 
-  return match ? parseInt(match[1]) : Date.now();
-};
 
 export default function Home() {
   const [state, setState] = useState<AppState | null>(null)
@@ -224,9 +225,9 @@ export default function Home() {
     if (!globalPreview) return [];
 
     const manualQueue = [...manualPreviews];
-    const usedIds = new Set(manualQueue.flatMap(m => m.teams.flat().map((p: any) => p.id)));
+    const usedIds = new Set(manualQueue.flatMap(m => m.teams.flat().map((p: any) => String(p.id))));
     
-    const candidates = activeWaiting.filter(p => !pausedIds.includes(p.id) && !usedIds.has(p.id));
+    const candidates = activeWaiting.filter(p => !pausedIds.includes(p.id) && !usedIds.has(String(p.id)));
     const maxAuto = Math.max(0, Math.floor(candidates.length / 4));
     
     const autoQueue = (matchMode === 'manual') 
@@ -242,7 +243,7 @@ export default function Home() {
     if (!myProfile || !state || !enableNotifyRef.current) return;
 
     const isPlaying = amIPlaying;
-    const isInPreview = previewQueue.some((m: any) => m.teams.flat().some((p: any) => p.id === myProfile.id));
+    const isInPreview = previewQueue.some((m: any) => m.teams.flat().some((p: any) => String(p.id) === String(myProfile.id)));
     const isApproaching = myWaitIndex >= 0 && myWaitIndex < 8; 
 
     let currentStatus = 'waiting'; 
@@ -314,12 +315,12 @@ export default function Home() {
       let tTeamIdx = -1, tPlayerIdx = -1;
 
       allPreviews[sMatchIdx].teams.forEach((t: any[], tIdx: number) => {
-         const pIdx = t.findIndex((p: any) => p.id === sourcePlayerId);
+         const pIdx = t.findIndex((p: any) => String(p.id) === String(sourcePlayerId));
          if (pIdx > -1) { pSource = JSON.parse(JSON.stringify(t[pIdx])); sTeamIdx = tIdx; sPlayerIdx = pIdx; }
       });
 
       allPreviews[tMatchIdx].teams.forEach((t: any[], tIdx: number) => {
-         const pIdx = t.findIndex((p: any) => p.id === targetPlayerId);
+         const pIdx = t.findIndex((p: any) => String(p.id) === String(targetPlayerId));
          if (pIdx > -1) { pTarget = JSON.parse(JSON.stringify(t[pIdx])); tTeamIdx = tIdx; tPlayerIdx = pIdx; }
       });
 
@@ -596,27 +597,34 @@ export default function Home() {
          const formattedManuals = [];
          
          for (const m of manualData.data) {
-            // 🌟 ปิดระบบลบคิวล่วงหน้าอัตโนมัติ 100%
-            // คิวที่ถูกจองไว้จะไม่มีวันหายไปจากการรีเฟรชเด็ดขาด
-            // แอดมินต้องเป็นคนกดกากบาทลบเอง หรือกดส่งลงสนามเองเท่านั้น
-            
-            const p1 = d.waiting?.find((x:any)=>x.id === m.p1_id);
-            const p2 = d.waiting?.find((x:any)=>x.id === m.p2_id);
-            const p3 = d.waiting?.find((x:any)=>x.id === m.p3_id);
-            const p4 = d.waiting?.find((x:any)=>x.id === m.p4_id);
+            // 🌟 ป้องกัน Type Mismatch (เทียบด้วย String เสมอ)
+            const p1Id = String(m.p1_id);
+            const p2Id = String(m.p2_id);
+            const p3Id = String(m.p3_id);
+            const p4Id = String(m.p4_id);
+
+            const p1 = d.waiting?.find((x:any)=> String(x.id) === p1Id);
+            const p2 = d.waiting?.find((x:any)=> String(x.id) === p2Id);
+            const p3 = d.waiting?.find((x:any)=> String(x.id) === p3Id);
+            const p4 = d.waiting?.find((x:any)=> String(x.id) === p4Id);
+
+            // 🌟 ลบโค้ด Auto-delete (missingCount) ทิ้งทั้งหมด!
+            // คิวล่วงหน้าที่แอดมินยืนยันไว้ จะไม่ถูกลบไม่ว่าจะเกิดอะไรขึ้นก็ตาม
+            // จนกว่าแอดมินจะกดยกเลิกเอง หรือคิวนี้ถูกส่งลงสนามเรียบร้อยแล้ว
 
             const customId = m.court_name || m.id;
             formattedManuals.push({
                dbId: m.id, 
                matchId: customId, 
-               isManual: !customId.startsWith('U-'), 
+               isManual: true, // 🌟 บังคับให้เป็น "ยืนยันแล้ว" เสมอ ไม่ว่าชื่อ ID จะเป็นอะไร
                teams: [
-                 [p1 || { id: m.p1_id, name: '❓ ไม่พบตัว', skill: 0 }, p2 || { id: m.p2_id, name: '❓ ไม่พบตัว', skill: 0 }],
-                 [p3 || { id: m.p3_id, name: '❓ ไม่พบตัว', skill: 0 }, p4 || { id: m.p4_id, name: '❓ ไม่พบตัว', skill: 0 }]
+                 [p1 || { id: p1Id, name: '❓ ไม่พบตัว', skill: 0 }, p2 || { id: p2Id, name: '❓ ไม่พบตัว', skill: 0 }],
+                 [p3 || { id: p3Id, name: '❓ ไม่พบตัว', skill: 0 }, p4 || { id: p4Id, name: '❓ ไม่พบตัว', skill: 0 }]
                ]
             });
          }
          
+         // 🌟 ใช้การดึงเวลาที่แม่นยำขึ้นเพื่อไม่ให้คิวสลับกระโดดไปมา
          formattedManuals.sort((a: any, b: any) => extractTimeFromId(a.matchId) - extractTimeFromId(b.matchId));
          setManualPreviews(formattedManuals);
       }
@@ -1038,7 +1046,6 @@ export default function Home() {
     try {
       const deleteId = prepMatch.dbId || prepMatch.matchId;
       if (deleteId && !prepMatch.matchId.startsWith('auto-')) {
-         // 🌟 ส่งทั้ง dbId และ court_name ไปป้องกันการลบผิดพลาด
          await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: prepMatch.dbId, court_name: prepMatch.matchId }) }).catch(()=>null);
       }
       await refresh(false);
@@ -1099,7 +1106,7 @@ export default function Home() {
         }
       }
 
-      const availableWaiters = activeWaiting.filter(p => !manualPreviews.flatMap(m => m.teams.flat().map((x:any)=>x.id)).includes(p.id));
+      const availableWaiters = activeWaiting.filter(p => !manualPreviews.flatMap(m => m.teams.flat().map((x:any)=>x.id)).includes(String(p.id)));
 
       if (availableWaiters.length < 4) {
          Toast.fire({ title: '⚠️ คิวรอว่างไม่พอ 4 คน สำหรับสุ่มใหม่' });
@@ -1866,7 +1873,7 @@ export default function Home() {
 
   const availableCourts = (state?.courtNames || []).filter((cn: string) => !(state?.playing || []).some((p: any) => p.court === cn));
   const manualIdsList = manualPreviews.flatMap((m: any) => m.teams.flat().map((p: any) => p.id));
-  const availableWaitingView = activeWaiting.filter((p: any) => !manualIdsList.includes(p.id) && !pausedIds.includes(p.id));
+  const availableWaitingView = activeWaiting.filter((p: any) => !manualIdsList.includes(String(p.id)) && !pausedIds.includes(p.id));
   const autoMatches = previewQueue ? previewQueue.filter((m: any) => !m.isManual) : [];
   const allPreviews = previewQueue || [];
   
