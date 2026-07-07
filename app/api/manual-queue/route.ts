@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseClient'
 
+// 🌟 นี่คือกุญแจสำคัญ! บังคับให้ Vercel ไม่ต้องจำแคช (Cache) ดึงข้อมูลสดจาก Database ทุกครั้ง
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export async function GET() {
   try {
     const { data, error } = await supabaseAdmin.from('manual_previews').select('*').order('created_at', { ascending: true })
@@ -35,14 +39,14 @@ export async function DELETE(req: Request) {
   try {
     const { court_name, id } = await req.json()
     
-    // 🌟 ป้องกันการล้างกระดาน: ถ้าไม่ได้ระบุ ID หรือชื่อคอร์ทมา ห้ามลบเด็ดขาด
+    // ป้องกันการล้างกระดาน: ถ้าไม่ได้ระบุ ID หรือชื่อคอร์ทมา ห้ามลบเด็ดขาด
     if (!id && !court_name) {
       return NextResponse.json({ status: 'error', message: 'Missing deletion criteria' })
     }
     
     let query = supabaseAdmin.from('manual_previews').delete();
     
-    // 🌟 ตรวจสอบว่า id เป็น UUID หรือไม่ ถ้าไม่ใช่ให้ถือว่าเป็น court_name ป้องกัน Database Error
+    // ตรวจสอบว่า id เป็น UUID หรือไม่ ถ้าไม่ใช่ให้ถือว่าเป็น court_name
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
     if (id && isUUID) {
