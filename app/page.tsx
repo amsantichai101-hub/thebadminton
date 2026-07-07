@@ -28,7 +28,7 @@ import AlertsTab from '@/components/tabs/AlertsTab'
 import ProfileTab from '@/components/tabs/ProfileTab'
 import FocusMode from '@/components/tabs/FocusMode'
 
-const APP_VERSION = "2.6.5"; // 🌟 อัปเดตเวอร์ชันปรับระบบแจ้งเตือน 8 คิวล่วงหน้า + Realtime
+const APP_VERSION = "2.6.6"; // 🌟 อัปเดตแก้บั๊กคิวล่วงหน้าหาย
 
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -104,8 +104,6 @@ export default function Home() {
   
   const autoFillingRef = useRef(false);
   const isConfirmingMatchRef = useRef(false); 
-
-  // 🌟 Ref สำหรับเก็บสถานะการแจ้งเตือน เพื่อไม่ให้แจ้งเตือนเด้งซ้ำ
   const prevStatusRef = useRef<string>('idle');
 
   const activeWaiting = (state?.waiting || []).filter(p => !p.name.includes('(พัก)'));
@@ -240,27 +238,22 @@ export default function Home() {
     return [...manualQueue, ...autoQueue];
   }, [manualPreviews, activeWaiting, pausedIds, matchMode, matchHistory, globalPreview]);
 
-  // 🌟 ระบบตรวจจับคิวและแจ้งเตือน (อัปเดตเป็น 8 คิว)
   useEffect(() => {
     if (!myProfile || !state || !enableNotifyRef.current) return;
 
     const isPlaying = amIPlaying;
     const isInPreview = previewQueue.some((m: any) => m.teams.flat().some((p: any) => p.id === myProfile.id));
-    
-    // ตรวจสอบว่าอยู่ใน 8 คิวแรกหรือไม่
     const isApproaching = myWaitIndex >= 0 && myWaitIndex < 8; 
 
-    // กำหนดสถานะปัจจุบัน
     let currentStatus = 'waiting'; 
     if (isPlaying) {
       currentStatus = 'playing';
     } else if (isInPreview) {
-      currentStatus = 'preview'; // โดนจับลงคิวถัดไปแล้ว
+      currentStatus = 'preview'; 
     } else if (isApproaching) {
-      currentStatus = 'approaching'; // ใกล้ถึงคิว (1 ใน 8 คนแรก)
+      currentStatus = 'approaching'; 
     }
 
-    // ถ้าสถานะมีการเลื่อนขึ้น ให้ยิงแจ้งเตือน
     if (currentStatus !== prevStatusRef.current) {
       if (currentStatus === 'approaching' && prevStatusRef.current === 'waiting') {
         triggerNotification('ใกล้ถึงคิวของคุณแล้ว! 🏸', 'คุณอยู่ใน 8 คิวแรก เตรียมตัววอร์มร่างกายได้เลยครับ', [200, 100, 200], 'queue');
@@ -351,15 +344,16 @@ export default function Home() {
          tMatch.matchId = finalTMatchId;
       }
 
-      const sDeleteId = allPreviews[sMatchIdx].dbId || sourceMatchId;
+      // 🌟 ส่ง dbId ไปด้วยเพื่อความแม่นยำในการลบ
+      const sDeleteId = allPreviews[sMatchIdx].dbId;
       if (sDeleteId && !sourceMatchId.startsWith('auto-')) {
-         await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sDeleteId }) }).catch(()=>null);
+         await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sDeleteId, court_name: sourceMatchId }) }).catch(()=>null);
       }
 
       if (sourceMatchId !== targetMatchId) {
-         const tDeleteId = allPreviews[tMatchIdx].dbId || targetMatchId;
+         const tDeleteId = allPreviews[tMatchIdx].dbId;
          if (tDeleteId && !targetMatchId.startsWith('auto-')) {
-            await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: tDeleteId }) }).catch(()=>null);
+            await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: tDeleteId, court_name: targetMatchId }) }).catch(()=>null);
          }
       }
 
@@ -598,25 +592,37 @@ export default function Home() {
 
       const manualRes = await fetch('/api/manual-queue', { cache: 'no-store' });
       const manualData = await manualRes.json();
+      
       if (manualData?.data) {
          const formattedManuals = [];
          
+         // 🌟 การป้องกันชั้นที่ 1: ตรวจสอบว่า d.waiting โหลดมาสมบูรณ์ ไม่มีข้อผิดพลาด
+         const isStateValid = !d.error && Array.isArray(d.waiting);
+         
          for (const m of manualData.data) {
-            const p1 = d.waiting?.find((x:any)=>x.id === m.p1_id);
-            const p2 = d.waiting?.find((x:any)=>x.id === m.p2_id);
-            const p3 = d.waiting?.find((x:any)=>x.id === m.p3_id);
-            const p4 = d.waiting?.find((x:any)=>x.id === m.p4_id);
+            let isMissing = false;
+            let p1, p2, p3, p4;
             
-            const missingCount = (!p1 ? 1 : 0) + (!p2 ? 1 : 0) + (!p3 ? 1 : 0) + (!p4 ? 1 : 0);
-            
-            if (missingCount > 0) {
-                fetch('/api/manual-queue', { 
-                  method: 'DELETE', 
-                  headers: { 'Content-Type': 'application/json' }, 
-                  body: JSON.stringify({ id: m.id }) 
-                }).catch(()=>null);
-                continue; 
+            if (isStateValid) {
+                p1 = d.waiting.find((x:any)=>x.id === m.p1_id);
+                p2 = d.waiting.find((x:any)=>x.id === m.p2_id);
+                p3 = d.waiting.find((x:any)=>x.id === m.p3_id);
+                p4 = d.waiting.find((x:any)=>x.id === m.p4_id);
+                
+                const missingCount = (!p1 ? 1 : 0) + (!p2 ? 1 : 0) + (!p3 ? 1 : 0) + (!p4 ? 1 : 0);
+                
+                // 🌟 การป้องกันชั้นที่ 2: ลบคิวอัตโนมัติก็ต่อเมื่อคน "ทั้ง 4 คน" หายไปจาก Waiting แล้วจริงๆ (ลงคอร์ทไปแล้ว)
+                if (missingCount >= 4) {
+                    isMissing = true;
+                    fetch('/api/manual-queue', { 
+                      method: 'DELETE', 
+                      headers: { 'Content-Type': 'application/json' }, 
+                      body: JSON.stringify({ id: m.id, court_name: m.court_name }) 
+                    }).catch(()=>null);
+                }
             }
+
+            if (isMissing) continue;
 
             const customId = m.court_name || m.id;
             formattedManuals.push({
@@ -688,7 +694,6 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 🌟 ผสานระบบ Real-time (WebSocket) เข้ากับ Smart Polling
   useEffect(() => {
     setAdmin(localStorage.getItem('adminAuth') === 'true');
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' || 'light';
@@ -711,7 +716,6 @@ export default function Home() {
       interval = setInterval(() => refresh(false), Number(process.env.NEXT_PUBLIC_AUTO_REFRESH_MS || 5000));
     };
 
-    // 🌟 ดึงข้อมูลทันทีเมื่อมี Action ผ่าน Supabase Realtime
     const realtimeChannel = supabase
       .channel('public-schema-changes')
       .on('postgres_changes', { event: '*', schema: 'public' }, () => {
@@ -1053,7 +1057,8 @@ export default function Home() {
     try {
       const deleteId = prepMatch.dbId || prepMatch.matchId;
       if (deleteId && !prepMatch.matchId.startsWith('auto-')) {
-         await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deleteId }) }).catch(()=>null);
+         // 🌟 ส่งทั้ง dbId และ court_name ไปป้องกันการลบผิดพลาด
+         await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: prepMatch.dbId, court_name: prepMatch.matchId }) }).catch(()=>null);
       }
       await refresh(false);
       Toast.fire({ title: '🗑️ ยกเลิกคิวแล้ว' });
@@ -1070,7 +1075,7 @@ export default function Home() {
       
       const deleteId = prepMatch.dbId || prepMatch.matchId;
       if (deleteId && !prepMatch.matchId.startsWith('auto-')) {
-         await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deleteId }) }).catch(()=>null);
+         await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: prepMatch.dbId, court_name: prepMatch.matchId }) }).catch(()=>null);
       }
       
       await fetch('/api/manual-queue', {
@@ -1127,7 +1132,7 @@ export default function Home() {
 
       const deleteId = matchData.dbId || matchData.matchId;
       if (deleteId && !matchData.matchId.startsWith('auto-')) {
-        await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: deleteId }) }).catch(()=>null);
+        await fetch('/api/manual-queue', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: matchData.dbId, court_name: matchData.matchId }) }).catch(()=>null);
       }
 
       await fetch('/api/manual-queue', {
@@ -1172,7 +1177,7 @@ export default function Home() {
         await fetch('/api/manual-queue', { 
           method: 'DELETE', 
           headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ id: deleteId }) 
+          body: JSON.stringify({ id: matchData.dbId, court_name: matchData.matchId }) 
         }).catch(()=>null);
       }
 

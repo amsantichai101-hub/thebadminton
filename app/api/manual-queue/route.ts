@@ -35,11 +35,20 @@ export async function DELETE(req: Request) {
   try {
     const { court_name, id } = await req.json()
     
+    // 🌟 ป้องกันการล้างกระดาน: ถ้าไม่ได้ระบุ ID หรือชื่อคอร์ทมา ห้ามลบเด็ดขาด
+    if (!id && !court_name) {
+      return NextResponse.json({ status: 'error', message: 'Missing deletion criteria' })
+    }
+    
     let query = supabaseAdmin.from('manual_previews').delete();
-    if (id) {
-       query = query.eq('id', id); // ลบด้วย UUID
-    } else if (court_name) {
-       query = query.eq('court_name', court_name); // ลบด้วยชื่อคอร์ท
+    
+    // 🌟 ตรวจสอบว่า id เป็น UUID หรือไม่ ถ้าไม่ใช่ให้ถือว่าเป็น court_name ป้องกัน Database Error
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+    if (id && isUUID) {
+       query = query.eq('id', id); 
+    } else if (court_name || id) {
+       query = query.eq('court_name', court_name || id); 
     }
     
     const { error } = await query;
