@@ -1,21 +1,40 @@
 import { Play, Check, Clock, Swords, Eye, RefreshCw, X, CheckCircle2, Share, Bell, Settings, ArrowRightLeft, MapPin } from 'lucide-react';
 import React, { useState, useEffect } from "react";
+import Swal from 'sweetalert2';
+
+// สร้าง Toast สำหรับแจ้งเตือนเล็กๆ
+const Toast = Swal.mixin({
+  toast: true,
+  position: 'top',
+  showConfirmButton: false,
+  timer: 2500,
+  timerProgressBar: true,
+  customClass: {
+    popup: '!bg-slate-800/90 dark:!bg-white/90 !backdrop-blur-md !border-0 !shadow-lg !rounded-full !px-4 !py-2 !w-auto !min-w-0 !mt-4',
+    title: '!text-[12px] !font-bold !text-white dark:!text-slate-900 !m-0 !p-0',
+    icon: '!hidden',
+  }
+});
 
 export default function HomeTab(props: any) {
   const { activeTab, ...rest } = props; 
 
   if (activeTab !== 'home') return null;
   const {
-    state, admin, finish, startGame, previewQueue, globalPreview,
+    state, admin, finish: originalFinish, startGame, previewQueue, globalPreview,
     getSkillColor, triggerReshuffle, lockQueue, confirmSpecificMatch, cancelManualMatch,
     openCheckIn, openSignOut, myProfile, getMySkillLevel,
     enableNotify, toggleEnableNotify,
-    swapSource, setSwapSource, executePlayerSwap 
+    swapSource, setSwapSource, executePlayerSwap,
+    loadingCourts, refresh, fetchProfileHistory // ดึง props สำหรับเช็คสถานะโหลดมาใช้
   } = props;
 
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [isStandalone, setIsStandalone] = useState<boolean>(true); 
   const [notifyPerm, setNotifyPerm] = useState<string>('granted');
+  
+  // 🌟 State ใหม่สำหรับจำคอร์ทที่กำลังถูกกดเคลียร์ (เพื่อแสดง Skeleton ทันที)
+  const [localClearing, setLocalClearing] = useState<string[]>([]);
 
   useEffect(() => {
     const checkStandalone = window.matchMedia('(display-mode: standalone)').matches 
@@ -43,6 +62,44 @@ export default function HomeTab(props: any) {
       setLoadingId(null);
     }
   };
+
+  // 🌟 ฟังก์ชันจบแมทช์แบบ Smooth UX (ไม่ใช้จอดำบังทั้งหน้า แต่ใช้ Skeleton แทน)
+  const handleSmoothFinish = (court: string) => {
+    Swal.fire({
+      title: 'จบการแข่งขัน?',
+      html: `ต้องการจบแมทช์ที่ <b class="text-blue-600">${court}</b> ใช่หรือไม่?<br/><span class="text-sm text-gray-500 mt-2 block">ระบบจะทำการเคลียร์สนามเพื่อรับคิวถัดไป</span>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#3b82f6',
+      cancelButtonColor: '#ef4444',
+      confirmButtonText: '✅ ใช่, จบแมทช์เลย!',
+      cancelButtonText: '❌ ยกเลิก',
+      reverseButtons: true, 
+      customClass: {
+        popup: '!rounded-[2rem] !shadow-2xl border border-slate-100',
+        title: 'text-2xl font-black text-slate-800',
+        confirmButton: 'font-bold rounded-xl px-6 py-3 shadow-lg hover:shadow-blue-500/50 transition-all active:scale-95',
+        cancelButton: 'font-bold rounded-xl px-6 py-3 shadow-lg hover:shadow-red-500/50 transition-all active:scale-95'
+      }
+    }).then(async r => {
+      if(!r.isConfirmed) return;
+      
+      // เปิดแสดง Skeleton ทันทีที่กดตกลง โดยไม่ต้องรอ API
+      setLocalClearing(prev => [...prev, court]);
+      
+      try {
+        await fetch('/api/finish', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ court }) });
+        await refresh(false); // รีเฟรชแบบไม่ออกหน้าจอโหลด
+        if (fetchProfileHistory) fetchProfileHistory(); 
+        Toast.fire({ icon: 'success', title: `เคลียร์สนาม ${court} เรียบร้อย!` });
+      } catch (e) {
+        Toast.fire({ icon: 'error', title: 'เกิดข้อผิดพลาดในการจบแมทช์' });
+      } finally {
+        // ปิด Skeleton
+        setLocalClearing(prev => prev.filter(c => c !== court));
+      }
+    });
+  }
 
   const activeCourtsCount = (state?.playing || []).length;
   const myQueueIndex = (state?.waiting || []).findIndex((p: any) => p.id === myProfile?.id);
@@ -146,27 +203,57 @@ export default function HomeTab(props: any) {
             const min = m ? Math.ceil((Date.now() - new Date(m.startTime).getTime()) / 60000) : 0;
             const started = m ? ((Date.now() - new Date(m.startTime).getTime()) / 60000 > 1) : false;
 
+            // 🌟 เช็คว่าคอร์ทนี้กำลังโหลดอยู่ไหม (กำลังเคลียร์ หรือกำลังจัดคนลง)
+            const isClearing = localClearing.includes(cn);
+            const isIncoming = (loadingCourts || []).includes(cn);
+            const isLoadingState = isClearing || isIncoming;
+
             return (
-              <div key={cn} className={`relative overflow-hidden rounded-[1.25rem] border shadow-sm transition-all ${m ? 'border-indigo-100 dark:border-indigo-900/30 bg-white dark:bg-slate-800' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50'}`}>
+              <div key={cn} className={`relative overflow-hidden rounded-[1.25rem] border shadow-sm transition-all ${m && !isLoadingState ? 'border-indigo-100 dark:border-indigo-900/30 bg-white dark:bg-slate-800' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50'}`}>
                 
                 {/* Status Header */}
-                <div className={`relative px-3 py-2 flex justify-between items-center border-b ${m ? 'border-slate-50 dark:border-slate-700/50' : 'border-slate-200 dark:border-slate-800'}`}>
+                <div className={`relative px-3 py-2 flex justify-between items-center border-b ${m && !isLoadingState ? 'border-slate-50 dark:border-slate-700/50' : 'border-slate-200 dark:border-slate-800'}`}>
                   <span className="font-black text-[13px] text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400 px-3 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
                     <MapPin className="w-3.5 h-3.5" /> {cn}
                   </span>
-                  {m && (
+                  {m && !isLoadingState && (
                     <div className="flex items-center gap-1 text-slate-400 font-bold text-[11px]">
                       <Clock className="w-3.5 h-3.5" /> <span>{min} min</span>
                     </div>
                   )}
                 </div>
 
-                <div className="p-2 sm:p-2.5">
-                  {m ? (
-                    <div className="space-y-0.5 relative"> 
-                      
+                <div className="p-2 sm:p-2.5 min-h-[140px] flex flex-col justify-center">
+                  
+                  {/* 🌟 Skeleton Loading State (แทนที่ข้อมูลเก่าทันที) */}
+                  {isLoadingState ? (
+                    <div className="space-y-3 animate-pulse py-1">
+                      <div className="flex justify-center mb-1">
+                        <span className="text-[11px] font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-900/40 px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-indigo-100 dark:border-indigo-800">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" /> 
+                          {isClearing ? 'กำลังเคลียร์สนาม...' : 'กำลังจัดเตรียมผู้เล่นลงสนาม...'}
+                        </span>
+                      </div>
                       <div className="flex flex-col gap-1.5 relative">
-                        {/* 🌟 1. ป้าย VS คั่นกลาง */}
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                            <div className="bg-slate-300 dark:bg-slate-600 w-6 h-6 rounded-full border-[2px] border-white dark:border-slate-800"></div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5 p-1.5 rounded-xl bg-blue-50/30 dark:bg-slate-800/50 border border-blue-100/50 dark:border-slate-700">
+                            <div className="h-[46px] bg-blue-100/50 dark:bg-slate-700/50 rounded-lg"></div>
+                            <div className="h-[46px] bg-blue-100/50 dark:bg-slate-700/50 rounded-lg"></div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5 p-1.5 rounded-xl bg-red-50/30 dark:bg-slate-800/50 border border-red-100/50 dark:border-slate-700">
+                            <div className="h-[46px] bg-red-100/50 dark:bg-slate-700/50 rounded-lg"></div>
+                            <div className="h-[46px] bg-red-100/50 dark:bg-slate-700/50 rounded-lg"></div>
+                          </div>
+                      </div>
+                    </div>
+                  ) : m ? (
+                    
+                    // ผู้เล่นที่กำลังเล่นปกติ
+                    <div className="space-y-0.5 relative"> 
+                      <div className="flex flex-col gap-1.5 relative">
+                        {/* ป้าย VS คั่นกลาง */}
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
                           <div className="bg-slate-800 dark:bg-slate-700 text-white text-[10px] font-black italic px-2.5 py-0.5 rounded-full shadow-md border-[2px] border-white dark:border-slate-800">
                             VS
@@ -176,7 +263,6 @@ export default function HomeTab(props: any) {
                         {/* ทีม A */}
                         <div className="grid grid-cols-2 gap-1.5 p-1.5 rounded-xl bg-blue-50/60 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/30">
                           <div className="bg-white dark:bg-slate-800 px-2 py-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm border border-slate-100 dark:border-slate-700 relative">
-                            {/* 🌟 2. ไฮไลท์ตัวเอง (เอาพื้นหลังออกเหลือแต่เส้นกรอบ) */}
                             {m.p1Id === myProfile?.id && <div className="absolute inset-0 ring-[2px] ring-yellow-400 rounded-lg z-10 animate-pulse pointer-events-none shadow-[0_0_8px_rgba(250,204,21,0.6)]"></div>}
                             <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getSkillColor(Math.ceil(m.p1Skill))}`}></span>
                             <span className="text-base font-black truncate text-slate-800 dark:text-slate-100">{m.p1Name}</span>
@@ -215,7 +301,7 @@ export default function HomeTab(props: any) {
                             </button>
                           )}
                           <button 
-                            onClick={() => finish(cn)} 
+                            onClick={() => handleSmoothFinish(cn)} 
                             className="flex-[0.4] py-2 bg-slate-800 text-white text-[11px] font-black rounded-lg shadow-sm active:scale-95 flex justify-center items-center gap-1"
                           >
                             <Check className="w-3.5 h-3.5" /> จบ
@@ -250,13 +336,16 @@ export default function HomeTab(props: any) {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {previewQueue.map((m: any, idx: number) => (
-              <div key={m.matchId || idx} className={`relative overflow-hidden rounded-[1.25rem] border shadow-sm ${m.isManual ? 'border-emerald-200 bg-emerald-50/30' : 'border-blue-200 bg-blue-50/30'}`}>
+            {previewQueue.map((m: any, idx: number) => {
+              const isSending = loadingId === `send-${m.matchId}`;
+
+              return (
+              <div key={m.matchId || idx} className={`relative overflow-hidden rounded-[1.25rem] border shadow-sm transition-opacity duration-300 ${m.isManual ? 'border-emerald-200 bg-emerald-50/30' : 'border-blue-200 bg-blue-50/30'} ${isSending ? 'opacity-50 pointer-events-none' : ''}`}>
                 
                 <div className={`px-3 py-2 flex justify-between items-center border-b ${m.isManual ? 'border-emerald-100 bg-emerald-100/50' : 'border-blue-100 bg-blue-100/50'}`}>
                   <span className={`text-[10px] font-black uppercase ${m.isManual ? 'text-emerald-700' : 'text-blue-700'} flex items-center gap-1`}>
-                    {m.isManual ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />} 
-                    {m.isManual ? "ยืนยันแล้ว" : "รอการยืนยัน"}
+                    {isSending ? <RefreshCw className="w-3 h-3 animate-spin" /> : m.isManual ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />} 
+                    {isSending ? "กำลังดำเนินการ..." : m.isManual ? "ยืนยันแล้ว" : "รอการยืนยัน"}
                   </span>
                   <span className="text-[10px] font-black text-slate-500 bg-white/60 px-2 py-0.5 rounded shadow-sm">
                     Q #{idx + 1}
@@ -338,8 +427,8 @@ export default function HomeTab(props: any) {
                         <>
                           <button 
                             onClick={() => handleAction(`send-${m.matchId}`, async () => await confirmSpecificMatch(m, m.courtName))} 
-                            disabled={loadingId === `send-${m.matchId}`}
-                            className={`flex-1 py-2 text-white text-[11px] font-black rounded-lg shadow-sm ${loadingId === `send-${m.matchId}` ? 'bg-emerald-400 opacity-75' : 'bg-emerald-600 active:scale-95'}`}
+                            disabled={isSending}
+                            className={`flex-1 py-2 text-white text-[11px] font-black rounded-lg shadow-sm ${isSending ? 'bg-emerald-400 opacity-75' : 'bg-emerald-600 active:scale-95'}`}
                           >
                             ส่งลงสนาม
                           </button>
@@ -356,7 +445,7 @@ export default function HomeTab(props: any) {
                   )}
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </section>
       )}
