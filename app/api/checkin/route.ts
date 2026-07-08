@@ -9,17 +9,26 @@ export async function POST(req: Request) {
   let type = 'Emp'
 
   if (isGuest) {
-    // ใช้การดึงค่าจาก system_config โดยตรง ป้องกัน Error กรณีไม่ได้สร้าง RPC ไว้ใน Supabase
-    const { data: conf } = await s.from('system_config').select('value').eq('key', 'GUEST_COUNTER_LAST').single()
-    const currentCnt = conf && conf.value ? parseInt(conf.value, 10) : 0
-    const next = currentCnt + 1
+    let isUnique = false;
     
-    // รันเลข G001, G002...
-    finalId = `G${String(next).padStart(3, '0')}`
-    await s.from('system_config').upsert({ key: 'GUEST_COUNTER_LAST', value: String(next) })
+    // วนลูปเพื่อสุ่มเลขและตรวจสอบว่าไม่ซ้ำกับข้อมูลที่มีอยู่แล้วในระบบทั้งหมด
+    while (!isUnique) {
+      // สุ่มเลข 8 หลัก (00000000 - 99999999) และเติม 0 ด้านหน้าหากไม่ครบ
+      const randomPart = Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
+      
+      // นำเลข 9 มาต่อข้างหน้า เพื่อให้เป็น 9xxxxxxxx (รวม 9 หลัก)
+      finalId = `9${randomPart}`;
+
+      // ตรวจสอบกับฐานข้อมูลหลัก (Registry) ว่าเคยมีเลขนี้ถูกใช้งานไปหรือยัง
+      const { data: existingUser } = await s.from('player_registry').select('id').eq('id', finalId).single();
+      
+      if (!existingUser) {
+        isUnique = true; // ถ้าไม่มีข้อมูลแสดงว่าเลขนี้ไม่ซ้ำ ใช้งานได้
+      }
+    }
     type = 'Guest'
   } else {
-    // บังคับว่าถ้าไม่ใช่ Guest ต้องกรอกตัวเลข 3 หลักขึ้นไป (ใช้ {3,} แทน {3})
+    // บังคับว่าถ้าไม่ใช่ Guest ต้องกรอกตัวเลข 3 หลักขึ้นไป
     if (!finalId || !/^\d{3,}$/.test(String(finalId).trim())) {
       return NextResponse.json({ 
         status: 'error', 
@@ -29,7 +38,7 @@ export async function POST(req: Request) {
     finalId = String(finalId).trim()
   }
 
-  // ตรวจสอบว่ามีผู้เล่นนี้ค้างอยู่ในคิวหรือกำลังเล่นอยู่แล้วหรือไม่
+  // ตรวจสอบว่ามีผู้เล่นนี้ค้างอยู่ในคิวหรือกำลังเล่นอยู่แล้วหรือไม่ (ตรวจสอบสถานะปัจจุบัน)
   const allIds = new Set<string>()
   const [qData, pData, aData] = await Promise.all([
     s.from('player_queue').select('id'),
@@ -52,19 +61,34 @@ export async function POST(req: Request) {
     })
   }
 
-  // อัปเดตข้อมูลผู้เล่นในฐานข้อมูลหลัก (Registry)
-  await s.from('player_registry').upsert({ 
-    id: String(finalId), 
-    name, 
-    latest_skill: Number(skill), 
-    last_seen: new Date().toISOString()
-  }, { onConflict: 'id', ignoreDuplicates: false })
+  // 🌟 [ส่วนที่แก้ไข] ดึงข้อมูลเดิมจาก Registry เพื่อดูว่าเคยมีประวัติไหม
+  const { data: existingPlayer } = await s.from('player_registry').select('latest_skill, name').eq('id', String(finalId)).single();
 
-  // นำผู้เล่นเข้าสู่คิวรออนุมัติ (Pending Queue)
+  // กำหนดค่า skill ที่จะใช้ โดยถ้ามีประวัติแล้ว ให้ใช้ค่าจาก DB เสมอ (เพื่อรักษาค่าทศนิยมของ Admin)
+  const finalSkill = existingPlayer ? existingPlayer.latest_skill : Number(skill);
+  // (Optional) ใช้ชื่อเดิมจาก DB ด้วย เพื่อป้องกันคนเปลี่ยนชื่อเองตอน Check-in
+  const finalName = existingPlayer ? existingPlayer.name : name;
+
+  if (existingPlayer) {
+    // 🌟 ถ้ามีประวัติแล้ว อัปเดตแค่เวลาใช้งานล่าสุด (ไม่แตะต้อง latest_skill)
+    await s.from('player_registry').update({ 
+      last_seen: new Date().toISOString() 
+    }).eq('id', String(finalId));
+  } else {
+    // 🌟 ถ้ายังไม่มีประวัติ (คนใหม่) ให้ insert ใหม่ทั้งหมด
+    await s.from('player_registry').insert({ 
+      id: String(finalId), 
+      name: finalName, 
+      latest_skill: finalSkill, 
+      last_seen: new Date().toISOString()
+    });
+  }
+
+  // นำผู้เล่นเข้าสู่คิวรออนุมัติ (Pending Queue) โดยใช้ finalSkill ที่ถูกต้อง
   await s.from('pending_queue').insert({ 
     id: String(finalId), 
-    name, 
-    skill: Number(skill), 
+    name: finalName, 
+    skill: finalSkill, 
     ts: new Date().toISOString(), 
     type, 
     play_count: 0 

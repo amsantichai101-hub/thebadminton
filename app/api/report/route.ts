@@ -6,7 +6,6 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url)
-    // รองรับทั้งการส่ง startDate/endDate และแบบ date (ของเดิม)
     const dateParam = url.searchParams.get('date')
     const startDate = url.searchParams.get('startDate') || dateParam
     const endDate = url.searchParams.get('endDate') || dateParam
@@ -15,74 +14,59 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Missing date parameters' }, { status: 400 })
     }
 
-    // กำหนดเวลาครอบคลุมตั้งแต่ 00:00:00 ของวันเริ่ม จนถึง 23:59:59 ของวันสิ้นสุด
-    const startTs = `${startDate}T00:00:00.000Z`
-    const endTs = `${endDate}T23:59:59.999Z`
+    // 🌟 1. เอาการแปลง Timezone +07:00 ออก (ใช้เวลา Local ส่งไปตรงๆ)
+    const startTs = `${startDate} 00:00:00`
+    const endTs = `${endDate} 23:59:59.999`
 
     const { data: logs, error } = await supabaseAdmin
       .from('match_logs')
       .select('*')
       .gte('ts', startTs)
       .lte('ts', endTs)
-      .order('ts', { ascending: false })
+      .order('ts', { ascending: true })
 
-    if (error) {
-      console.error("Supabase Error:", error);
-      throw error;
-    }
+    if (error) throw error;
 
     const validLogs = logs || []
 
-    // 1. แปลงข้อมูลสำหรับแสดงในตารางหน้าเว็บ
-    const tableData = validLogs.map(l => ({
-      date: new Date(l.ts).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }),
+    // ตารางรายงานการกระทำ (เติม : any ให้กับ l)
+    const tableData = validLogs.map((l: any) => ({
+      ts: l.ts,
       time: new Date(l.ts).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+      empno: l.player_id || '-', 
       name: l.player_name || l.match_group || '-',
       action: l.action || '-',
       court: l.court || '-'
     }))
 
-    // 2. สร้างข้อมูลสำหรับ Export เป็น CSV
-    let csv = '\uFEFFDate,Time,Name,Action,Court\n' 
-    tableData.forEach(r => {
-      csv += `"${r.date}","${r.time}","${r.name}","${r.action}","${r.court}"\n`
+    // สร้างข้อมูลสำหรับ Export เป็น CSV (รวม EmpNo ไว้แล้ว)
+    let csv = '\uFEFFTime,EmpNo,Name,Action,Court\n' 
+    // 🌟 แก้ไขตรงนี้ เติม (r: any)
+    tableData.forEach((r: any) => {
+      csv += `"${r.time}","${r.empno}","${r.name}","${r.action}","${r.court}"\n`
     })
 
-    // 3. ส่วนคำนวณ Analytics สถิติ
-    const matchesEnded = validLogs.filter(l => l.action?.toLowerCase().includes('end'))
-    
-    // 💡 แก้ไข: จับกลุ่มรายการจบเกมที่คอร์ทเดียวกันและเวลาเดียวกัน ให้นับเป็น 1 แมตช์
-    const uniqueMatches = new Set(matchesEnded.map(l => `${l.court}_${l.ts}`))
-    const totalMatches = uniqueMatches.size
+    // 🌟 2. ส่วนคำนวณ Analytics สถิติที่ถูกต้อง
 
-    const playerIds = new Set(validLogs.map(l => l.player_id).filter(Boolean))
-    const totalPlayers = playerIds.size
+    // นับจำนวนแมทช์ตามจริง (ยึดจากการกด Start/ลงสนาม) และ Group ด้วยเวลา "ระดับนาที" 
+    // l.ts.substring(0, 16) = "YYYY-MM-DD HH:mm" เพื่อให้คนที่ลงสนามพร้อมกันนับเป็นแค่ 1 แมทช์
+    const matchesStarted = validLogs.filter((l: any) => l.action?.toLowerCase().includes('start') || l.action?.includes('ลงสนาม'));
+    const uniqueMatches = new Set(matchesStarted.map((l: any) => `${l.court}_${l.ts.substring(0, 16)}`)); 
+    const totalMatches = uniqueMatches.size;
 
-    const playerCounts: Record<string, {name: string, count: number}> = {}
-    validLogs.forEach(l => {
-      // นับเฉพาะตอนเข้าคิว หรือเริ่มเกม (ไม่นับตอนจบเกมซ้ำ)
-      if (l.player_id && l.player_name && !l.action?.toLowerCase().includes('end')) {
-        if (!playerCounts[l.player_id]) playerCounts[l.player_id] = { name: l.player_name, count: 0 }
-        playerCounts[l.player_id].count++
-      }
-    })
-    
-    // จัดอันดับคนที่ตีบ่อยสุด 3 อันดับ
-    const topPlayers = Object.values(playerCounts)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 3)
+    // นับจำนวนคนที่เข้ามาในระบบทั้งหมด (ทุกการกระทำ ไม่ใช่แค่คนเล่น)
+    // ดึงรหัสพนักงาน หรือ ชื่อ มาหาค่า Unique เพื่อดูยอดคนที่มาที่คอร์ทจริงๆ ในวันนี้
+    const allPlayers = validLogs.map((l: any) => (l.player_id || l.player_name)?.trim()).filter(Boolean);
+    const uniquePlayers = new Set(allPlayers);
+    const totalPlayers = uniquePlayers.size;
 
-    // ส่งทุกอย่างกลับไปให้หน้าเว็บ
     return NextResponse.json({
       totalMatches,
       totalPlayers,
-      topPlayers,
       tableData,
       csv
     })
-
   } catch (error: any) {
-    console.error('API Report Error:', error)
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 })
   }
 }
